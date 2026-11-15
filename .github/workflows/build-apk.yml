@@ -18,15 +18,15 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Grant execute permission for gradlew
-        run: chmod +x gradlew
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
 
       - name: Build Debug APK
-        run: ./gradlew assembleDebug
+        run: gradle assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: Crimson-Sector-APK
           path: app/build/outputs/apk/debug/app-debug.apk
-          
+
