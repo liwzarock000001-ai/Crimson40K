@@ -1,0 +1,6 @@
+{
+  "name": "Crimson Sector",
+  "description": "40K tactical 3D isometric skirmish wargame with army builder, squad stat customization, and turn-based combat.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

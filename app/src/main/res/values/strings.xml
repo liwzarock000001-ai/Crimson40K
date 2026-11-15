@@ -1,0 +1,12 @@
+<resources>
+    <string name="app_name">Crimson Sector</string>
+    <string name="setup_title">Crimson Sector: 40K Skirmish</string>
+    <string name="deploy_battle">Deploy to 3D Battle</string>
+    <string name="btn_save">Save</string>
+    <string name="btn_reset">Reset</string>
+    <string name="btn_randomize">Randomize</string>
+    <string name="btn_end_turn">End Turn</string>
+    <string name="btn_strike">STRIKE</string>
+    <string name="confirm_setup_title">Return to Setup</string>
+    <string name="confirm_setup_msg">End the current skirmish and return to army configuration?</string>
+</resources>
