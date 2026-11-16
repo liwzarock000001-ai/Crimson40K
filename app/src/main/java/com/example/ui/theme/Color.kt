@@ -19,7 +19,6 @@ val DividerIron = Color(0xFF262A33)
 val ImperialGold = Color(0xFFB38E46)
 val TarnishedBrass = Color(0xFF7D6230)
 val WarmAmber = Color(0xFFCBB07A)
-val SurgeOrange = Color(0xFFC4681E)
 
 // Ultramarines: Macragge Ultramarine Blue + Brushed Silver Insignia & Trim
 val MarineBlue = Color(0xFF163B7A)

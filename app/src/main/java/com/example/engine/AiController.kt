@@ -1,6 +1,7 @@
 package com.example.engine
 
 import com.example.model.BattleUnit
+import com.example.model.ChargePreview
 import com.example.model.CoverTag
 import com.example.model.Faction
 import com.example.model.GridPos
@@ -11,7 +12,8 @@ import kotlin.math.abs
 
 sealed interface AiDecision {
     data class Move(val unitUid: String, val path: List<GridPos>, val cost: Int) : AiDecision
-    data class Surge(val unitUid: String) : AiDecision
+    data class Advance(val unitUid: String) : AiDecision
+    data class Charge(val unitUid: String, val preview: ChargePreview) : AiDecision
     data class SelfSkill(val unitUid: String) : AiDecision
     data class Teleport(val unitUid: String, val targetPos: GridPos) : AiDecision
     data class Attack(val attackerUid: String, val targetUid: String, val mode: WeaponMode) : AiDecision
@@ -31,21 +33,17 @@ object AiController {
 
         for (i in units.indices) {
             val unit = units[i]
-            if (!unit.isAlive || unit.faction != aiFaction || (unit.apLeft <= 0 && unit.mpLeft <= 0)) continue
+            val canAttackAny = unit.canShoot || unit.canFight
+            if (!unit.isAlive || unit.faction != aiFaction || (!canAttackAny && unit.moveCmLeft < 3.0f)) continue
 
-            // 1. Trigger Surge if at 100% momentum
-            if (unit.momentum >= 100 && !unit.surgeActive) {
-                return AiDecision.Surge(unit.uid)
-            }
-
-            // 2. Self-buff leap if melee far from enemy
+            // 1. Self-buff leap if melee far from enemy
             var distToNearest = Int.MAX_VALUE
             for (eIdx in enemies.indices) {
                 val e = enemies[eIdx]
                 val d = maxOf(abs(e.x - unit.x), abs(e.y - unit.y))
                 if (d < distToNearest) distToNearest = d
             }
-            if (unit.apLeft >= unit.template.skillApCost && unit.skillCooldownLeft == 0) {
+            if (unit.skillCooldownLeft == 0) {
                 val selfSkill = TacticalRules.activateSelfSkillIfApplicable(unit)
                 if (selfSkill != null && distToNearest > 2) {
                     return AiDecision.SelfSkill(unit.uid)
@@ -63,14 +61,35 @@ object AiController {
                 }
             }
 
-            // 3. Check best attack from current position
+            // 2. Check best attack from current position
             val bestAttack = findBestAttackFrom(unit, unit.x, unit.y, enemies, map)
             if (bestAttack != null) {
                 return AiDecision.Attack(unit.uid, bestAttack.first.uid, bestAttack.second)
             }
 
-            // 4. Move closer to best firing/melee position if MP left (zero BattleUnit.copy allocation!)
-            if (unit.mpLeft > 0) {
+            // 3. Melee / Charger unit within Charge range -> Charge!
+            if (unit.canCharge && (unit.template.range <= 1 || unit.hasShot || unit.moveCmLeft < 3.0f)) {
+                var bestCharge: ChargePreview? = null
+                var bestReq = Int.MAX_VALUE
+                for (eIdx in enemies.indices) {
+                    val preview = TacticalRules.findChargeEngagementSpot(unit, enemies[eIdx], units, map) ?: continue
+                    if (preview.requiredRoll <= 8 && preview.requiredRoll < bestReq) {
+                        bestReq = preview.requiredRoll
+                        bestCharge = preview
+                    }
+                }
+                if (bestCharge != null) {
+                    return AiDecision.Charge(unit.uid, bestCharge)
+                }
+            }
+
+            // 4. Advance if Assault shooter far from target
+            if (unit.canAdvance && unit.template.mainWeaponAssault && distToNearest > unit.template.range + 2) {
+                return AiDecision.Advance(unit.uid)
+            }
+
+            // 4. Move closer to best firing/melee position if cm movement left (zero BattleUnit.copy allocation!)
+            if (unit.moveCmLeft >= 3.0f) {
                 val search = TacticalRules.computeReachableTiles(unit, map, units)
                 if (search.costs.isNotEmpty()) {
                     val idealRange = unit.template.range
@@ -137,15 +156,13 @@ object AiController {
         enemies: List<BattleUnit>,
         map: Array<Array<TerrainType>>
     ): Pair<BattleUnit, WeaponMode>? {
-        if (unit.apLeft <= 0) return null
+        if (!unit.canShoot && !unit.canFight) return null
         var best: Pair<BattleUnit, WeaponMode>? = null
         var bestScore = Float.NEGATIVE_INFINITY
 
         for (mIdx in MODES.indices) {
             val mode = MODES[mIdx]
-            if (mode == WeaponMode.SKILL && (unit.skillCooldownLeft > 0 || unit.apLeft < unit.template.skillApCost)) continue
-            if (mode == WeaponMode.PISTOL && (!unit.template.hasPistol || unit.pistolCooldownLeft > 0 || unit.apLeft < unit.template.pistolApCost)) continue
-            if (mode == WeaponMode.MAIN && unit.apLeft < 1) continue
+            if (!TacticalRules.canUseMode(unit, mode)) continue
 
             val range = TacticalRules.weaponRange(unit, mode)
             for (eIdx in enemies.indices) {
@@ -156,7 +173,7 @@ object AiController {
                 if (!preview.inRange || !preview.hasLos) continue
 
                 var score = preview.expectedTotalDamage.toFloat()
-                if (preview.expectedTotalDamage >= enemy.totalHp) score += 250f
+                if (preview.expectedTotalDamage >= enemy.totalWounds) score += 250f
                 if (mode == WeaponMode.SKILL) score += 25f
                 if (score > bestScore) {
                     bestScore = score

@@ -615,12 +615,34 @@ private fun DeployedUnitRow(
                     color = pointColor
                 )
             }
+            val invSuffix = template.invulnSave?.let { "/${it}++" } ?: ""
             Text(
-                text = "${template.squadSize}x ${template.hpPerModel}HP | ARM ${template.armor} PEN ${template.armorPen} | DMG ${template.damage}x${template.attacksPerModel} RNG ${template.range}",
+                text = "UNIT: ${template.squadSize}x ${template.woundsPerModel}W • M ${template.moveCm}cm • T${template.toughness} • SV ${template.save}+$invSuffix • WS ${template.weaponSkill}+",
                 style = MaterialTheme.typography.bodySmall,
                 color = TextMuted,
-                maxLines = 2
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
+            val skillPart = if (template.isRangedMain) "R${template.range} BS${template.ballisticSkill}+" else "MELEE"
+            val apPart = if (template.armorPen == 0) "AP0" else "AP-${template.armorPen}"
+            val assaultTag = if (template.mainWeaponAssault) " [ASSAULT]" else ""
+            Text(
+                text = "${template.mainWeaponName.uppercase()}$assaultTag: $skillPart • A${template.attacksPerModel} S${template.strength} $apPart D${template.damage}",
+                style = MaterialTheme.typography.labelSmall,
+                color = WarmAmber,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            if (template.hasPistol) {
+                val pAp = if (template.pistolArmorPen == 0) "AP0" else "AP-${template.pistolArmorPen}"
+                Text(
+                    text = "PISTOL (${template.pistolWeaponName}): R${template.pistolRange} BS${template.ballisticSkill}+ • A${template.pistolAttacks} S${template.pistolStrength} $pAp D${template.pistolDamage}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = TacticalCyan,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
         }
 
         OutlinedButton(
@@ -689,8 +711,9 @@ private fun CatalogUnitRow(
                     color = pointColor
                 )
             }
+            val wpnTag = if (template.mainWeaponAssault) " [ASSAULT]" else ""
             Text(
-                text = "${template.role} • Skill: ${template.skillName}",
+                text = "${template.role} • ${template.mainWeaponName}$wpnTag • Skill: ${template.skillName}",
                 style = MaterialTheme.typography.bodySmall,
                 color = TextMuted,
                 maxLines = 1,

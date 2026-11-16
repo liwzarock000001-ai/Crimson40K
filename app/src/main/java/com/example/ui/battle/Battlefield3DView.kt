@@ -44,16 +44,19 @@ import com.example.ui.theme.TacticalCyan
 import com.example.ui.theme.XenosViolet
 import com.example.viewmodel.BattleUiState
 import kotlinx.coroutines.channels.Channel
+import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.sin
 
 @Composable
 fun Battlefield3DView(
     state: BattleUiState,
-    cameraYawQuarter: Int,
+    cameraYawDeltaTrigger: Int = 0,
+    cameraYawDeltaDeg: Float = 0f,
+    cameraPitchDeg: Float = 46f,
     zoomStepTrigger: Int = 0,
     zoomStepDirection: Int = 0,
-    onTileTap: (GridPos) -> Unit,
+    onWorldTap: (Float, Float) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -94,7 +97,7 @@ fun Battlefield3DView(
     // Draw-phase-only tick counter (never triggers Composition or Layout!)
     var overlayDrawTick by remember { mutableLongStateOf(0L) }
     val overlayWakeChannel = remember { Channel<Unit>(Channel.CONFLATED) }
-    val latestOnTileTap by rememberUpdatedState(onTileTap)
+    val latestOnWorldTap by rememberUpdatedState(onWorldTap)
     val latestState by rememberUpdatedState(state)
 
     LaunchedEffect(state.focusGridPos, state.centerTrigger) {
@@ -105,8 +108,15 @@ fun Battlefield3DView(
         }
     }
 
-    LaunchedEffect(cameraYawQuarter) {
-        cameraRig.desiredYawDeg = 26f + cameraYawQuarter * 90f
+    LaunchedEffect(cameraYawDeltaTrigger) {
+        if (cameraYawDeltaTrigger > 0 && abs(cameraYawDeltaDeg) > 0.01f) {
+            cameraRig.desiredYawDeg += cameraYawDeltaDeg
+            overlayWakeChannel.trySend(Unit)
+        }
+    }
+
+    LaunchedEffect(cameraPitchDeg) {
+        cameraRig.desiredPitchDeg = cameraPitchDeg.coerceIn(14f, 75f)
         overlayWakeChannel.trySend(Unit)
     }
 
@@ -130,17 +140,19 @@ fun Battlefield3DView(
         }
     }
 
-    LaunchedEffect(state.floatingTexts.isNotEmpty()) {
-        if (state.floatingTexts.isNotEmpty()) {
+    LaunchedEffect(state.floatingTexts.isNotEmpty(), state.isAnimating, state.movePreview) {
+        if (state.floatingTexts.isNotEmpty() || state.isAnimating) {
             overlayWakeChannel.trySend(Unit)
+        } else {
+            overlayDrawTick = System.currentTimeMillis()
         }
     }
 
-    // Tick overlay ONLY while camera is settling or floating combat text is animating (0% CPU when idle!)
+    // Tick overlay ONLY while camera is settling, unit is animating, or floating combat text is animating (0% CPU when idle!)
     LaunchedEffect(Unit) {
         while (true) {
             overlayWakeChannel.receive()
-            while (cameraRig.isSettling() || latestState.floatingTexts.isNotEmpty()) {
+            while (cameraRig.isSettling() || latestState.floatingTexts.isNotEmpty() || latestState.isAnimating) {
                 withFrameMillis {
                     overlayDrawTick = System.currentTimeMillis()
                 }
@@ -184,9 +196,12 @@ fun Battlefield3DView(
             modifier = Modifier
                 .fillMaxSize()
                 .pointerInput(viewW, viewH) {
-                    detectTransformGestures { _, pan, zoomChange, _ ->
+                    detectTransformGestures { _, pan, zoomChange, rotationChange ->
                         cameraRig.desiredDistance = (cameraRig.desiredDistance / zoomChange)
                             .coerceIn(Camera3DParams.MIN_DISTANCE, Camera3DParams.MAX_DISTANCE)
+                        if (abs(rotationChange) > 0.01f) {
+                            cameraRig.desiredYawDeg += rotationChange
+                        }
                         val sensitivity = cameraRig.desiredDistance * 0.00145f
                         val yawRad = Math.toRadians(cameraRig.currentYawDeg.toDouble())
                         val cosY = cos(yawRad).toFloat()
@@ -204,8 +219,8 @@ fun Battlefield3DView(
                 .pointerInput(viewW, viewH) {
                     detectTapGestures { tapOffset ->
                         cameraRig.snapshot()
-                            .screenToGrid(tapOffset.x, tapOffset.y, viewW, viewH)
-                            ?.let { latestOnTileTap(it) }
+                            .screenToWorld(tapOffset.x, tapOffset.y, viewW, viewH)
+                            ?.let { wp -> latestOnWorldTap(wp.x, wp.y) }
                     }
                 }
         )
@@ -229,7 +244,7 @@ fun Battlefield3DView(
                 val unit = st.units[i]
                 if (!unit.isAlive) continue
                 val visible = cam.projectWorldToOut(
-                    unit.x.toFloat(), 1.18f, unit.y.toFloat(),
+                    unit.worldX, 1.18f, unit.worldY,
                     vpScratch, size.width, size.height,
                     vecScratch, clipScratch, outXY
                 )
@@ -246,7 +261,7 @@ fun Battlefield3DView(
                     else -> Color(0xFF6B3680)
                 }
                 val fillCol = if (unit.faction == Faction.MARINES) Color(0xFF3B669E) else Color(0xFF7D4394)
-                val hpFrac = (unit.totalHp.toFloat() / unit.maxTotalHp.coerceAtLeast(1)).coerceIn(0f, 1f)
+                val woundsFrac = (unit.totalWounds.toFloat() / unit.maxTotalWounds.coerceAtLeast(1)).coerceIn(0f, 1f)
 
                 val plateAlpha = ((cam.distance - 1.35f) / 1.4f).coerceIn(0.28f, 1f)
                 val left = sx - plateW * 0.5f
@@ -266,7 +281,7 @@ fun Battlefield3DView(
                     style = Stroke(width = (if (isSelected) 1.5f else 1f) * density)
                 )
 
-                val label = "${unit.aliveModels}x ${unit.totalHp}"
+                val label = "${unit.aliveModels}x ${unit.totalWounds}W"
                 if (plateLabelCache.size > 128) plateLabelCache.clear()
                 val measured = plateLabelCache.getOrPut(label) {
                     textMeasurer.measure(label, plateTextStyle)
@@ -286,8 +301,56 @@ fun Battlefield3DView(
                 drawRect(
                     color = fillCol.copy(alpha = plateAlpha),
                     topLeft = Offset(left + barPad, barTop),
-                    size = Size(barW * hpFrac, barH)
+                    size = Size(barW * woundsFrac, barH)
                 )
+            }
+
+            // CM Ruler Preview Badge
+            st.movePreview?.let { preview ->
+                val visible = cam.projectWorldToOut(
+                    preview.targetX, 0.52f, preview.targetY,
+                    vpScratch, size.width, size.height,
+                    vecScratch, clipScratch, outXY
+                )
+                if (visible) {
+                    val sx = outXY[0]
+                    val sy = outXY[1]
+                    val cmText = "%.1f cm".format(preview.distanceCm)
+                    if (plateLabelCache.size > 128) plateLabelCache.clear()
+                    val measured = plateLabelCache.getOrPut(cmText) {
+                        textMeasurer.measure(
+                            cmText,
+                            TextStyle(
+                                color = Color(0xFF4CC9F0),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Black
+                            )
+                        )
+                    }
+                    val padX = 7f * density
+                    val padY = 3f * density
+                    val boxW = measured.size.width + padX * 2f
+                    val boxH = measured.size.height + padY * 2f
+                    val bx = sx - boxW * 0.5f
+                    val by = sy - boxH - 4f * density
+                    drawRoundRect(
+                        color = Color(0xEE081018),
+                        topLeft = Offset(bx, by),
+                        size = Size(boxW, boxH),
+                        cornerRadius = cornerR
+                    )
+                    drawRoundRect(
+                        color = Color(0xFF4CC9F0),
+                        topLeft = Offset(bx, by),
+                        size = Size(boxW, boxH),
+                        cornerRadius = cornerR,
+                        style = Stroke(width = 1.2f * density)
+                    )
+                    drawText(
+                        textLayoutResult = measured,
+                        topLeft = Offset(bx + padX, by + padY)
+                    )
+                }
             }
 
             // Floating Combat Text
@@ -296,9 +359,9 @@ fun Battlefield3DView(
                 if (floatTextCache.size > 32) floatTextCache.clear()
                 for (i in st.floatingTexts.indices) {
                     val ft = st.floatingTexts[i]
-                    val elapsed = (now - ft.startTimeMs).coerceAtLeast(0L)
-                    if (elapsed in 0L..1350L) {
-                        val t = elapsed / 1350f
+                    val elapsed = now - ft.startTimeMs
+                    if (elapsed in 0L..2700L) {
+                        val t = elapsed / 2700f
                         val visible = cam.projectWorldToOut(
                             ft.gridX, 1.45f + t * 1.15f, ft.gridY,
                             vpScratch, size.width, size.height,

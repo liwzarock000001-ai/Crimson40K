@@ -544,6 +544,18 @@ object MeshCatalog3D {
         }.build()
     }
 
+    val cmRadiusRing: MeshGeometry by lazy {
+        MeshAccumulator().apply {
+            addRing(0f, 0.015f, 0f, 0.975f, 1.0f, 48, 1f, 1f, 1f, 0.92f)
+        }.build()
+    }
+
+    val rangeRadiusRing: MeshGeometry by lazy {
+        MeshAccumulator().apply {
+            addRing(0f, 0.019f, 0f, 0.972f, 1.0f, 64, 1f, 1f, 1f, 0.96f)
+        }.build()
+    }
+
     val facingArrow: MeshGeometry by lazy {
         MeshAccumulator().apply {
             addTriangle(

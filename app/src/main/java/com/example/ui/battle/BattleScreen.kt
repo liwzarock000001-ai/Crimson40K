@@ -10,6 +10,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -30,15 +31,19 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CutCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.DirectionsRun
 import androidx.compose.material.icons.automirrored.filled.RotateLeft
 import androidx.compose.material.icons.automirrored.filled.RotateRight
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
-import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.CenterFocusStrong
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.DoubleArrow
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.MyLocation
+import androidx.compose.material.icons.filled.OpenWith
 import androidx.compose.material.icons.filled.Rotate90DegreesCcw
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Videocam
@@ -54,6 +59,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -64,6 +70,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -72,14 +79,17 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import com.example.R
+import com.example.engine.TacticalRules
 import com.example.model.BattleSummary
 import com.example.model.BattleUnit
+import com.example.model.ChargePreview
 import com.example.model.CoverTag
 import com.example.model.Faction
-import com.example.model.GridPos
+import com.example.model.MovePreview
 import com.example.model.TargetPreview
 import com.example.model.TurnSplashData
 import com.example.model.UnitArchetype
+import com.example.model.UnitTemplate
 import com.example.model.WeaponMode
 import com.example.ui.theme.BorderSteel
 import com.example.ui.theme.CardSlate
@@ -99,7 +109,6 @@ import com.example.ui.theme.MarineBright
 import com.example.ui.theme.MarineText
 import com.example.ui.theme.PanelIronBottom
 import com.example.ui.theme.PanelIronTop
-import com.example.ui.theme.SurgeOrange
 import com.example.ui.theme.TacticalCyan
 import com.example.ui.theme.TarnishedBrass
 import com.example.ui.theme.TextMuted
@@ -115,10 +124,18 @@ import com.example.viewmodel.BattleUiState
 @Composable
 fun BattleScreen(
     state: BattleUiState,
-    onTileTap: (GridPos) -> Unit,
+    onWorldTap: (Float, Float) -> Unit,
+    onToggleMoveMode: () -> Unit,
+    onAdvanceMove: () -> Unit,
+    onSetCmStep: (Float) -> Unit,
+    onWalkForwardCm: () -> Unit,
+    onConfirmMove: () -> Unit,
+    onCancelMove: () -> Unit,
+    onToggleChargeMode: () -> Unit,
+    onConfirmCharge: () -> Unit,
+    onCancelCharge: () -> Unit,
     onConfirmStrike: () -> Unit,
     onSelectWeaponMode: (WeaponMode) -> Unit,
-    onTriggerSurge: () -> Unit,
     onRotateUnit: (Boolean) -> Unit,
     onEndTurn: () -> Unit,
     onToggleAutoFocus: () -> Unit,
@@ -129,9 +146,18 @@ fun BattleScreen(
     onExitToSetup: () -> Unit
 ) {
     var showConfirmExit by remember { mutableStateOf(false) }
-    var cameraRotationQuarter by remember { mutableIntStateOf(0) }
+    var cameraYawDeltaTrigger by remember { mutableIntStateOf(0) }
+    var cameraYawDeltaDeg by remember { mutableFloatStateOf(0f) }
+    var cameraPitchMode by remember { mutableIntStateOf(0) } // 0 = Top (46f), 1 = Angled (30f), 2 = Side (16f)
     var zoomStepTrigger by remember { mutableIntStateOf(0) }
     var zoomStepDirection by remember { mutableIntStateOf(0) }
+    var viewingSkillInfoTemplate by remember { mutableStateOf<UnitTemplate?>(null) }
+
+    val targetCameraPitch = when (cameraPitchMode) {
+        1 -> 30f
+        2 -> 16f
+        else -> 46f
+    }
 
     BackHandler {
         showConfirmExit = true
@@ -142,13 +168,21 @@ fun BattleScreen(
             .fillMaxSize()
             .background(VoidObsidian)
     ) {
+        viewingSkillInfoTemplate?.let { template ->
+            SkillInfoDialog(
+                template = template,
+                onDismiss = { viewingSkillInfoTemplate = null }
+            )
+        }
         // Full-bleed OpenGL ES 2.0 Grimdark 3D Battlefield
         Battlefield3DView(
             state = state,
-            cameraYawQuarter = cameraRotationQuarter,
+            cameraYawDeltaTrigger = cameraYawDeltaTrigger,
+            cameraYawDeltaDeg = cameraYawDeltaDeg,
+            cameraPitchDeg = targetCameraPitch,
             zoomStepTrigger = zoomStepTrigger,
             zoomStepDirection = zoomStepDirection,
-            onTileTap = onTileTap,
+            onWorldTap = onWorldTap,
             modifier = Modifier.fillMaxSize()
         )
 
@@ -175,7 +209,12 @@ fun BattleScreen(
             xenosAliveModels = state.xenosAliveModels,
             onToggleAutoFocus = onToggleAutoFocus,
             onCenterCamera = onCenterCamera,
-            onRotateCamera = remember { { cameraRotationQuarter = (cameraRotationQuarter + 1) % 4 } },
+            onRotateCamera = remember {
+                {
+                    cameraYawDeltaDeg = -45f
+                    cameraYawDeltaTrigger++
+                }
+            },
             onZoomIn = remember {
                 {
                     zoomStepDirection = 1
@@ -197,19 +236,70 @@ fun BattleScreen(
                 .padding(8.dp)
         )
 
-        // Top-Right Turn Splash Banner
-        AnimatedVisibility(
-            visible = state.turnSplash != null,
-            enter = fadeIn() + scaleIn(initialScale = 0.94f),
-            exit = fadeOut() + scaleOut(targetScale = 0.96f),
+        // Top-Right Camera Orbit & Side-Angle Controls + Turn Splash Banner
+        Column(
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .statusBarsPadding()
                 .displayCutoutPadding()
-                .padding(8.dp)
+                .padding(8.dp),
+            horizontalAlignment = Alignment.End,
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            state.turnSplash?.let { splash ->
-                TurnSplashCard(splash = splash, onClick = onDismissTurnSplash)
+            val camPal = factionPalette(state.activeFaction)
+            GrimdarkBevelPanel(
+                cut = 6.dp,
+                borderColor = camPal.trimBorder,
+                topColor = camPal.panelTop,
+                bottomColor = camPal.panelBottom,
+                showRivets = false
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    HudIconButton(
+                        icon = Icons.AutoMirrored.Filled.RotateLeft,
+                        contentDesc = "Orbit Camera Left",
+                        onClick = {
+                            cameraYawDeltaDeg = -45f
+                            cameraYawDeltaTrigger++
+                        },
+                        testTag = "cam_orbit_left_button"
+                    )
+                    HudChipButton(
+                        label = when (cameraPitchMode) {
+                            1 -> "3/4"
+                            2 -> "Side"
+                            else -> "Top"
+                        },
+                        icon = Icons.Default.Videocam,
+                        tint = if (cameraPitchMode != 0) TacticalCyan else camPal.headerText,
+                        borderColor = if (cameraPitchMode != 0) TacticalCyan.copy(alpha = 0.75f) else BorderSteel,
+                        onClick = { cameraPitchMode = (cameraPitchMode + 1) % 3 },
+                        testTag = "cam_pitch_toggle_button"
+                    )
+                    HudIconButton(
+                        icon = Icons.AutoMirrored.Filled.RotateRight,
+                        contentDesc = "Orbit Camera Right",
+                        onClick = {
+                            cameraYawDeltaDeg = 45f
+                            cameraYawDeltaTrigger++
+                        },
+                        testTag = "cam_orbit_right_button"
+                    )
+                }
+            }
+
+            AnimatedVisibility(
+                visible = state.turnSplash != null,
+                enter = fadeIn() + scaleIn(initialScale = 0.94f),
+                exit = fadeOut() + scaleOut(targetScale = 0.96f)
+            ) {
+                state.turnSplash?.let { splash ->
+                    TurnSplashCard(splash = splash, onClick = onDismissTurnSplash)
+                }
             }
         }
 
@@ -234,6 +324,64 @@ fun BattleScreen(
                 }
             }
 
+            val canMoveControls = selectedUnit != null &&
+                selectedUnit.faction == state.playerFaction &&
+                state.isPlayerTurn &&
+                !state.isAnimating
+
+            AnimatedVisibility(visible = canMoveControls && state.chargePreview != null) {
+                val cPreview = state.chargePreview
+                if (cPreview != null) {
+                    ChargePreviewBanner(
+                        preview = cPreview,
+                        onConfirmCharge = onConfirmCharge,
+                        onCancelCharge = onCancelCharge
+                    )
+                }
+            }
+
+            AnimatedVisibility(visible = canMoveControls && state.chargeModeActive && state.chargePreview == null) {
+                GrimdarkBevelPanel(
+                    cut = 6.dp,
+                    borderColor = WarmAmber,
+                    topColor = Color(0xF0251208),
+                    bottomColor = Color(0xF0120804),
+                    accentBarColor = WarmAmber,
+                    showRivets = false
+                ) {
+                    Text(
+                        text = "CHARGE DECLARATION: TAP ENEMY WITHIN 12\" (ROLL 2D6)",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = WarmAmber,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                    )
+                }
+            }
+
+            AnimatedVisibility(visible = canMoveControls && state.movePreview != null) {
+                val preview = state.movePreview
+                val unit = selectedUnit
+                if (preview != null && unit != null) {
+                    MovePreviewBanner(
+                        preview = preview,
+                        remainingAfterCm = (unit.moveCmLeft - preview.distanceCm).coerceAtLeast(0f),
+                        onConfirmMove = onConfirmMove,
+                        onCancelMove = onCancelMove
+                    )
+                }
+            }
+
+            AnimatedVisibility(visible = canMoveControls && state.moveModeActive) {
+                selectedUnit?.let { unit ->
+                    CmMovementControlBar(
+                        unit = unit,
+                        cmStepChoice = state.cmStepChoice,
+                        onSetCmStep = onSetCmStep,
+                        onWalkForwardCm = onWalkForwardCm
+                    )
+                }
+            }
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -246,7 +394,7 @@ fun BattleScreen(
                         onToggleCollapse = onToggleUnitCard,
                         modifier = Modifier
                             .weight(1f, fill = false)
-                            .widthIn(min = 240.dp, max = 335.dp)
+                            .widthIn(min = 240.dp, max = 355.dp)
                     )
                 } ?: Spacer(Modifier.width(1.dp))
 
@@ -255,12 +403,17 @@ fun BattleScreen(
                 ActionDock(
                     selected = selectedUnit,
                     activeFaction = state.activeFaction,
-                    isPlayerTurn = state.isPlayerTurn,
+                    isPlayerTurn = state.isPlayerTurn && !state.isAnimating,
                     weaponMode = state.weaponMode,
+                    moveModeActive = state.moveModeActive,
+                    chargeModeActive = state.chargeModeActive,
+                    onToggleMoveMode = onToggleMoveMode,
+                    onAdvanceMove = onAdvanceMove,
+                    onToggleChargeMode = onToggleChargeMode,
                     onRotateUnit = onRotateUnit,
                     onSelectWeaponMode = onSelectWeaponMode,
-                    onTriggerSurge = onTriggerSurge,
-                    onEndTurn = onEndTurn
+                    onEndTurn = onEndTurn,
+                    onInspectSkill = { template -> viewingSkillInfoTemplate = template }
                 )
             }
         }
@@ -330,121 +483,164 @@ private fun TopHudOverlay(
     modifier: Modifier = Modifier
 ) {
     val pal = factionPalette(activeFaction)
+    var collapsed by remember { mutableStateOf(false) }
 
-    Column(
+    Row(
         modifier = modifier,
-        verticalArrangement = Arrangement.spacedBy(4.dp)
+        verticalAlignment = Alignment.Top,
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         GrimdarkBevelPanel(
-            cut = 7.dp,
+            cut = 6.dp,
             borderColor = pal.trimBorder,
             topColor = pal.panelTop,
             bottomColor = pal.panelBottom,
             accentBarColor = pal.primaryAccent
         ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(5.dp)
+            Box(
+                modifier = Modifier
+                    .width(40.dp)
+                    .height(if (collapsed) 44.dp else 74.dp)
+                    .clickable { collapsed = !collapsed },
+                contentAlignment = Alignment.Center
             ) {
-                Box(
-                    modifier = Modifier
-                        .width(3.dp)
-                        .height(28.dp)
-                        .background(pal.primaryAccent)
-                )
-                Column(modifier = Modifier.padding(end = 4.dp)) {
-                    Text(
-                        text = "ROUND $round",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = pal.trimBorder
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Icon(
+                        imageVector = if (collapsed) Icons.Default.ExpandMore else Icons.Default.ExpandLess,
+                        contentDescription = if (collapsed) "Expand HUD" else "Collapse HUD",
+                        tint = pal.headerText,
+                        modifier = Modifier.size(18.dp)
                     )
-                    Text(
-                        text = if (isPlayerTurn) "YOUR TURN" else "ENEMY TURN...",
-                        style = MaterialTheme.typography.titleSmall,
-                        color = pal.headerText
-                    )
+                    if (collapsed) {
+                        Text(
+                            text = "HUD",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = pal.trimBorder
+                        )
+                    }
                 }
-
-                HudChipButton(
-                    label = if (autoFocusCamera) "Focus" else "Free",
-                    icon = Icons.Default.Videocam,
-                    tint = if (autoFocusCamera) TacticalCyan else TextMuted,
-                    borderColor = if (autoFocusCamera) TacticalCyan.copy(alpha = 0.7f) else BorderSteel,
-                    onClick = onToggleAutoFocus,
-                    testTag = "focus_toggle_button"
-                )
-                HudIconButton(
-                    icon = Icons.Default.CenterFocusStrong,
-                    contentDesc = "Center View",
-                    onClick = onCenterCamera,
-                    testTag = "center_view_button"
-                )
-                HudIconButton(
-                    icon = Icons.Default.Rotate90DegreesCcw,
-                    contentDesc = "Rotate 3D Camera",
-                    onClick = onRotateCamera,
-                    testTag = "rotate_cam_button"
-                )
-                HudIconButton(
-                    icon = Icons.Default.ZoomIn,
-                    contentDesc = "Zoom In Close",
-                    onClick = onZoomIn,
-                    testTag = "zoom_in_button"
-                )
-                HudIconButton(
-                    icon = Icons.Default.ZoomOut,
-                    contentDesc = "Zoom Out",
-                    onClick = onZoomOut,
-                    testTag = "zoom_out_button"
-                )
-                HudIconButton(
-                    icon = if (soundEnabled) Icons.AutoMirrored.Filled.VolumeUp else Icons.AutoMirrored.Filled.VolumeOff,
-                    contentDesc = "Toggle Sound",
-                    onClick = onToggleSound,
-                    testTag = "sound_toggle_button"
-                )
-                HudChipButton(
-                    label = "Setup",
-                    icon = Icons.Default.Settings,
-                    tint = pal.headerText,
-                    borderColor = pal.trimMuted,
-                    onClick = onRequestSetup,
-                    testTag = "exit_setup_button"
-                )
             }
         }
 
-        // Slim Army Force Telemetry Bar
-        GrimdarkBevelPanel(
-            cut = 5.dp,
-            borderColor = pal.trimMuted,
-            topColor = pal.panelTop,
-            bottomColor = pal.panelBottom,
-            showRivets = false
-        ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
+        if (!collapsed) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                Text(
-                    text = "ULTRAMARINES: $marineAliveModels",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MarineText
-                )
-                Text("|", style = MaterialTheme.typography.labelSmall, color = pal.trimMuted)
-                Text(
-                    text = "SWARM: $xenosAliveModels",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = XenosText
-                )
-                Text("|", style = MaterialTheme.typography.labelSmall, color = pal.trimMuted)
-                Text(
-                    text = activeFaction.badgeTag,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = pal.headerText
-                )
+                GrimdarkBevelPanel(
+                    cut = 7.dp,
+                    borderColor = pal.trimBorder,
+                    topColor = pal.panelTop,
+                    bottomColor = pal.panelBottom,
+                    accentBarColor = pal.primaryAccent
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .width(3.dp)
+                                .height(28.dp)
+                                .background(pal.primaryAccent)
+                        )
+                        Column(modifier = Modifier.padding(end = 4.dp)) {
+                            Text(
+                                text = "ROUND $round",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = pal.trimBorder
+                            )
+                            Text(
+                                text = if (isPlayerTurn) "YOUR TURN" else "ENEMY TURN...",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = pal.headerText
+                            )
+                        }
+
+                        HudChipButton(
+                            label = if (autoFocusCamera) "Focus" else "Free",
+                            icon = Icons.Default.Videocam,
+                            tint = if (autoFocusCamera) TacticalCyan else TextMuted,
+                            borderColor = if (autoFocusCamera) TacticalCyan.copy(alpha = 0.7f) else BorderSteel,
+                            onClick = onToggleAutoFocus,
+                            testTag = "focus_toggle_button"
+                        )
+                        HudIconButton(
+                            icon = Icons.Default.CenterFocusStrong,
+                            contentDesc = "Center View",
+                            onClick = onCenterCamera,
+                            testTag = "center_view_button"
+                        )
+                        HudIconButton(
+                            icon = Icons.Default.Rotate90DegreesCcw,
+                            contentDesc = "Rotate 3D Camera",
+                            onClick = onRotateCamera,
+                            testTag = "rotate_cam_button"
+                        )
+                        HudIconButton(
+                            icon = Icons.Default.ZoomIn,
+                            contentDesc = "Zoom In Close",
+                            onClick = onZoomIn,
+                            testTag = "zoom_in_button"
+                        )
+                        HudIconButton(
+                            icon = Icons.Default.ZoomOut,
+                            contentDesc = "Zoom Out",
+                            onClick = onZoomOut,
+                            testTag = "zoom_out_button"
+                        )
+                        HudIconButton(
+                            icon = if (soundEnabled) Icons.AutoMirrored.Filled.VolumeUp else Icons.AutoMirrored.Filled.VolumeOff,
+                            contentDesc = "Toggle Sound",
+                            onClick = onToggleSound,
+                            testTag = "sound_toggle_button"
+                        )
+                        HudChipButton(
+                            label = "Setup",
+                            icon = Icons.Default.Settings,
+                            tint = pal.headerText,
+                            borderColor = pal.trimMuted,
+                            onClick = onRequestSetup,
+                            testTag = "exit_setup_button"
+                        )
+                    }
+                }
+
+                // Slim Army Force Telemetry Bar
+                GrimdarkBevelPanel(
+                    cut = 5.dp,
+                    borderColor = pal.trimMuted,
+                    topColor = pal.panelTop,
+                    bottomColor = pal.panelBottom,
+                    showRivets = false
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "ULTRAMARINES: $marineAliveModels",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MarineText
+                        )
+                        Text("|", style = MaterialTheme.typography.labelSmall, color = pal.trimMuted)
+                        Text(
+                            text = "SWARM: $xenosAliveModels",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = XenosText
+                        )
+                        Text("|", style = MaterialTheme.typography.labelSmall, color = pal.trimMuted)
+                        Text(
+                            text = activeFaction.badgeTag,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = pal.headerText
+                        )
+                    }
+                }
             }
         }
     }
@@ -521,7 +717,7 @@ private fun TargetPreviewBanner(
         topColor = Color(0xF5211014),
         bottomColor = Color(0xF511090C),
         accentBarColor = ImperialGold,
-        modifier = Modifier.widthIn(max = 390.dp)
+        modifier = Modifier.widthIn(max = 420.dp)
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
@@ -548,8 +744,21 @@ private fun TargetPreviewBanner(
                         Text(preview.coverTag.label, style = MaterialTheme.typography.labelSmall, color = tagFg)
                     }
                 }
+                val hitSkillLabel = if (preview.isMelee) "WS" else "BS"
+                val apText = if (preview.weaponAp == 0) "AP 0" else "AP -${preview.weaponAp}"
+                val saveText = when {
+                    preview.saveRollNeeded > 6 -> "NO SV"
+                    preview.usingInvuln -> "INV ${preview.saveRollNeeded}++"
+                    else -> "SV ${preview.saveRollNeeded}+"
+                }
                 Text(
-                    text = "HIT: ${preview.hitChance}% • EST DMG: ${preview.expectedTotalDamage} (${preview.attacksCount}x)",
+                    text = "$hitSkillLabel ${preview.hitRollNeeded}+ (${preview.hitChance}%) • S${preview.weaponStrength} vs T${preview.targetToughness} (${preview.woundRollNeeded}+) • $apText • $saveText",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = TacticalCyan,
+                    maxLines = 2
+                )
+                Text(
+                    text = "${preview.attacksCount}x ATK • EST DMG: ${preview.expectedTotalDamage}W",
                     style = MaterialTheme.typography.bodySmall,
                     color = WarmAmber
                 )
@@ -630,46 +839,151 @@ private fun UnitStatusCard(
 
             if (!collapsed) {
                 Spacer(Modifier.height(5.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    ProgressStatBar(
-                        label = "INTEGRITY",
-                        valueText = "${unit.totalHp}/${unit.maxTotalHp}",
-                        progress = (unit.totalHp.toFloat() / unit.maxTotalHp.coerceAtLeast(1)).coerceIn(0f, 1f),
-                        barColor = CrimsonBright,
-                        modifier = Modifier.weight(1f)
-                    )
-                    ProgressStatBar(
-                        label = "ZEAL",
-                        valueText = "${unit.momentum}%",
-                        progress = (unit.momentum / 100f).coerceIn(0f, 1f),
-                        barColor = SurgeOrange,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
+                ProgressStatBar(
+                    label = "WOUNDS (W)",
+                    valueText = "${unit.totalWounds}/${unit.maxTotalWounds}",
+                    progress = (unit.totalWounds.toFloat() / unit.maxTotalWounds.coerceAtLeast(1)).coerceIn(0f, 1f),
+                    barColor = CrimsonBright,
+                    modifier = Modifier.fillMaxWidth()
+                )
 
                 Spacer(Modifier.height(6.dp))
+                Text(
+                    text = "UNIT PROFILE",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = pal.trimBorder
+                )
+                Spacer(Modifier.height(3.dp))
+                val svLabel = "${unit.template.save}+" + (unit.template.invulnSave?.let { "/${it}++" } ?: "")
                 FlowRow(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    StatPill("MP", "${unit.mpLeft}", TacticalCyan)
-                    StatPill("AP", "${unit.apLeft}", CrimsonSoft)
-                    StatPill("ARM", "${unit.template.armor}", TextPrimary)
-                    StatPill("PEN", "${unit.template.armorPen}", TextPrimary)
-                    StatPill("DMG", "${unit.effectiveDamage}", TextPrimary)
-                    StatPill("RNG", "${unit.template.range}", TextPrimary)
-                    StatPill("ACC", "${unit.effectiveAccuracy}%", TextPrimary)
+                    StatPill("M", "${"%.1f".format(unit.moveCmLeft)}cm", TacticalCyan)
+                    StatPill("T", "${unit.template.toughness}", TextPrimary)
+                    StatPill("SV", svLabel, if (unit.template.invulnSave != null) TacticalCyan else TextPrimary)
+                    StatPill("W", "${unit.template.woundsPerModel}", TextPrimary)
                     StatPill("FACE", unit.facing.label, pal.trimBorder)
+                    if (unit.hasRangedProfile) {
+                        val shootLabel = when {
+                            unit.hasCharged -> "LOCKED"
+                            unit.hasAdvanced && !unit.template.mainWeaponAssault -> "NO ADV"
+                            unit.hasShot -> "DONE"
+                            else -> "READY"
+                        }
+                        val shootCol = if (shootLabel == "READY") EmeraldBuff else TextMuted
+                        StatPill("SHOOT", shootLabel, shootCol)
+                    }
+                    if (unit.hasMeleeProfile) {
+                        StatPill("MELEE", if (unit.hasFought) "DONE" else "READY", if (unit.hasFought) TextMuted else CrimsonSoft)
+                    }
+                    if (unit.hasAdvanced) {
+                        StatPill("ADV", "ON", EmeraldBuff)
+                    }
+                    if (unit.hasCharged) {
+                        StatPill("CHRG", "ON", WarmAmber)
+                    }
                 }
+
+                HorizontalDivider(color = DividerIron, modifier = Modifier.padding(vertical = 5.dp))
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        text = unit.template.mainWeaponName.uppercase(),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = WarmAmber,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                    if (unit.template.mainWeaponAssault) {
+                        val tagShape = remember { CutCornerShape(3.dp) }
+                        Text(
+                            text = "ASSAULT",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = EmeraldBuff,
+                            modifier = Modifier
+                                .clip(tagShape)
+                                .background(EmeraldSurface)
+                                .border(0.8.dp, EmeraldBorder, tagShape)
+                                .padding(horizontal = 5.dp, vertical = 1.dp)
+                        )
+                    }
+                }
+                Spacer(Modifier.height(3.dp))
+                val apLabel = if (unit.template.armorPen == 0) "0" else "-${unit.template.armorPen}"
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    StatPill("RNG", if (unit.template.isRangedMain) "${unit.template.range}" else "Melee", TextPrimary)
+                    StatPill("A", "${unit.template.attacksPerModel}", TextPrimary)
+                    if (unit.template.isRangedMain) {
+                        StatPill("BS", "${unit.effectiveBallisticSkill}+", TextPrimary)
+                    } else {
+                        StatPill("WS", "${unit.effectiveWeaponSkill}+", TextPrimary)
+                    }
+                    StatPill("S", "${unit.template.strength}", TextPrimary)
+                    StatPill("AP", apLabel, TextPrimary)
+                    StatPill("D", "${unit.effectiveDamage}", TextPrimary)
+                }
+
+                if (unit.hasCharged && unit.template.isRangedMain) {
+                    Spacer(Modifier.height(4.dp))
+                    val ccStr = TacticalRules.weaponStrength(unit, WeaponMode.MAIN, isMeleeOverride = true)
+                    val ccAp = TacticalRules.weaponAp(unit, WeaponMode.MAIN, isMeleeOverride = true)
+                    val ccApLabel = if (ccAp == 0) "0" else "-$ccAp"
+                    val ccDmg = if (unit.template.archetype == UnitArchetype.TERMINATOR ||
+                        unit.template.archetype == UnitArchetype.DREADNOUGHT
+                    ) unit.effectiveDamage else 1
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        StatPill("MELEE", "CHARGED", WarmAmber)
+                        StatPill("WS", "${unit.effectiveWeaponSkill}+", TextPrimary)
+                        StatPill("S", "$ccStr", TextPrimary)
+                        StatPill("AP", ccApLabel, TextPrimary)
+                        StatPill("D", "$ccDmg", TextPrimary)
+                    }
+                }
+
+                if (unit.template.hasPistol) {
+                    Spacer(Modifier.height(5.dp))
+                    val pistolAp = if (unit.template.pistolArmorPen == 0) "0" else "-${unit.template.pistolArmorPen}"
+                    Text(
+                        text = "${unit.template.pistolWeaponName.uppercase()} [PISTOL]",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = TacticalCyan,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(Modifier.height(2.dp))
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        StatPill("RNG", "${unit.template.pistolRange}", TextPrimary)
+                        StatPill("A", "${unit.template.pistolAttacks}", TextPrimary)
+                        StatPill("BS", "${unit.effectiveBallisticSkill}+", TextPrimary)
+                        StatPill("S", "${unit.template.pistolStrength}", TextPrimary)
+                        StatPill("AP", pistolAp, TextPrimary)
+                        StatPill("D", "${unit.template.pistolDamage}", TextPrimary)
+                    }
+                }
+
                 if (unit.activeBuffLabel != null || unit.auraBuffed) {
                     Spacer(Modifier.height(4.dp))
                     val buffText = listOfNotNull(
                         unit.activeBuffLabel,
-                        if (unit.auraBuffed) "AURA +10% ACC" else null
+                        if (unit.auraBuffed) "AURA +1 HIT" else null
                     ).joinToString(" • ")
                     Text(
                         text = "LITANY: $buffText",
@@ -737,15 +1051,245 @@ private fun StatPill(label: String, value: String, valueColor: Color) {
 }
 
 @Composable
+private fun ChargePreviewBanner(
+    preview: ChargePreview,
+    onConfirmCharge: () -> Unit,
+    onCancelCharge: () -> Unit
+) {
+    GrimdarkBevelPanel(
+        cut = 8.dp,
+        borderColor = WarmAmber,
+        topColor = Color(0xF5261309),
+        bottomColor = Color(0xF5140A05),
+        accentBarColor = CrimsonBright,
+        modifier = Modifier.widthIn(max = 400.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Column(modifier = Modifier.weight(1f, fill = false)) {
+                Text(
+                    text = "CHARGE: ${preview.targetName.uppercase()}",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = WarmAmber,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = "DIST ${"%.1f".format(preview.distanceTiles)}\" (${preview.distanceCm.toInt()} cm) • NEED ${preview.requiredRoll}+ ON 2D6",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = TextPrimary,
+                    maxLines = 1
+                )
+            }
+
+            Button(
+                onClick = onConfirmCharge,
+                shape = grimdarkBevelShape(6.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = CrimsonDeep,
+                    contentColor = TextPrimary
+                ),
+                border = BorderStroke(1.2.dp, WarmAmber),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                modifier = Modifier
+                    .height(44.dp)
+                    .testTag("confirm_charge_button")
+            ) {
+                Icon(Icons.Default.DoubleArrow, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("CHARGE (2D6)", style = MaterialTheme.typography.labelMedium, maxLines = 1, softWrap = false)
+            }
+
+            OutlinedButton(
+                onClick = onCancelCharge,
+                shape = grimdarkBevelShape(6.dp),
+                border = BorderStroke(1.dp, BorderSteel),
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                modifier = Modifier
+                    .height(44.dp)
+                    .testTag("cancel_charge_button")
+            ) {
+                Icon(Icons.Default.Close, contentDescription = "Cancel Charge", tint = TextPrimary, modifier = Modifier.size(16.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun MovePreviewBanner(
+    preview: MovePreview,
+    remainingAfterCm: Float,
+    onConfirmMove: () -> Unit,
+    onCancelMove: () -> Unit
+) {
+    GrimdarkBevelPanel(
+        cut = 8.dp,
+        borderColor = TacticalCyan,
+        topColor = Color(0xF50B1822),
+        bottomColor = Color(0xF5070E14),
+        accentBarColor = TacticalCyan,
+        modifier = Modifier.widthIn(max = 380.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Column(modifier = Modifier.weight(1f, fill = false)) {
+                Text(
+                    text = "MOVE ${"%.1f".format(preview.distanceCm)} cm",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = TacticalCyan,
+                    maxLines = 1,
+                    softWrap = false
+                )
+                Text(
+                    text = "Remaining: ${"%.1f".format(remainingAfterCm)} cm",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = TextMuted,
+                    maxLines = 1,
+                    softWrap = false
+                )
+            }
+
+            Button(
+                onClick = onConfirmMove,
+                shape = grimdarkBevelShape(6.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = EmeraldSurface,
+                    contentColor = TextPrimary
+                ),
+                border = BorderStroke(1.2.dp, EmeraldBorder),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                modifier = Modifier
+                    .height(44.dp)
+                    .testTag("confirm_move_cm_button")
+            ) {
+                Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("CONFIRM", style = MaterialTheme.typography.labelMedium, maxLines = 1, softWrap = false)
+            }
+
+            OutlinedButton(
+                onClick = onCancelMove,
+                shape = grimdarkBevelShape(6.dp),
+                border = BorderStroke(1.dp, BorderSteel),
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                modifier = Modifier
+                    .height(44.dp)
+                    .testTag("cancel_move_cm_button")
+            ) {
+                Icon(Icons.Default.Close, contentDescription = "Cancel Move", tint = TextPrimary, modifier = Modifier.size(16.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun CmMovementControlBar(
+    unit: BattleUnit,
+    cmStepChoice: Float,
+    onSetCmStep: (Float) -> Unit,
+    onWalkForwardCm: () -> Unit
+) {
+    val pal = factionPalette(unit.faction)
+    val canStep = unit.moveCmLeft >= 0.25f
+    val stepLabel = if (cmStepChoice <= 0f) "MAX" else "${cmStepChoice.toInt()}cm"
+
+    GrimdarkBevelPanel(
+        cut = 7.dp,
+        borderColor = TacticalCyan.copy(alpha = 0.85f),
+        topColor = pal.panelTop,
+        bottomColor = pal.panelBottom,
+        accentBarColor = TacticalCyan,
+        showRivets = false
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(5.dp)
+        ) {
+            Text(
+                text = "REM ${"%.1f".format(unit.moveCmLeft)} cm",
+                style = MaterialTheme.typography.labelMedium,
+                color = TacticalCyan,
+                maxLines = 1,
+                softWrap = false
+            )
+
+            CmStepChip("1cm", cmStepChoice == 1f, { onSetCmStep(1f) }, "cm_step_1")
+            CmStepChip("3cm", cmStepChoice == 3f, { onSetCmStep(3f) }, "cm_step_3")
+            CmStepChip("5cm", cmStepChoice == 5f, { onSetCmStep(5f) }, "cm_step_5")
+            CmStepChip("MAX", cmStepChoice <= 0f, { onSetCmStep(0f) }, "cm_step_max")
+
+            Button(
+                onClick = onWalkForwardCm,
+                enabled = canStep,
+                shape = grimdarkBevelShape(4.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = ColorTokens.CyanSurface,
+                    contentColor = TextPrimary
+                ),
+                border = BorderStroke(1.dp, TacticalCyan),
+                contentPadding = PaddingValues(horizontal = 9.dp, vertical = 4.dp),
+                modifier = Modifier
+                    .height(34.dp)
+                    .testTag("walk_forward_cm_button")
+            ) {
+                Text("STEP +$stepLabel", style = MaterialTheme.typography.labelSmall, maxLines = 1, softWrap = false)
+            }
+        }
+    }
+}
+
+@Composable
+private fun CmStepChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    testTag: String
+) {
+    val shape = remember { CutCornerShape(4.dp) }
+    Box(
+        modifier = Modifier
+            .height(32.dp)
+            .clip(shape)
+            .background(if (selected) ColorTokens.CyanSurface else InputDark)
+            .border(1.dp, if (selected) TacticalCyan else BorderSteel, shape)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 7.dp)
+            .testTag(testTag),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = if (selected) TacticalCyan else TextMuted,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            softWrap = false
+        )
+    }
+}
+
+@Composable
 private fun ActionDock(
     selected: BattleUnit?,
     activeFaction: Faction,
     isPlayerTurn: Boolean,
     weaponMode: WeaponMode,
+    moveModeActive: Boolean,
+    chargeModeActive: Boolean,
+    onToggleMoveMode: () -> Unit,
+    onAdvanceMove: () -> Unit,
+    onToggleChargeMode: () -> Unit,
     onRotateUnit: (Boolean) -> Unit,
     onSelectWeaponMode: (WeaponMode) -> Unit,
-    onTriggerSurge: () -> Unit,
-    onEndTurn: () -> Unit
+    onEndTurn: () -> Unit,
+    onInspectSkill: (UnitTemplate) -> Unit
 ) {
     val enabled = isPlayerTurn && selected != null
     val pal = factionPalette(selected?.faction ?: activeFaction)
@@ -774,13 +1318,14 @@ private fun ActionDock(
             }
         }
 
+        // Row 1: Manoeuvre & Phase Actions (Turn, Move, Advance 1D6, Charge 2D6)
         Row(
             horizontalArrangement = Arrangement.spacedBy(5.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             ActionDockButton(
                 title = "Turn L",
-                subtitle = "Free",
+                subtitle = "45°",
                 icon = Icons.AutoMirrored.Filled.RotateLeft,
                 containerTop = PanelIronTop,
                 containerBottom = PanelIronBottom,
@@ -792,7 +1337,7 @@ private fun ActionDock(
             )
             ActionDockButton(
                 title = "Turn R",
-                subtitle = "Free",
+                subtitle = "45°",
                 icon = Icons.AutoMirrored.Filled.RotateRight,
                 containerTop = PanelIronTop,
                 containerBottom = PanelIronBottom,
@@ -803,12 +1348,79 @@ private fun ActionDock(
                 testTag = "rotate_right_button"
             )
 
+            if (selected != null) {
+                val canMove = enabled && selected.moveCmLeft >= 0.25f
+                ActionDockButton(
+                    title = "Move",
+                    subtitle = "${"%.1f".format(selected.moveCmLeft)}cm",
+                    icon = Icons.Default.OpenWith,
+                    containerTop = if (moveModeActive) ColorTokens.CyanSurface else PanelIronTop,
+                    containerBottom = PanelIronBottom,
+                    borderColor = if (moveModeActive) TacticalCyan else BorderSteel,
+                    textColor = if (moveModeActive) TacticalCyan else TextPrimary,
+                    enabled = canMove,
+                    onClick = onToggleMoveMode,
+                    testTag = "move_mode_button"
+                )
+
+                val advanceSub = when {
+                    selected.hasAdvanced -> "DONE"
+                    !selected.canAdvance -> "LOCKED"
+                    else -> "1D6 CM"
+                }
+                ActionDockButton(
+                    title = "Advance",
+                    subtitle = advanceSub,
+                    icon = Icons.AutoMirrored.Filled.DirectionsRun,
+                    containerTop = if (selected.hasAdvanced) EmeraldSurface else PanelIronTop,
+                    containerBottom = PanelIronBottom,
+                    borderColor = if (selected.hasAdvanced) EmeraldBorder else BorderSteel,
+                    textColor = if (selected.hasAdvanced) EmeraldBuff else TextPrimary,
+                    enabled = enabled && selected.canAdvance,
+                    onClick = onAdvanceMove,
+                    testTag = "advance_button"
+                )
+
+                val chargeSub = when {
+                    selected.hasAdvanced -> "NO ADV"
+                    selected.hasCharged -> "CHARGED"
+                    selected.hasFought -> "FOUGHT"
+                    chargeModeActive -> "TAP FOE"
+                    else -> "2D6"
+                }
+                ActionDockButton(
+                    title = "Charge",
+                    subtitle = chargeSub,
+                    icon = Icons.Default.DoubleArrow,
+                    containerTop = if (chargeModeActive) CrimsonDeep else PanelIronTop,
+                    containerBottom = PanelIronBottom,
+                    borderColor = if (chargeModeActive) WarmAmber else BorderSteel,
+                    textColor = if (chargeModeActive) WarmAmber else TextPrimary,
+                    enabled = enabled && selected.canCharge,
+                    onClick = onToggleChargeMode,
+                    testTag = "charge_button"
+                )
+            }
+        }
+
+        // Row 2: Combat Modes & End Turn (Pistol shown ONLY when unit has a pistol)
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(5.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             if (selected != null && selected.template.hasPistol) {
-                val pistolReady = enabled && selected.apLeft >= selected.template.pistolApCost && selected.pistolCooldownLeft == 0
+                val pistolReady = enabled && TacticalRules.canUseMode(selected, WeaponMode.PISTOL)
                 val isOn = weaponMode == WeaponMode.PISTOL
+                val pistolSubtitle = when {
+                    selected.hasAdvanced -> "NO ADV"
+                    selected.hasCharged -> "MELEE"
+                    selected.pistolCooldownLeft > 0 -> "CD ${selected.pistolCooldownLeft}"
+                    selected.hasShot -> "SHOT"
+                    else -> "SHOOT"
+                }
                 ActionDockButton(
                     title = "Pistol",
-                    subtitle = if (selected.pistolCooldownLeft > 0) "CD ${selected.pistolCooldownLeft}" else "${selected.template.pistolApCost} AP",
+                    subtitle = pistolSubtitle,
                     icon = null,
                     containerTop = if (isOn) ColorTokens.CyanSurface else ColorTokens.PistolSurface,
                     containerBottom = PanelIronBottom,
@@ -822,33 +1434,39 @@ private fun ActionDock(
 
             if (selected != null) {
                 val isTerminator = selected.template.archetype == UnitArchetype.TERMINATOR
-                val skillReady = enabled && selected.apLeft >= selected.template.skillApCost && selected.skillCooldownLeft == 0
+                val isMeleeSkill = TacticalRules.modeUsesMelee(selected, WeaponMode.SKILL)
+                val isUtilitySkill = isTerminator || selected.template.archetype == UnitArchetype.HORMAGAUNT
+                val skillReady = enabled && TacticalRules.canUseMode(selected, WeaponMode.SKILL)
                 val isSkillOn = weaponMode == WeaponMode.SKILL
+                val skillSubtitle = when {
+                    selected.skillCooldownLeft > 0 -> "CD ${selected.skillCooldownLeft}"
+                    selected.hasCharged && !isMeleeSkill -> "MELEE"
+                    selected.hasAdvanced && !selected.template.mainWeaponAssault && !isUtilitySkill && !isMeleeSkill -> "NO ADV"
+                    selected.hasAdvanced && (isTerminator || isMeleeSkill) -> "NO ADV"
+                    isTerminator -> "DEEP STRIKE"
+                    !skillReady && !isUtilitySkill -> if (isMeleeSkill) "FOUGHT" else "SHOT"
+                    else -> "READY"
+                }
                 ActionDockButton(
                     title = if (isTerminator) "Teleport" else "Skill",
-                    subtitle = if (selected.skillCooldownLeft > 0) "CD ${selected.skillCooldownLeft}" else "${selected.template.skillApCost} AP",
+                    subtitle = skillSubtitle,
                     icon = null,
                     containerTop = if (isSkillOn) ColorTokens.CyanSurface else ColorTokens.SkillSurface,
                     containerBottom = PanelIronBottom,
                     borderColor = if (isSkillOn) TacticalCyan else ColorTokens.SkillBorder,
                     textColor = WarmAmber,
-                    enabled = skillReady,
-                    onClick = { onSelectWeaponMode(WeaponMode.SKILL) },
+                    enabled = true,
+                    onClick = {
+                        if (skillReady) {
+                            onSelectWeaponMode(WeaponMode.SKILL)
+                        } else {
+                            onInspectSkill(selected.template)
+                        }
+                    },
+                    onLongClick = {
+                        onInspectSkill(selected.template)
+                    },
                     testTag = "skill_button"
-                )
-
-                val surgeReady = enabled && selected.momentum >= 100 && !selected.surgeActive
-                ActionDockButton(
-                    title = "Surge",
-                    subtitle = if (selected.surgeActive) "ACTIVE" else "${selected.momentum}%",
-                    icon = Icons.Default.Bolt,
-                    containerTop = ColorTokens.SurgeSurface,
-                    containerBottom = PanelIronBottom,
-                    borderColor = SurgeOrange,
-                    textColor = WarmAmber,
-                    enabled = surgeReady,
-                    onClick = onTriggerSurge,
-                    testTag = "surge_button"
                 )
             }
 
@@ -879,6 +1497,7 @@ private fun ActionDockButton(
     textColor: Color,
     enabled: Boolean,
     onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null,
     testTag: String
 ) {
     val shape = remember { CutCornerShape(6.dp) }
@@ -896,7 +1515,12 @@ private fun ActionDockButton(
             .clip(shape)
             .background(bgBrush)
             .border(1.2.dp, if (enabled) borderColor else borderColor.copy(alpha = 0.3f), shape)
-            .clickable(enabled = enabled, onClick = onClick)
+            .pointerInput(enabled, onLongClick) {
+                detectTapGestures(
+                    onTap = { if (enabled) onClick() },
+                    onLongPress = { onLongClick?.invoke() }
+                )
+            }
             .padding(horizontal = 9.dp, vertical = 4.dp)
             .testTag(testTag),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -1036,4 +1660,54 @@ private fun BattleSummaryDialog(
             }
         }
     }
+}
+
+@Composable
+private fun SkillInfoDialog(
+    template: UnitTemplate,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = PanelIronTop,
+        titleContentColor = TextPrimary,
+        textContentColor = TextMuted,
+        title = {
+            Column {
+                Text(
+                    text = template.skillName.uppercase(),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = WarmAmber
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = "${template.name} • Cooldown: ${template.skillCooldown} Turns",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = TacticalCyan
+                )
+            }
+        },
+        text = {
+            Column {
+                HorizontalDivider(color = DividerIron, modifier = Modifier.padding(vertical = 4.dp))
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = template.skillDesc,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = TextPrimary
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onDismiss,
+                shape = grimdarkBevelShape(6.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = ColorTokens.CyanSurface, contentColor = TextPrimary),
+                border = BorderStroke(1.dp, TacticalCyan),
+                modifier = Modifier.testTag("close_skill_info_button")
+            ) {
+                Text("CLOSE")
+            }
+        }
+    )
 }

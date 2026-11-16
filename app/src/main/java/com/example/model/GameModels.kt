@@ -28,9 +28,9 @@ enum class Facing(val dx: Int, val dy: Int, val label: String) {
     }
 
     fun yawDegrees(): Float = when (this) {
-        NORTH -> -90f
+        NORTH -> 90f
         EAST -> 0f
-        SOUTH -> 90f
+        SOUTH -> -90f
         WEST -> 180f
     }
 }
@@ -64,29 +64,37 @@ data class UnitTemplate(
     val role: String,
     val points: Int,
     val squadSize: Int,
-    val hpPerModel: Int,
-    val armor: Int,
+    val woundsPerModel: Int,
+    val toughness: Int,
+    val save: Int,
+    val invulnSave: Int? = null,
     val armorPen: Int,
-    val mp: Int,
-    val ap: Int,
+    val moveCm: Int,
+    val strength: Int,
     val damage: Int,
     val attacksPerModel: Int,
     val range: Int,
-    val accuracy: Int,
+    val ballisticSkill: Int,
+    val weaponSkill: Int,
     val skillName: String,
     val skillDesc: String,
     val skillCooldown: Int,
-    val skillApCost: Int,
     val passiveName: String,
     val passiveDesc: String,
     val weaponChoice: WarriorWeaponChoice? = null,
+    val mainWeaponName: String = "Primary Weapon",
+    val mainWeaponAssault: Boolean = false,
+    val pistolWeaponName: String = "Bolt Pistol",
+    val pistolAttacks: Int = 1,
     val pistolDamage: Int = 0,
-    val pistolApCost: Int = 1,
+    val pistolStrength: Int = 4,
+    val pistolArmorPen: Int = 0,
     val pistolRange: Int = 3,
     val pistolCooldown: Int = 1
 ) {
-    val maxTotalHp: Int get() = squadSize * hpPerModel
+    val maxTotalWounds: Int get() = squadSize * woundsPerModel
     val hasPistol: Boolean get() = pistolDamage > 0 && pistolRange > 0
+    val isRangedMain: Boolean get() = range > 1
 }
 
 @Immutable
@@ -111,6 +119,17 @@ data class GridPos(val x: Int, val y: Int) {
 }
 
 @Immutable
+data class WorldPos(val x: Float, val y: Float)
+
+@Immutable
+data class MovePreview(
+    val targetX: Float,
+    val targetY: Float,
+    val distanceCm: Float,
+    val path: List<WorldPos>
+)
+
+@Immutable
 class SectorMap(val id: Long, val rows: Array<Array<TerrainType>>) {
     operator fun get(y: Int): Array<TerrainType> = rows[y]
     fun at(x: Int, y: Int): TerrainType = rows[y][x]
@@ -126,44 +145,63 @@ data class BattleUnit(
     val x: Int,
     val y: Int,
     val facing: Facing,
-    val totalHp: Int,
-    val maxTotalHp: Int,
-    val mpLeft: Int,
-    val apLeft: Int,
-    val momentum: Int = 0,
+    val totalWounds: Int,
+    val maxTotalWounds: Int,
+    val moveCmLeft: Float,
+    val hasAdvanced: Boolean = false,
+    val hasCharged: Boolean = false,
+    val hasShot: Boolean = false,
+    val hasFought: Boolean = false,
+    val worldX: Float = x.toFloat(),
+    val worldY: Float = y.toFloat(),
+    val facingDeg: Float = facing.yawDegrees(),
     val skillCooldownLeft: Int = 0,
     val pistolCooldownLeft: Int = 0,
     val buffTurnsLeft: Int = 0,
     val activeBuffLabel: String? = null,
-    val surgeActive: Boolean = false,
     val damageReductionTurns: Int = 0,
     val auraBuffed: Boolean = false,
     val kills: Int = 0,
     val damageDealt: Int = 0
 ) {
     val pos: GridPos get() = GridPos(x, y)
-    val isAlive: Boolean get() = totalHp > 0
+    val worldPos: WorldPos get() = WorldPos(worldX, worldY)
+    val isAlive: Boolean get() = totalWounds > 0
+    val hasRangedProfile: Boolean
+        get() = template.range > 1 ||
+            template.hasPistol ||
+            template.archetype == UnitArchetype.CARNIFEX ||
+            template.archetype == UnitArchetype.HIVE_TYRANT
+    val hasMeleeProfile: Boolean get() = template.range <= 1 || hasCharged
+    val canAdvance: Boolean get() = isAlive && !hasAdvanced && !hasShot && !hasCharged && !hasFought
+    val canCharge: Boolean get() = isAlive && !hasAdvanced && !hasCharged && !hasFought
+    val canShoot: Boolean
+        get() = isAlive && !hasShot && !hasCharged && hasRangedProfile &&
+            (!hasAdvanced || template.mainWeaponAssault)
+    val canFight: Boolean get() = isAlive && !hasFought && hasMeleeProfile
     val aliveModels: Int
         get() {
-            if (totalHp <= 0) return 0
-            val hpPer = template.hpPerModel.coerceAtLeast(1)
-            return ((totalHp + hpPer - 1) / hpPer).coerceIn(1, template.squadSize)
+            if (totalWounds <= 0) return 0
+            val wPer = template.woundsPerModel.coerceAtLeast(1)
+            return ((totalWounds + wPer - 1) / wPer).coerceIn(1, template.squadSize)
         }
     val effectiveDamage: Int
         get() {
             var d = template.damage
-            if (surgeActive) d = (d * 1.25f).toInt().coerceAtLeast(d + 2)
-            if (buffTurnsLeft > 0) d = (d * 1.15f).toInt().coerceAtLeast(d + 1)
+            if (buffTurnsLeft > 0) d += 1
             return d
         }
-    val effectiveAccuracy: Int
+    val effectiveHitBonus: Int
         get() {
-            var a = template.accuracy
-            if (auraBuffed) a += 10
-            if (buffTurnsLeft > 0) a += 10
-            if (surgeActive) a += 10
-            return a.coerceIn(5, 99)
+            var bonus = 0
+            if (auraBuffed) bonus += 1
+            if (buffTurnsLeft > 0) bonus += 1
+            return bonus
         }
+    val effectiveBallisticSkill: Int
+        get() = (template.ballisticSkill - effectiveHitBonus).coerceIn(2, 6)
+    val effectiveWeaponSkill: Int
+        get() = (template.weaponSkill - effectiveHitBonus).coerceIn(2, 6)
 }
 
 enum class WeaponMode {
@@ -184,13 +222,32 @@ data class TargetPreview(
     val targetUid: String,
     val targetName: String,
     val hitChance: Int,
+    val hitRollNeeded: Int,
+    val woundRollNeeded: Int,
+    val saveRollNeeded: Int,
+    val usingInvuln: Boolean,
+    val isMelee: Boolean,
+    val weaponStrength: Int,
+    val weaponAp: Int,
+    val targetToughness: Int,
     val expectedTotalDamage: Int,
     val attacksCount: Int,
     val coverTag: CoverTag,
     val weaponMode: WeaponMode,
-    val apCost: Int,
     val inRange: Boolean,
     val hasLos: Boolean
+)
+
+@Immutable
+data class ChargePreview(
+    val targetUid: String,
+    val targetName: String,
+    val distanceTiles: Float,
+    val distanceCm: Float,
+    val requiredRoll: Int,
+    val destinationX: Float,
+    val destinationY: Float,
+    val path: List<WorldPos>
 )
 
 @Immutable

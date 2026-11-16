@@ -18,4 +18,15 @@ class ExampleRobolectricTest {
     val appName = context.getString(R.string.app_name)
     assertEquals("Crimson Sector", appName)
   }
+
+  @Test
+  fun `template serialization preserves pistol attacks and attack count`() {
+    val baseTpl = com.example.engine.DefaultCatalog.defaultTemplates.first { it.id == "hellblasters" }
+    val customTpl = baseTpl.copy(attacksPerModel = 4, pistolAttacks = 3)
+    val json = com.example.engine.DefaultCatalog.serializeTemplates(mapOf(customTpl.id to customTpl))
+    val restored = com.example.engine.DefaultCatalog.deserializeTemplates(json)["hellblasters"]
+    org.junit.Assert.assertNotNull(restored)
+    assertEquals(4, restored!!.attacksPerModel)
+    assertEquals(3, restored.pistolAttacks)
+  }
 }

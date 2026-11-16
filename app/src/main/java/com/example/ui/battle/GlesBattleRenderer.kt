@@ -4,7 +4,7 @@ import android.opengl.GLES20
 import android.opengl.GLSurfaceView
 import android.opengl.Matrix
 import com.example.engine.MapGenerator
-import com.example.model.Facing
+import com.example.engine.TacticalRules
 import com.example.model.Faction
 import com.example.model.GridPos
 import com.example.model.TerrainType
@@ -16,6 +16,7 @@ import java.util.concurrent.atomic.AtomicReference
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 import kotlin.math.PI
+import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.sin
@@ -70,6 +71,8 @@ class GlesBattleRenderer(
     private var viewW = 1
     private var viewH = 1
     private var startTimeMs = System.currentTimeMillis()
+    private var lastFrameTimeNs = System.nanoTime()
+    private val unitVisPos = HashMap<String, FloatArray>(32)
 
     init {
         for (i in 0 until emberCount) {
@@ -78,7 +81,7 @@ class GlesBattleRenderer(
             emberX[i] = h1 * MapGenerator.GRID_W - 0.5f
             emberZ[i] = h2 * MapGenerator.GRID_H - 0.5f
             emberPhase[i] = (i * 0.67f)
-            emberSpeed[i] = 0.22f + (i % 5) * 0.08f
+            emberSpeed[i] = 0.11f + (i % 5) * 0.04f
             emberSize[i] = 0.036f + (i % 4) * 0.014f
             emberIsHot[i] = i % 3 != 0
         }
@@ -120,16 +123,21 @@ class GlesBattleRenderer(
         if (program == 0) return
 
         val state = sceneRef.get()
-        cameraRig.step(0.16f)
+        val nowNs = System.nanoTime()
+        val dtSec = ((nowNs - lastFrameTimeNs) / 1_000_000_000f).coerceIn(0.001f, 0.05f)
+        lastFrameTimeNs = nowNs
+
+        cameraRig.step(0.08f)
         val cam = cameraRig.snapshot()
 
         val now = System.currentTimeMillis()
         val elapsedSec = ((now - startTimeMs) % 100000L) / 1000f
-        val pulse = sin(elapsedSec * 3.6f) * 0.5f + 0.5f
+        val pulse = sin(elapsedSec * 1.8f) * 0.5f + 0.5f
 
         cam.buildVpMatrixInto(vpMat, projMat, viewMat, eyePos, viewW.toFloat(), viewH.toFloat())
 
         if (state.map.id != bakedMapId) {
+            unitVisPos.clear()
             rebuildStaticMapVbos(state.map)
         }
 
@@ -163,34 +171,123 @@ class GlesBattleRenderer(
             drawVbo(ringVbo, 0.72f, 0.22f, 0.16f, 0.48f, unlit = true)
         }
 
-        // 4. Reachable Move Tiles & Selected/Target Rings (Muted Tactical Cyan / Tarnished Brass / Crimson)
+        // 4. Reachable Move Tiles (Teleport / subtle tile hints) + CM Radius Ring + Selected/Target Rings
         val tileVbo = getOrUploadVbo(MeshCatalog3D.tileQuad)
+        val cmRingVbo = getOrUploadVbo(MeshCatalog3D.cmRadiusRing)
+        val rangeRingVbo = getOrUploadVbo(MeshCatalog3D.rangeRadiusRing)
+        val cubeVbo = getOrUploadVbo(MeshCatalog3D.unitCube)
         val isTeleportMode = state.selectedUnit?.template?.archetype == UnitArchetype.TERMINATOR && state.weaponMode == WeaponMode.SKILL
-        val moveAlpha = 0.16f + pulse * 0.12f
+        val moveAlpha = if (state.moveModeActive) 0.14f + pulse * 0.08f else 0.08f + pulse * 0.05f
         for (pos in state.reachableTiles.keys) {
             Matrix.setIdentityM(modelMat, 0)
             Matrix.translateM(modelMat, 0, pos.x.toFloat(), 0.008f, pos.y.toFloat())
             if (isTeleportMode) {
                 drawVbo(tileVbo, 0.22f, 0.82f, 0.98f, 0.28f + pulse * 0.15f, unlit = true)
                 drawVbo(ringVbo, 0.40f, 0.92f, 1.0f, 0.75f + pulse * 0.20f, unlit = true)
-            } else {
+            } else if (state.moveModeActive) {
                 drawVbo(tileVbo, 0.24f, 0.58f, 0.72f, moveAlpha, unlit = true)
-                drawVbo(ringVbo, 0.30f, 0.66f, 0.78f, 0.62f, unlit = true)
             }
         }
 
         val selectedUnit = state.selectedUnit
-        val selectedPos = selectedUnit?.pos
-        if (selectedPos != null) {
+        if (selectedUnit != null) {
+            val selVis = unitVisPos[selectedUnit.uid]
+            val sx = selVis?.get(0) ?: selectedUnit.worldX
+            val sz = selVis?.get(1) ?: selectedUnit.worldY
             val isMarineSel = selectedUnit.faction == Faction.MARINES
             Matrix.setIdentityM(modelMat, 0)
-            Matrix.translateM(modelMat, 0, selectedPos.x.toFloat(), 0.012f, selectedPos.y.toFloat())
+            Matrix.translateM(modelMat, 0, sx, 0.012f, sz)
             if (isMarineSel) {
-                drawVbo(tileVbo, 0.72f, 0.78f, 0.86f, 0.24f, unlit = true)
+                drawVbo(tileVbo, 0.72f, 0.78f, 0.86f, 0.20f, unlit = true)
                 drawVbo(ringVbo, 0.84f, 0.89f, 0.96f, 0.92f, unlit = true)
             } else {
-                drawVbo(tileVbo, 0.65f, 0.36f, 0.78f, 0.24f, unlit = true)
+                drawVbo(tileVbo, 0.65f, 0.36f, 0.78f, 0.20f, unlit = true)
                 drawVbo(ringVbo, 0.78f, 0.56f, 0.86f, 0.92f, unlit = true)
+            }
+
+            // Smooth centimeter (cm) radius perimeter ring
+            if (selectedUnit.faction == state.playerFaction &&
+                selectedUnit.moveCmLeft >= 0.25f &&
+                !isTeleportMode &&
+                (state.moveModeActive || state.movePreview != null)
+            ) {
+                val radiusTiles = (selectedUnit.moveCmLeft / TacticalRules.CM_PER_TILE).coerceAtLeast(0.2f)
+                Matrix.setIdentityM(modelMat, 0)
+                Matrix.translateM(modelMat, 0, sx, 0.016f, sz)
+                Matrix.scaleM(modelMat, 0, radiusTiles, 1f, radiusTiles)
+                drawVbo(cmRingVbo, 0.28f, 0.88f, 0.98f, 0.52f + pulse * 0.22f, unlit = true)
+            }
+
+            // Charge 12" Ring & Preview Path OR Red Shooting/Melee Range Ring
+            if (!isTeleportMode && state.chargeModeActive && selectedUnit.faction == state.playerFaction) {
+                Matrix.setIdentityM(modelMat, 0)
+                Matrix.translateM(modelMat, 0, sx, 0.020f, sz)
+                Matrix.scaleM(modelMat, 0, 12.45f, 1f, 12.45f)
+                drawVbo(rangeRingVbo, 1.0f, 0.45f, 0.12f, 0.72f + pulse * 0.20f, unlit = true)
+
+                val cPreview = state.chargePreview
+                if (cPreview != null && cPreview.path.isNotEmpty()) {
+                    var prevX = sx
+                    var prevZ = sz
+                    for (i in cPreview.path.indices) {
+                        val wp = cPreview.path[i]
+                        val dx = wp.x - prevX
+                        val dz = wp.y - prevZ
+                        val segDist = sqrt(dx * dx + dz * dz)
+                        if (segDist > 0.02f) {
+                            val angleDeg = -(atan2(dz, dx) * 180.0 / PI).toFloat()
+                            Matrix.setIdentityM(modelMat, 0)
+                            Matrix.translateM(modelMat, 0, (prevX + wp.x) * 0.5f, 0.052f, (prevZ + wp.y) * 0.5f)
+                            Matrix.rotateM(modelMat, 0, angleDeg, 0f, 1f, 0f)
+                            Matrix.scaleM(modelMat, 0, segDist, 0.036f, 0.070f)
+                            drawVbo(cubeVbo, 1.0f, 0.58f, 0.14f, 0.94f, unlit = true)
+                        }
+                        prevX = wp.x
+                        prevZ = wp.y
+                    }
+                    Matrix.setIdentityM(modelMat, 0)
+                    Matrix.translateM(modelMat, 0, cPreview.destinationX, 0.024f, cPreview.destinationY)
+                    Matrix.scaleM(modelMat, 0, 0.65f + pulse * 0.15f, 1f, 0.65f + pulse * 0.15f)
+                    drawVbo(ringVbo, 1.0f, 0.65f, 0.16f, 0.96f, unlit = true)
+                }
+            } else if (!isTeleportMode) {
+                val activeMode = if (selectedUnit.faction == state.playerFaction) state.weaponMode else WeaponMode.MAIN
+                val atkRange = if (selectedUnit.hasCharged && activeMode == WeaponMode.MAIN) 1 else TacticalRules.weaponRange(selectedUnit, activeMode)
+                val isMeleeRange = atkRange <= 1
+                val attackReady = TacticalRules.canUseMode(selectedUnit, activeMode)
+                val rangeRadiusTiles = if (isMeleeRange) 1.55f else atkRange.toFloat() + 0.45f
+                val rangeAlpha = if (attackReady) 0.72f + pulse * 0.18f else 0.28f
+                Matrix.setIdentityM(modelMat, 0)
+                Matrix.translateM(modelMat, 0, sx, 0.020f, sz)
+                Matrix.scaleM(modelMat, 0, rangeRadiusTiles, 1f, rangeRadiusTiles)
+                drawVbo(rangeRingVbo, 0.96f, 0.16f, 0.18f, rangeAlpha, unlit = true)
+            }
+
+            // CM Ruler Preview Path & Landing Ring
+            val preview = state.movePreview
+            if (preview != null && preview.path.isNotEmpty()) {
+                var prevX = sx
+                var prevZ = sz
+                for (i in preview.path.indices) {
+                    val wp = preview.path[i]
+                    val dx = wp.x - prevX
+                    val dz = wp.y - prevZ
+                    val segDist = sqrt(dx * dx + dz * dz)
+                    if (segDist > 0.02f) {
+                        val angleDeg = -(atan2(dz, dx) * 180.0 / PI).toFloat()
+                        Matrix.setIdentityM(modelMat, 0)
+                        Matrix.translateM(modelMat, 0, (prevX + wp.x) * 0.5f, 0.045f, (prevZ + wp.y) * 0.5f)
+                        Matrix.rotateM(modelMat, 0, angleDeg, 0f, 1f, 0f)
+                        Matrix.scaleM(modelMat, 0, segDist, 0.032f, 0.055f)
+                        drawVbo(cubeVbo, 0.30f, 0.94f, 1.0f, 0.88f, unlit = true)
+                    }
+                    prevX = wp.x
+                    prevZ = wp.y
+                }
+                Matrix.setIdentityM(modelMat, 0)
+                Matrix.translateM(modelMat, 0, preview.targetX, 0.022f, preview.targetY)
+                Matrix.scaleM(modelMat, 0, 0.62f + pulse * 0.12f, 1f, 0.62f + pulse * 0.12f)
+                drawVbo(ringVbo, 0.30f, 0.96f, 1.0f, 0.95f, unlit = true)
             }
         }
 
@@ -199,7 +296,7 @@ class GlesBattleRenderer(
             val targetUnit = state.units.firstOrNull { it.uid == previewTargetUid }
             if (targetUnit != null) {
                 Matrix.setIdentityM(modelMat, 0)
-                Matrix.translateM(modelMat, 0, targetUnit.x.toFloat(), 0.014f, targetUnit.y.toFloat())
+                Matrix.translateM(modelMat, 0, targetUnit.worldX, 0.014f, targetUnit.worldY)
                 drawVbo(tileVbo, 0.68f, 0.14f, 0.18f, 0.32f, unlit = true)
                 drawVbo(ringVbo, 0.85f, 0.18f, 0.22f, 0.92f, unlit = true)
             }
@@ -209,11 +306,33 @@ class GlesBattleRenderer(
         val arrowVbo = getOrUploadVbo(MeshCatalog3D.facingArrow)
         val shadowVbo = getOrUploadVbo(MeshCatalog3D.shadowDisc)
 
+        val moveLerp = (dtSec * 12.0f).coerceIn(0.06f, 0.55f)
         for (uIdx in state.units.indices) {
             val unit = state.units[uIdx]
             if (!unit.isAlive) continue
+            var vis = unitVisPos[unit.uid]
+            if (vis == null) {
+                vis = floatArrayOf(unit.worldX, unit.worldY)
+                unitVisPos[unit.uid] = vis
+            } else {
+                val targetX = unit.worldX
+                val targetZ = unit.worldY
+                val dx = targetX - vis[0]
+                val dz = targetZ - vis[1]
+                if (abs(dx) < 0.002f && abs(dz) < 0.002f) {
+                    vis[0] = targetX
+                    vis[1] = targetZ
+                } else {
+                    vis[0] += dx * moveLerp
+                    vis[1] += dz * moveLerp
+                }
+            }
+            val ux = vis[0]
+            val uz = vis[1]
+
             val isSelected = unit.uid == state.selectedUnitUid
             val isAttackable = unit.uid in state.attackableUids
+            val isChargeable = unit.uid in state.chargeableUids
 
             val rr: Float
             val rg: Float
@@ -221,21 +340,17 @@ class GlesBattleRenderer(
             when {
                 isSelected && unit.faction == Faction.MARINES -> { rr = 0.76f; rg = 0.82f; rb = 0.90f }
                 isSelected -> { rr = 0.76f; rg = 0.56f; rb = 0.86f }
+                isChargeable -> { rr = 1.00f; rg = 0.52f; rb = 0.14f }
                 isAttackable -> { rr = 0.72f; rg = 0.16f; rb = 0.20f }
                 unit.faction == Faction.MARINES -> { rr = 0.22f; rg = 0.38f; rb = 0.60f }
                 else -> { rr = 0.44f; rg = 0.21f; rb = 0.52f }
             }
 
             Matrix.setIdentityM(modelMat, 0)
-            Matrix.translateM(modelMat, 0, unit.x.toFloat(), 0.01f, unit.y.toFloat())
-            drawVbo(ringVbo, rr, rg, rb, if (isSelected || isAttackable) 0.78f + pulse * 0.20f else 0.58f, unlit = true)
+            Matrix.translateM(modelMat, 0, ux, 0.01f, uz)
+            drawVbo(ringVbo, rr, rg, rb, if (isSelected || isAttackable || isChargeable) 0.78f + pulse * 0.20f else 0.58f, unlit = true)
 
-            val yawDeg = when (unit.facing) {
-                Facing.EAST -> 0f
-                Facing.NORTH -> 90f
-                Facing.WEST -> 180f
-                Facing.SOUTH -> -90f
-            }
+            val yawDeg = unit.facingDeg
             Matrix.rotateM(modelMat, 0, yawDeg, 0f, 1f, 0f)
             val arrowR = if (isSelected && unit.faction == Faction.MARINES) 0.86f else if (isSelected) 0.80f else rr
             val arrowG = if (isSelected && unit.faction == Faction.MARINES) 0.90f else if (isSelected) 0.68f else rg
@@ -246,14 +361,12 @@ class GlesBattleRenderer(
             val isDread = unit.template.archetype == UnitArchetype.DREADNOUGHT
             val shadowScale = if (isDread) 1.72f else if (count == 1) 1.08f else 0.58f
             val unitVbo = getOrUploadVbo(MeshCatalog3D.getUnitMesh(unit.template.archetype))
-            val surgeBoost = if (unit.surgeActive) 1.18f else 1.0f
-            val surgeBlue = if (unit.surgeActive) 0.92f else 1f
 
             for (mIdx in 0 until count) {
                 val ox = subOffsetX(count, mIdx)
                 val oz = subOffsetZ(count, mIdx)
-                val wx = unit.x + ox
-                val wz = unit.y + oz
+                val wx = ux + ox
+                val wz = uz + oz
 
                 // Offset directional cast shadow + grounded contact umbra
                 Matrix.setIdentityM(modelMat, 0)
@@ -261,25 +374,25 @@ class GlesBattleRenderer(
                 Matrix.scaleM(modelMat, 0, shadowScale, 1f, shadowScale)
                 drawVbo(shadowVbo, 1f, 1f, 1f, 1f, unlit = true)
 
-                val bob = if (isSelected) sin(elapsedSec * 4.5f + mIdx) * 0.02f else 0f
+                val bob = if (isSelected) sin(elapsedSec * 2.25f + mIdx) * 0.02f else 0f
                 Matrix.setIdentityM(modelMat, 0)
                 Matrix.translateM(modelMat, 0, wx, bob, wz)
                 Matrix.rotateM(modelMat, 0, yawDeg, 0f, 1f, 0f)
                 if (isDread) {
                     Matrix.scaleM(modelMat, 0, 1.72f, 1.72f, 1.72f)
                 }
-                drawVbo(unitVbo, surgeBoost, surgeBoost, surgeBlue, 1f, unlit = false, isUnit = true)
+                drawVbo(unitVbo, 1f, 1f, 1f, 1f, unlit = false, isUnit = true)
             }
         }
 
-        // 6. 3D Projectile Bolts, Plasma Beams & Melee Slashes
-        val cubeVbo = getOrUploadVbo(MeshCatalog3D.unitCube)
+        // 6. 3D Projectile Bolts, Plasma Beams & Melee Slashes (50% slower for clear visual tracking)
         if (state.projectiles.isNotEmpty()) {
             for (pIdx in state.projectiles.indices) {
                 val proj = state.projectiles[pIdx]
                 val elapsed = (now - proj.startTimeMs).coerceAtLeast(0L)
-                if (elapsed < 650L) {
-                    val p = (elapsed / 420f).coerceIn(0f, 1f)
+                if (elapsed < 1300L) {
+                    val p = (elapsed / 840f).coerceIn(0f, 1f)
+                    val fade = (elapsed / 1200f).coerceIn(0f, 1f)
                     val pr = ((proj.colorArgb shr 16) and 0xFF) / 255f
                     val pg = ((proj.colorArgb shr 8) and 0xFF) / 255f
                     val pb = (proj.colorArgb and 0xFF) / 255f
@@ -287,8 +400,8 @@ class GlesBattleRenderer(
                     if (proj.isMelee) {
                         Matrix.setIdentityM(modelMat, 0)
                         Matrix.translateM(modelMat, 0, proj.toX, 0.28f, proj.toY)
-                        Matrix.scaleM(modelMat, 0, 0.8f + p * 1.1f, 1f, 0.8f + p * 1.1f)
-                        drawVbo(ringVbo, pr, pg, pb, (1f - p) * 0.92f, unlit = true)
+                        Matrix.scaleM(modelMat, 0, 0.8f + fade * 1.1f, 1f, 0.8f + fade * 1.1f)
+                        drawVbo(ringVbo, pr, pg, pb, (1f - fade) * 0.92f, unlit = true)
                     } else {
                         val dx = proj.toX - proj.fromX
                         val dz = proj.toY - proj.fromY
@@ -298,9 +411,9 @@ class GlesBattleRenderer(
                             Matrix.setIdentityM(modelMat, 0)
                             Matrix.translateM(modelMat, 0, (proj.fromX + proj.toX) * 0.5f, 0.45f, (proj.fromY + proj.toY) * 0.5f)
                             Matrix.rotateM(modelMat, 0, angleDeg, 0f, 1f, 0f)
-                            Matrix.scaleM(modelMat, 0, dist, 0.085f * (1f - p * 0.5f), 0.085f * (1f - p * 0.5f))
-                            drawVbo(cubeVbo, pr, pg, pb, (1f - p) * 0.92f, unlit = true)
-                        } else {
+                            Matrix.scaleM(modelMat, 0, dist, 0.085f * (1f - fade * 0.5f), 0.085f * (1f - fade * 0.5f))
+                            drawVbo(cubeVbo, pr, pg, pb, (1f - fade) * 0.92f, unlit = true)
+                        } else if (elapsed < 880L) {
                             Matrix.setIdentityM(modelMat, 0)
                             Matrix.translateM(modelMat, 0, proj.fromX + dx * p, 0.45f, proj.fromY + dz * p)
                             Matrix.rotateM(modelMat, 0, angleDeg, 0f, 1f, 0f)
@@ -317,14 +430,14 @@ class GlesBattleRenderer(
             val cycle = (elapsedSec * emberSpeed[i] + emberPhase[i]) % 3.2f
             val hFrac = cycle / 3.2f
             val py = 0.06f + hFrac * 2.5f
-            val px = emberX[i] + sin(elapsedSec * 0.9f + emberPhase[i]) * 0.28f
-            val pz = emberZ[i] + cos(elapsedSec * 0.7f + emberPhase[i]) * 0.24f
+            val px = emberX[i] + sin(elapsedSec * 0.45f + emberPhase[i]) * 0.28f
+            val pz = emberZ[i] + cos(elapsedSec * 0.35f + emberPhase[i]) * 0.24f
             val fade = sin(hFrac * PI).toFloat().coerceIn(0f, 1f)
             val s = emberSize[i]
 
             Matrix.setIdentityM(modelMat, 0)
             Matrix.translateM(modelMat, 0, px, py, pz)
-            Matrix.rotateM(modelMat, 0, elapsedSec * 45f + i * 25f, 0f, 1f, 0f)
+            Matrix.rotateM(modelMat, 0, elapsedSec * 22.5f + i * 25f, 0f, 1f, 0f)
             Matrix.scaleM(modelMat, 0, s, s, s)
 
             if (emberIsHot[i]) {

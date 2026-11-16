@@ -47,7 +47,6 @@ object ColorTokens {
     val GoldSurface = Color(0xFF282012)
     val SkillSurface = Color(0xFF231D13)
     val SkillBorder = Color(0xFF70582B)
-    val SurgeSurface = Color(0xFF2E1D0C)
     val CyanSurface = Color(0xFF122733)
     val PistolSurface = Color(0xFF171B24)
 }

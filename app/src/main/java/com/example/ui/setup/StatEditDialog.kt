@@ -67,26 +67,37 @@ fun StatEditDialog(
     val pal = factionPalette(template.faction)
     var points by remember(template.id) { mutableStateOf(template.points.toString()) }
     var squadSize by remember(template.id) { mutableStateOf(template.squadSize.toString()) }
-    var hpPerModel by remember(template.id) { mutableStateOf(template.hpPerModel.toString()) }
-    var armor by remember(template.id) { mutableStateOf(template.armor.toString()) }
+    var woundsPerModel by remember(template.id) { mutableStateOf(template.woundsPerModel.toString()) }
+    var toughness by remember(template.id) { mutableStateOf(template.toughness.toString()) }
+    var save by remember(template.id) { mutableStateOf(template.save.toString()) }
+    var invulnSave by remember(template.id) { mutableStateOf((template.invulnSave ?: 0).toString()) }
     var armorPen by remember(template.id) { mutableStateOf(template.armorPen.toString()) }
-    var mp by remember(template.id) { mutableStateOf(template.mp.toString()) }
-    var ap by remember(template.id) { mutableStateOf(template.ap.toString()) }
+    var moveCm by remember(template.id) { mutableStateOf(template.moveCm.toString()) }
+    var strength by remember(template.id) { mutableStateOf(template.strength.toString()) }
     var damage by remember(template.id) { mutableStateOf(template.damage.toString()) }
     var attacksPerModel by remember(template.id) { mutableStateOf(template.attacksPerModel.toString()) }
     var range by remember(template.id) { mutableStateOf(template.range.toString()) }
-    var accuracy by remember(template.id) { mutableStateOf(template.accuracy.toString()) }
+    var ballisticSkill by remember(template.id) { mutableStateOf(template.ballisticSkill.toString()) }
+    var weaponSkill by remember(template.id) { mutableStateOf(template.weaponSkill.toString()) }
     var skillCooldown by remember(template.id) { mutableStateOf(template.skillCooldown.toString()) }
-    var skillApCost by remember(template.id) { mutableStateOf(template.skillApCost.toString()) }
     var weaponChoice by remember(template.id) {
         mutableStateOf(template.weaponChoice ?: WarriorWeaponChoice.BONESWORDS)
     }
+    var mainWeaponAssault by remember(template.id) { mutableStateOf(template.mainWeaponAssault) }
+    var mainWeaponName by remember(template.id) { mutableStateOf(template.mainWeaponName) }
     var weaponMenuExpanded by remember { mutableStateOf(false) }
 
+    var pistolAttacks by remember(template.id) { mutableStateOf(template.pistolAttacks.toString()) }
     var pistolDamage by remember(template.id) { mutableStateOf(template.pistolDamage.toString()) }
-    var pistolApCost by remember(template.id) { mutableStateOf(template.pistolApCost.toString()) }
+    var pistolStrength by remember(template.id) { mutableStateOf(template.pistolStrength.toString()) }
+    var pistolArmorPen by remember(template.id) { mutableStateOf(template.pistolArmorPen.toString()) }
     var pistolRange by remember(template.id) { mutableStateOf(template.pistolRange.toString()) }
     var pistolCooldown by remember(template.id) { mutableStateOf(template.pistolCooldown.toString()) }
+
+    val isRangedNow = (range.toIntOrNull() ?: template.range) > 1
+    val showBsField = isRangedNow || template.hasPistol ||
+        template.archetype == UnitArchetype.CARNIFEX ||
+        template.archetype == UnitArchetype.HIVE_TYRANT
 
     Dialog(onDismissRequest = onDismiss) {
         GrimdarkBevelPanel(
@@ -128,19 +139,21 @@ fun StatEditDialog(
                         .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    Text(
+                        text = "UNIT PROFILE",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = pal.trimBorder
+                    )
                     TwoFieldRow("Point Cost", points, { points = it }, "Squad Size (1-5)", squadSize, { squadSize = it })
-                    TwoFieldRow("HP per Model", hpPerModel, { hpPerModel = it }, "Armor (0-10)", armor, { armor = it })
-                    TwoFieldRow("Armor Pen (0-10)", armorPen, { armorPen = it }, "Movement (MP)", mp, { mp = it })
-                    TwoFieldRow("Action Points (AP)", ap, { ap = it }, "Main Damage", damage, { damage = it })
-                    TwoFieldRow("Attacks / Model", attacksPerModel, { attacksPerModel = it }, "Attack Range", range, { range = it })
-                    TwoFieldRow("Accuracy (%)", accuracy, { accuracy = it }, "Skill Cooldown", skillCooldown, { skillCooldown = it })
-                    StatTextField("Skill AP Cost", skillApCost, { skillApCost = it })
+                    TwoFieldRow("Wounds / Model (W)", woundsPerModel, { woundsPerModel = it }, "Toughness T (1-14)", toughness, { toughness = it })
+                    TwoFieldRow("Armor Save Sv (2-6+)", save, { save = it }, "Invuln (0=None,2-6)", invulnSave, { invulnSave = it })
+                    TwoFieldRow("Movement M (cm)", moveCm, { moveCm = it }, "Skill Cooldown", skillCooldown, { skillCooldown = it })
 
                     HorizontalDivider(color = DividerIron, modifier = Modifier.padding(top = 4.dp))
                     Text(
-                        text = "AUXILIARY WARGEAR",
+                        text = "MAIN WEAPON: ${mainWeaponName.uppercase()}",
                         style = MaterialTheme.typography.labelMedium,
-                        color = pal.trimBorder
+                        color = ImperialGold
                     )
 
                     if (template.archetype == UnitArchetype.WARRIOR) {
@@ -178,7 +191,15 @@ fun StatEditDialog(
                                             text = { Text(choice.label, color = TextPrimary) },
                                             onClick = {
                                                 weaponChoice = choice
-                                                range = if (choice == WarriorWeaponChoice.BONESWORDS) "1" else "4"
+                                                if (choice == WarriorWeaponChoice.BONESWORDS) {
+                                                    range = "1"
+                                                    mainWeaponName = "Tyranid Boneswords"
+                                                    mainWeaponAssault = false
+                                                } else {
+                                                    range = "4"
+                                                    mainWeaponName = "Fleshborer"
+                                                    mainWeaponAssault = true
+                                                }
                                                 weaponMenuExpanded = false
                                             }
                                         )
@@ -188,8 +209,54 @@ fun StatEditDialog(
                         }
                     }
 
-                    TwoFieldRow("Pistol Damage", pistolDamage, { pistolDamage = it }, "Pistol AP Cost", pistolApCost, { pistolApCost = it })
-                    TwoFieldRow("Pistol Range", pistolRange, { pistolRange = it }, "Pistol Cooldown", pistolCooldown, { pistolCooldown = it })
+                    TwoFieldRow("Attack Range", range, { range = it }, "Attacks / Model (A)", attacksPerModel, { attacksPerModel = it })
+                    if (showBsField) {
+                        TwoFieldRow("Ballistic BS (2-6+)", ballisticSkill, { ballisticSkill = it }, "Weapon WS (2-6+)", weaponSkill, { weaponSkill = it })
+                    } else {
+                        StatTextField("Weapon WS (2-6+)", weaponSkill, { weaponSkill = it })
+                    }
+                    TwoFieldRow("Strength S (1-20)", strength, { strength = it }, "Armor Pen (0-5)", armorPen, { armorPen = it })
+                    StatTextField("Main Damage (D)", damage, { damage = it })
+
+                    if (isRangedNow) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 2.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "ASSAULT WEAPON TAG",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = TextPrimary
+                                )
+                                Text(
+                                    text = "Allows shooting after Advance (cannot Charge)",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = TextMuted
+                                )
+                            }
+                            androidx.compose.material3.Switch(
+                                checked = mainWeaponAssault,
+                                onCheckedChange = { mainWeaponAssault = it },
+                                modifier = Modifier.testTag("assault_tag_switch")
+                            )
+                        }
+                    }
+
+                    if (template.hasPistol) {
+                        HorizontalDivider(color = DividerIron, modifier = Modifier.padding(top = 4.dp))
+                        Text(
+                            text = "PISTOL: ${template.pistolWeaponName.uppercase()}",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = pal.trimBorder
+                        )
+                        TwoFieldRow("Pistol Attacks (A)", pistolAttacks, { pistolAttacks = it }, "Pistol Damage (D)", pistolDamage, { pistolDamage = it })
+                        TwoFieldRow("Pistol Strength S", pistolStrength, { pistolStrength = it }, "Pistol Pen (0-5)", pistolArmorPen, { pistolArmorPen = it })
+                        TwoFieldRow("Pistol Range", pistolRange, { pistolRange = it }, "Pistol Cooldown", pistolCooldown, { pistolCooldown = it })
+                    }
                 }
 
                 Spacer(Modifier.height(10.dp))
@@ -208,24 +275,32 @@ fun StatEditDialog(
                     }
                     Button(
                         onClick = {
+                            val parsedInv = invulnSave.toIntOrNull()?.let { if (it in 2..6) it else null }
+                            val finalRange = range.toIntOrNull()?.coerceIn(1, 12) ?: template.range
                             onSave(
                                 template.copy(
                                     points = points.toIntOrNull()?.coerceIn(20, 2000) ?: template.points,
                                     squadSize = squadSize.toIntOrNull()?.coerceIn(1, 5) ?: template.squadSize,
-                                    hpPerModel = hpPerModel.toIntOrNull()?.coerceIn(1, 999) ?: template.hpPerModel,
-                                    armor = armor.toIntOrNull()?.coerceIn(0, 10) ?: template.armor,
-                                    armorPen = armorPen.toIntOrNull()?.coerceIn(0, 10) ?: template.armorPen,
-                                    mp = mp.toIntOrNull()?.coerceIn(1, 12) ?: template.mp,
-                                    ap = ap.toIntOrNull()?.coerceIn(1, 6) ?: template.ap,
+                                    woundsPerModel = woundsPerModel.toIntOrNull()?.coerceIn(1, 30) ?: template.woundsPerModel,
+                                    toughness = toughness.toIntOrNull()?.coerceIn(1, 14) ?: template.toughness,
+                                    save = save.toIntOrNull()?.coerceIn(2, 6) ?: template.save,
+                                    invulnSave = parsedInv,
+                                    armorPen = armorPen.toIntOrNull()?.coerceIn(0, 5) ?: template.armorPen,
+                                    moveCm = moveCm.toIntOrNull()?.coerceIn(3, 36) ?: template.moveCm,
+                                    strength = strength.toIntOrNull()?.coerceIn(1, 20) ?: template.strength,
                                     damage = damage.toIntOrNull()?.coerceIn(1, 500) ?: template.damage,
-                                    attacksPerModel = attacksPerModel.toIntOrNull()?.coerceIn(1, 6) ?: template.attacksPerModel,
-                                    range = range.toIntOrNull()?.coerceIn(1, 12) ?: template.range,
-                                    accuracy = accuracy.toIntOrNull()?.coerceIn(5, 100) ?: template.accuracy,
+                                    attacksPerModel = attacksPerModel.toIntOrNull()?.coerceIn(1, 10) ?: template.attacksPerModel,
+                                    range = finalRange,
+                                    ballisticSkill = ballisticSkill.toIntOrNull()?.coerceIn(2, 6) ?: template.ballisticSkill,
+                                    weaponSkill = weaponSkill.toIntOrNull()?.coerceIn(2, 6) ?: template.weaponSkill,
                                     skillCooldown = skillCooldown.toIntOrNull()?.coerceIn(1, 8) ?: template.skillCooldown,
-                                    skillApCost = skillApCost.toIntOrNull()?.coerceIn(1, 4) ?: template.skillApCost,
                                     weaponChoice = if (template.archetype == UnitArchetype.WARRIOR) weaponChoice else template.weaponChoice,
+                                    mainWeaponName = mainWeaponName,
+                                    mainWeaponAssault = if (finalRange > 1) mainWeaponAssault else false,
+                                    pistolAttacks = pistolAttacks.toIntOrNull()?.coerceIn(1, 10) ?: template.pistolAttacks,
                                     pistolDamage = pistolDamage.toIntOrNull()?.coerceIn(0, 200) ?: template.pistolDamage,
-                                    pistolApCost = pistolApCost.toIntOrNull()?.coerceIn(1, 4) ?: template.pistolApCost,
+                                    pistolStrength = pistolStrength.toIntOrNull()?.coerceIn(1, 20) ?: template.pistolStrength,
+                                    pistolArmorPen = pistolArmorPen.toIntOrNull()?.coerceIn(0, 5) ?: template.pistolArmorPen,
                                     pistolRange = pistolRange.toIntOrNull()?.coerceIn(1, 8) ?: template.pistolRange,
                                     pistolCooldown = pistolCooldown.toIntOrNull()?.coerceIn(1, 6) ?: template.pistolCooldown
                                 )

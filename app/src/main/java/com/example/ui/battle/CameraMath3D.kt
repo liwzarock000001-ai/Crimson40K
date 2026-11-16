@@ -3,6 +3,7 @@ package com.example.ui.battle
 import android.opengl.Matrix
 import com.example.engine.MapGenerator
 import com.example.model.GridPos
+import com.example.model.WorldPos
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.roundToInt
@@ -27,7 +28,8 @@ data class Camera3DParams(
     val effectivePitchDeg: Float
         get() {
             val blend = closeUpBlend()
-            return pitchDeg + (20f - pitchDeg) * blend
+            val closeTarget = minOf(pitchDeg, 18f)
+            return pitchDeg + (closeTarget - pitchDeg) * blend
         }
 
     val effectiveTargetY: Float
@@ -97,12 +99,12 @@ data class Camera3DParams(
         return true
     }
 
-    fun screenToGrid(
+    fun screenToWorld(
         sx: Float,
         sy: Float,
         width: Float,
         height: Float
-    ): GridPos? {
+    ): WorldPos? {
         if (width <= 1f || height <= 1f) return null
         val vp = FloatArray(16)
         val proj = FloatArray(16)
@@ -141,8 +143,20 @@ data class Camera3DParams(
         val hitX = nx + t * (fx - nx)
         val hitZ = nz + t * (fz - nz)
 
-        val gx = hitX.roundToInt()
-        val gy = hitZ.roundToInt()
+        return if (hitX in -0.45f..(MapGenerator.GRID_W - 0.55f) && hitZ in -0.45f..(MapGenerator.GRID_H - 0.55f)) {
+            WorldPos(hitX, hitZ)
+        } else null
+    }
+
+    fun screenToGrid(
+        sx: Float,
+        sy: Float,
+        width: Float,
+        height: Float
+    ): GridPos? {
+        val wp = screenToWorld(sx, sy, width, height) ?: return null
+        val gx = wp.x.roundToInt()
+        val gy = wp.y.roundToInt()
         return if (gx in 0 until MapGenerator.GRID_W && gy in 0 until MapGenerator.GRID_H) {
             GridPos(gx, gy)
         } else null
@@ -163,31 +177,36 @@ class SharedCameraRig {
     @Volatile var desiredZ: Float = MapGenerator.GRID_H / 2f - 0.5f
     @Volatile var desiredDistance: Float = Camera3DParams.DEFAULT_DISTANCE
     @Volatile var desiredYawDeg: Float = 26f
+    @Volatile var desiredPitchDeg: Float = 46f
 
     @Volatile var currentX: Float = desiredX
     @Volatile var currentZ: Float = desiredZ
     @Volatile var currentDistance: Float = desiredDistance
     @Volatile var currentYawDeg: Float = desiredYawDeg
+    @Volatile var currentPitchDeg: Float = desiredPitchDeg
 
-    fun step(alpha: Float = 0.16f): Boolean {
+    fun step(alpha: Float = 0.08f): Boolean {
         val dx = desiredX - currentX
         val dz = desiredZ - currentZ
         val dd = desiredDistance - currentDistance
+        val dpitch = desiredPitchDeg - currentPitchDeg
         var dyaw = (desiredYawDeg - currentYawDeg) % 360f
         if (dyaw > 180f) dyaw -= 360f
         if (dyaw < -180f) dyaw += 360f
 
-        val moving = abs(dx) > 0.002f || abs(dz) > 0.002f || abs(dd) > 0.004f || abs(dyaw) > 0.05f
+        val moving = abs(dx) > 0.002f || abs(dz) > 0.002f || abs(dd) > 0.004f || abs(dyaw) > 0.05f || abs(dpitch) > 0.05f
         if (moving) {
             currentX += dx * alpha
             currentZ += dz * alpha
             currentDistance += dd * alpha
             currentYawDeg += dyaw * alpha
+            currentPitchDeg += dpitch * alpha
         } else {
             currentX = desiredX
             currentZ = desiredZ
             currentDistance = desiredDistance
             currentYawDeg = desiredYawDeg
+            currentPitchDeg = desiredPitchDeg
         }
         return moving
     }
@@ -196,17 +215,18 @@ class SharedCameraRig {
         val dx = desiredX - currentX
         val dz = desiredZ - currentZ
         val dd = desiredDistance - currentDistance
+        val dpitch = desiredPitchDeg - currentPitchDeg
         var dyaw = (desiredYawDeg - currentYawDeg) % 360f
         if (dyaw > 180f) dyaw -= 360f
         if (dyaw < -180f) dyaw += 360f
-        return abs(dx) > 0.002f || abs(dz) > 0.002f || abs(dd) > 0.004f || abs(dyaw) > 0.05f
+        return abs(dx) > 0.002f || abs(dz) > 0.002f || abs(dd) > 0.004f || abs(dyaw) > 0.05f || abs(dpitch) > 0.05f
     }
 
     fun snapshot(): Camera3DParams = Camera3DParams(
         targetX = currentX,
         targetZ = currentZ,
         distance = currentDistance,
-        pitchDeg = 46f,
+        pitchDeg = currentPitchDeg,
         yawDeg = currentYawDeg
     )
 }
