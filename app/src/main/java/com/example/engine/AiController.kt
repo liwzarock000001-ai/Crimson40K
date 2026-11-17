@@ -33,7 +33,8 @@ object AiController {
 
         for (i in units.indices) {
             val unit = units[i]
-            val canAttackAny = unit.canShoot || unit.canFight
+            val isEngaged = TacticalRules.isEngagedInMelee(unit, units)
+            val canAttackAny = unit.canShoot || unit.canFight || isEngaged
             if (!unit.isAlive || unit.faction != aiFaction || (!canAttackAny && unit.moveCmLeft < 3.0f)) continue
 
             // 1. Self-buff leap if melee far from enemy
@@ -62,7 +63,7 @@ object AiController {
             }
 
             // 2. Check best attack from current position
-            val bestAttack = findBestAttackFrom(unit, unit.x, unit.y, enemies, map)
+            val bestAttack = findBestAttackFrom(unit, unit.x, unit.y, enemies, units, map)
             if (bestAttack != null) {
                 return AiDecision.Attack(unit.uid, bestAttack.first.uid, bestAttack.second)
             }
@@ -98,12 +99,12 @@ object AiController {
                     var bestHasAttack = false
 
                     for ((pos, cost) in search.costs) {
-                        val attackFromHere = findBestAttackFrom(unit, pos.x, pos.y, enemies, map)
+                        val attackFromHere = findBestAttackFrom(unit, pos.x, pos.y, enemies, units, map)
                         var score = 0f
                         var tileHasAttack = false
                         if (attackFromHere != null) {
                             tileHasAttack = true
-                            val preview = TacticalRules.canTargetFrom(unit, pos.x, pos.y, attackFromHere.first, attackFromHere.second, map)
+                            val preview = TacticalRules.canTargetFrom(unit, pos.x, pos.y, attackFromHere.first, attackFromHere.second, map, units)
                             score += 1000f + (preview?.expectedTotalDamage ?: 0) * 5f
                             if (preview?.coverTag == CoverTag.FLANK || preview?.coverTag == CoverTag.REAR) score += 120f
                         }
@@ -154,22 +155,28 @@ object AiController {
         atkX: Int,
         atkY: Int,
         enemies: List<BattleUnit>,
+        allUnits: List<BattleUnit>,
         map: Array<Array<TerrainType>>
     ): Pair<BattleUnit, WeaponMode>? {
-        if (!unit.canShoot && !unit.canFight) return null
+        val engagedAtPos = TacticalRules.isEngagedInMeleeAt(unit, atkX.toFloat(), atkY.toFloat(), allUnits)
+        if (!unit.canShoot && !unit.canFight && !engagedAtPos) return null
         var best: Pair<BattleUnit, WeaponMode>? = null
         var bestScore = Float.NEGATIVE_INFINITY
 
         for (mIdx in MODES.indices) {
             val mode = MODES[mIdx]
-            if (!TacticalRules.canUseMode(unit, mode)) continue
+            if (!TacticalRules.canUseMode(unit, mode, allUnits)) continue
 
-            val range = TacticalRules.weaponRange(unit, mode)
+            val range = if (engagedAtPos && mode == WeaponMode.MAIN && !unit.template.mainWeaponPistol) {
+                1
+            } else {
+                TacticalRules.weaponRange(unit, mode)
+            }
             for (eIdx in enemies.indices) {
                 val enemy = enemies[eIdx]
                 // Fast distance early-exit before LOS/cover math
                 if (maxOf(abs(atkX - enemy.x), abs(atkY - enemy.y)) > range) continue
-                val preview = TacticalRules.canTargetFrom(unit, atkX, atkY, enemy, mode, map) ?: continue
+                val preview = TacticalRules.canTargetFrom(unit, atkX, atkY, enemy, mode, map, allUnits) ?: continue
                 if (!preview.inRange || !preview.hasLos) continue
 
                 var score = preview.expectedTotalDamage.toFloat()

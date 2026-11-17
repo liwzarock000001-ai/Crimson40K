@@ -84,6 +84,7 @@ fun StatEditDialog(
         mutableStateOf(template.weaponChoice ?: WarriorWeaponChoice.BONESWORDS)
     }
     var mainWeaponAssault by remember(template.id) { mutableStateOf(template.mainWeaponAssault) }
+    var mainWeaponPistol by remember(template.id) { mutableStateOf(template.mainWeaponPistol) }
     var mainWeaponName by remember(template.id) { mutableStateOf(template.mainWeaponName) }
     var weaponMenuExpanded by remember { mutableStateOf(false) }
 
@@ -244,6 +245,31 @@ fun StatEditDialog(
                                 modifier = Modifier.testTag("assault_tag_switch")
                             )
                         }
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 2.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "PISTOL WEAPON TAG",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = TextPrimary
+                                )
+                                Text(
+                                    text = "Allows shooting even while engaged in Melee",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = TextMuted
+                                )
+                            }
+                            androidx.compose.material3.Switch(
+                                checked = mainWeaponPistol,
+                                onCheckedChange = { mainWeaponPistol = it },
+                                modifier = Modifier.testTag("pistol_tag_switch")
+                            )
+                        }
                     }
 
                     if (template.hasPistol) {
@@ -297,6 +323,7 @@ fun StatEditDialog(
                                     weaponChoice = if (template.archetype == UnitArchetype.WARRIOR) weaponChoice else template.weaponChoice,
                                     mainWeaponName = mainWeaponName,
                                     mainWeaponAssault = if (finalRange > 1) mainWeaponAssault else false,
+                                    mainWeaponPistol = if (finalRange > 1) mainWeaponPistol else false,
                                     pistolAttacks = pistolAttacks.toIntOrNull()?.coerceIn(1, 10) ?: template.pistolAttacks,
                                     pistolDamage = pistolDamage.toIntOrNull()?.coerceIn(0, 200) ?: template.pistolDamage,
                                     pistolStrength = pistolStrength.toIntOrNull()?.coerceIn(1, 20) ?: template.pistolStrength,

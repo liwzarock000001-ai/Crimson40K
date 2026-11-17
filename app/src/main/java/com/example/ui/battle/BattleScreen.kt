@@ -45,6 +45,7 @@ import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.OpenWith
 import androidx.compose.material.icons.filled.Rotate90DegreesCcw
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.ZoomIn
@@ -143,6 +144,7 @@ fun BattleScreen(
     onToggleSound: () -> Unit,
     onToggleUnitCard: () -> Unit,
     onDismissTurnSplash: () -> Unit,
+    onSaveBattle: () -> Unit = {},
     onExitToSetup: () -> Unit
 ) {
     var showConfirmExit by remember { mutableStateOf(false) }
@@ -203,6 +205,8 @@ fun BattleScreen(
             round = state.round,
             activeFaction = state.activeFaction,
             isPlayerTurn = state.isPlayerTurn,
+            isCoopMode = state.isCoopMode,
+            activeCoopPlayerName = state.activeCoopPlayerName,
             autoFocusCamera = state.autoFocusCamera,
             soundEnabled = state.soundEnabled,
             marineAliveModels = state.marineAliveModels,
@@ -228,6 +232,7 @@ fun BattleScreen(
                 }
             },
             onToggleSound = onToggleSound,
+            onSaveBattle = onSaveBattle,
             onRequestSetup = remember { { showConfirmExit = true } },
             modifier = Modifier
                 .align(Alignment.TopStart)
@@ -293,6 +298,29 @@ fun BattleScreen(
             }
 
             AnimatedVisibility(
+                visible = state.saveBannerMessage != null,
+                enter = fadeIn(),
+                exit = fadeOut()
+            ) {
+                state.saveBannerMessage?.let { msg ->
+                    GrimdarkBevelPanel(
+                        cut = 6.dp,
+                        borderColor = EmeraldBorder,
+                        topColor = EmeraldSurface,
+                        bottomColor = VoidObsidian,
+                        showRivets = false
+                    ) {
+                        Text(
+                            text = msg,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = EmeraldBuff,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                        )
+                    }
+                }
+            }
+
+            AnimatedVisibility(
                 visible = state.turnSplash != null,
                 enter = fadeIn() + scaleIn(initialScale = 0.94f),
                 exit = fadeOut() + scaleOut(targetScale = 0.96f)
@@ -325,8 +353,7 @@ fun BattleScreen(
             }
 
             val canMoveControls = selectedUnit != null &&
-                selectedUnit.faction == state.playerFaction &&
-                state.isPlayerTurn &&
+                state.canCommandUnit(selectedUnit) &&
                 !state.isAnimating
 
             AnimatedVisibility(visible = canMoveControls && state.chargePreview != null) {
@@ -402,6 +429,8 @@ fun BattleScreen(
 
                 ActionDock(
                     selected = selectedUnit,
+                    canCommandSelected = selectedUnit != null && state.canCommandUnit(selectedUnit),
+                    allUnits = state.units,
                     activeFaction = state.activeFaction,
                     isPlayerTurn = state.isPlayerTurn && !state.isAnimating,
                     weaponMode = state.weaponMode,
@@ -469,6 +498,8 @@ private fun TopHudOverlay(
     round: Int,
     activeFaction: Faction,
     isPlayerTurn: Boolean,
+    isCoopMode: Boolean,
+    activeCoopPlayerName: String,
     autoFocusCamera: Boolean,
     soundEnabled: Boolean,
     marineAliveModels: Int,
@@ -479,6 +510,7 @@ private fun TopHudOverlay(
     onZoomIn: () -> Unit,
     onZoomOut: () -> Unit,
     onToggleSound: () -> Unit,
+    onSaveBattle: () -> Unit,
     onRequestSetup: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -549,12 +581,16 @@ private fun TopHudOverlay(
                         )
                         Column(modifier = Modifier.padding(end = 4.dp)) {
                             Text(
-                                text = "ROUND $round",
+                                text = if (isCoopMode) "R$round • CO-OP" else "ROUND $round",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = pal.trimBorder
                             )
                             Text(
-                                text = if (isPlayerTurn) "YOUR TURN" else "ENEMY TURN...",
+                                text = when {
+                                    isCoopMode && activeCoopPlayerName.isNotBlank() -> activeCoopPlayerName.uppercase()
+                                    isPlayerTurn -> "YOUR TURN"
+                                    else -> "ENEMY TURN..."
+                                },
                                 style = MaterialTheme.typography.titleSmall,
                                 color = pal.headerText
                             )
@@ -598,8 +634,18 @@ private fun TopHudOverlay(
                             onClick = onToggleSound,
                             testTag = "sound_toggle_button"
                         )
+                        if (!isCoopMode) {
+                            HudChipButton(
+                                label = "Save",
+                                icon = Icons.Default.Save,
+                                tint = EmeraldBuff,
+                                borderColor = EmeraldBorder,
+                                onClick = onSaveBattle,
+                                testTag = "save_battle_button"
+                            )
+                        }
                         HudChipButton(
-                            label = "Setup",
+                            label = if (isCoopMode) "Lobby" else "Setup",
                             icon = Icons.Default.Settings,
                             tint = pal.headerText,
                             borderColor = pal.trimMuted,
@@ -828,6 +874,15 @@ private fun UnitStatusCard(
                         maxLines = 1,
                         softWrap = false
                     )
+                    if (unit.ownerPlayerName.isNotBlank()) {
+                        Text(
+                            text = "[${unit.ownerPlayerName.uppercase()}]",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = TacticalCyan,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
                 Icon(
                     imageVector = if (collapsed) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
@@ -910,6 +965,19 @@ private fun UnitStatusCard(
                                 .clip(tagShape)
                                 .background(EmeraldSurface)
                                 .border(0.8.dp, EmeraldBorder, tagShape)
+                                .padding(horizontal = 5.dp, vertical = 1.dp)
+                        )
+                    }
+                    if (unit.template.mainWeaponPistol) {
+                        val tagShape = remember { CutCornerShape(3.dp) }
+                        Text(
+                            text = "PISTOL",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = TacticalCyan,
+                            modifier = Modifier
+                                .clip(tagShape)
+                                .background(TacticalCyan.copy(alpha = 0.16f))
+                                .border(0.8.dp, TacticalCyan.copy(alpha = 0.55f), tagShape)
                                 .padding(horizontal = 5.dp, vertical = 1.dp)
                         )
                     }
@@ -1278,6 +1346,8 @@ private fun CmStepChip(
 @Composable
 private fun ActionDock(
     selected: BattleUnit?,
+    canCommandSelected: Boolean,
+    allUnits: List<BattleUnit>,
     activeFaction: Faction,
     isPlayerTurn: Boolean,
     weaponMode: WeaponMode,
@@ -1291,7 +1361,7 @@ private fun ActionDock(
     onEndTurn: () -> Unit,
     onInspectSkill: (UnitTemplate) -> Unit
 ) {
-    val enabled = isPlayerTurn && selected != null
+    val enabled = isPlayerTurn && canCommandSelected && selected != null
     val pal = factionPalette(selected?.faction ?: activeFaction)
 
     Column(
@@ -1408,8 +1478,9 @@ private fun ActionDock(
             horizontalArrangement = Arrangement.spacedBy(5.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            val isEngaged = selected != null && TacticalRules.isEngagedInMelee(selected, allUnits)
             if (selected != null && selected.template.hasPistol) {
-                val pistolReady = enabled && TacticalRules.canUseMode(selected, WeaponMode.PISTOL)
+                val pistolReady = enabled && TacticalRules.canUseMode(selected, WeaponMode.PISTOL, allUnits)
                 val isOn = weaponMode == WeaponMode.PISTOL
                 val pistolSubtitle = when {
                     selected.hasAdvanced -> "NO ADV"
@@ -1436,11 +1507,12 @@ private fun ActionDock(
                 val isTerminator = selected.template.archetype == UnitArchetype.TERMINATOR
                 val isMeleeSkill = TacticalRules.modeUsesMelee(selected, WeaponMode.SKILL)
                 val isUtilitySkill = isTerminator || selected.template.archetype == UnitArchetype.HORMAGAUNT
-                val skillReady = enabled && TacticalRules.canUseMode(selected, WeaponMode.SKILL)
+                val skillReady = enabled && TacticalRules.canUseMode(selected, WeaponMode.SKILL, allUnits)
                 val isSkillOn = weaponMode == WeaponMode.SKILL
                 val skillSubtitle = when {
                     selected.skillCooldownLeft > 0 -> "CD ${selected.skillCooldownLeft}"
                     selected.hasCharged && !isMeleeSkill -> "MELEE"
+                    isEngaged && !isMeleeSkill && (isTerminator || !selected.template.mainWeaponPistol) -> "IN MELEE"
                     selected.hasAdvanced && !selected.template.mainWeaponAssault && !isUtilitySkill && !isMeleeSkill -> "NO ADV"
                     selected.hasAdvanced && (isTerminator || isMeleeSkill) -> "NO ADV"
                     isTerminator -> "DEEP STRIKE"
@@ -1576,7 +1648,9 @@ private fun TurnSplashCard(splash: TurnSplashData, onClick: () -> Unit) {
             )
             Spacer(Modifier.height(2.dp))
             Text(
-                text = if (splash.isPlayerTurn) "COMMANDER TURN" else "SWARM ACTIVATION",
+                text = splash.commanderLabel.ifEmpty {
+                    if (splash.isPlayerTurn) "COMMANDER TURN" else "SWARM ACTIVATION"
+                },
                 style = MaterialTheme.typography.titleMedium,
                 color = pal.headerText
             )

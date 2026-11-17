@@ -24,21 +24,23 @@ enum class SoundType {
 
 class SoundEffects {
     var enabled: Boolean = true
+    var volume: Float = 0.8f
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     fun play(type: SoundType) {
-        if (!enabled) return
+        if (!enabled || volume <= 0.01f) return
+        val vol = volume.coerceIn(0f, 1f)
         scope.launch {
             runCatching {
                 val sampleRate = 22050
                 val samples = when (type) {
-                    SoundType.CLICK -> synthTone(sampleRate, 0.04f, 880f, 620f, 0.25f)
-                    SoundType.BOLTER -> synthBurst(sampleRate, 0.16f, 220f)
-                    SoundType.PLASMA -> synthTone(sampleRate, 0.22f, 920f, 240f, 0.45f)
-                    SoundType.MELEE -> synthTone(sampleRate, 0.14f, 440f, 110f, 0.45f)
-                    SoundType.SURGE -> synthTone(sampleRate, 0.30f, 320f, 980f, 0.42f)
-                    SoundType.TURN_HORN -> synthTone(sampleRate, 0.26f, 220f, 330f, 0.35f)
-                    SoundType.VICTORY -> synthTone(sampleRate, 0.40f, 440f, 880f, 0.40f)
+                    SoundType.CLICK -> synthTone(sampleRate, 0.04f, 880f, 620f, 0.25f * vol)
+                    SoundType.BOLTER -> synthBurst(sampleRate, 0.16f, 220f, vol)
+                    SoundType.PLASMA -> synthTone(sampleRate, 0.22f, 920f, 240f, 0.45f * vol)
+                    SoundType.MELEE -> synthTone(sampleRate, 0.14f, 440f, 110f, 0.45f * vol)
+                    SoundType.SURGE -> synthTone(sampleRate, 0.30f, 320f, 980f, 0.42f * vol)
+                    SoundType.TURN_HORN -> synthTone(sampleRate, 0.26f, 220f, 330f, 0.35f * vol)
+                    SoundType.VICTORY -> synthTone(sampleRate, 0.40f, 440f, 880f, 0.40f * vol)
                 }
                 playPcm(sampleRate, samples)
             }
@@ -66,7 +68,7 @@ class SoundEffects {
         return out
     }
 
-    private fun synthBurst(sampleRate: Int, durationSec: Float, baseFreq: Float): ShortArray {
+    private fun synthBurst(sampleRate: Int, durationSec: Float, baseFreq: Float, vol: Float): ShortArray {
         val count = (sampleRate * durationSec).toInt().coerceAtLeast(1)
         val out = ShortArray(count)
         val rng = Random(42)
@@ -76,7 +78,7 @@ class SoundEffects {
             val env = exp(-5f * pulse)
             val tone = sin(2.0 * PI * baseFreq * (1.0 - 0.3 * pulse) * t).toFloat()
             val noise = (rng.nextFloat() * 2f - 1f) * 0.45f
-            val sample = ((tone * 0.65f + noise) * 0.4f * env * Short.MAX_VALUE).toInt()
+            val sample = ((tone * 0.65f + noise) * 0.4f * vol * env * Short.MAX_VALUE).toInt()
             out[i] = sample.coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort()
         }
         return out

@@ -25,3 +25,19 @@ data class BattleRecordEntity(
     val enemyKills: Int,
     val timestamp: Long = System.currentTimeMillis()
 )
+
+@Entity(tableName = "saved_skirmish_battle")
+data class SavedSkirmishBattleEntity(
+    @PrimaryKey val id: Int = 1,
+    val round: Int,
+    val playerFaction: String,
+    val activeFaction: String,
+    val mapId: Long,
+    val unitsJson: String,
+    val templatesJson: String,
+    val playerKills: Int,
+    val enemyKills: Int,
+    val marineModelsAlive: Int,
+    val xenosModelsAlive: Int,
+    val updatedAt: Long = System.currentTimeMillis()
+)

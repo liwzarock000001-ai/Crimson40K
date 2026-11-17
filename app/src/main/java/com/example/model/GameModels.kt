@@ -84,6 +84,7 @@ data class UnitTemplate(
     val weaponChoice: WarriorWeaponChoice? = null,
     val mainWeaponName: String = "Primary Weapon",
     val mainWeaponAssault: Boolean = false,
+    val mainWeaponPistol: Boolean = false,
     val pistolWeaponName: String = "Bolt Pistol",
     val pistolAttacks: Int = 1,
     val pistolDamage: Int = 0,
@@ -162,7 +163,9 @@ data class BattleUnit(
     val damageReductionTurns: Int = 0,
     val auraBuffed: Boolean = false,
     val kills: Int = 0,
-    val damageDealt: Int = 0
+    val damageDealt: Int = 0,
+    val ownerPlayerId: String = "PLAYER",
+    val ownerPlayerName: String = ""
 ) {
     val pos: GridPos get() = GridPos(x, y)
     val worldPos: WorldPos get() = WorldPos(worldX, worldY)
@@ -281,7 +284,8 @@ data class TurnSplashData(
     val marineModelsAlive: Int,
     val xenosModelsAlive: Int,
     val playerKills: Int,
-    val playerLosses: Int
+    val playerLosses: Int,
+    val commanderLabel: String = ""
 )
 
 @Immutable
@@ -293,3 +297,101 @@ data class BattleSummary(
     val enemyKills: Int,
     val totalDamageDealt: Int
 )
+
+enum class AppScreen {
+    MAIN_MENU,
+    LOAD_GAME,
+    SKIRMISH_SETUP,
+    SKIRMISH_BATTLE,
+    COOP_LOBBY,
+    COOP_BATTLE,
+    SETTINGS
+}
+
+enum class CoopSlotMode(val label: String) {
+    HOST("HOST"),
+    LOCAL_PLAYER("SHARED"),
+    LAN_CLIENT("ONLINE"),
+    OFF("CLOSED")
+}
+
+enum class CoopNetworkRole {
+    LOCAL_OR_HOST,
+    CLIENT
+}
+
+@Immutable
+data class DiscoveredCoopRoom(
+    val roomCode: String,
+    val hostName: String,
+    val hostIp: String,
+    val port: Int,
+    val activePlayers: Int,
+    val lastSeenMs: Long
+)
+
+@Immutable
+data class CoopRosterUnit(
+    val entryId: String,
+    val ownerPlayerId: String,
+    val templateId: String
+)
+
+@Immutable
+data class CoopPlayer(
+    val id: String,
+    val name: String,
+    val faction: Faction,
+    val slotMode: CoopSlotMode,
+    val ready: Boolean = true,
+    val connectedClient: Boolean = false
+) {
+    val isHost: Boolean get() = slotMode == CoopSlotMode.HOST
+    val isActive: Boolean get() = slotMode != CoopSlotMode.OFF
+}
+
+@Immutable
+data class CoopState(
+    val inRoom: Boolean = false,
+    val roomCode: String = "482915",
+    val hostIp: String = "127.0.0.1",
+    val port: Int = 40999,
+    val networkRole: CoopNetworkRole = CoopNetworkRole.LOCAL_OR_HOST,
+    val serverRunning: Boolean = false,
+    val clientConnected: Boolean = false,
+    val hostCommanderName: String = "Commander 1",
+    val joinCommanderName: String = "Commander 2",
+    val joinRoomCodeInput: String = "",
+    val joinIpInput: String = "",
+    val localPlayerId: String = "p1",
+    val selectedConfigPlayerId: String = "p1",
+    val networkStatus: String = "Ready to create or join a room",
+    val lobbyError: String? = null,
+    val discoveredRooms: List<DiscoveredCoopRoom> = emptyList(),
+    val players: List<CoopPlayer> = listOf(
+        CoopPlayer("p1", "Commander 1", Faction.MARINES, CoopSlotMode.HOST, true, true),
+        CoopPlayer("p2", "Commander 2", Faction.MARINES, CoopSlotMode.LOCAL_PLAYER, true, false),
+        CoopPlayer("p3", "Commander 3", Faction.XENOS, CoopSlotMode.LOCAL_PLAYER, true, false),
+        CoopPlayer("p4", "Commander 4", Faction.XENOS, CoopSlotMode.LOCAL_PLAYER, true, false)
+    ),
+    val assignedUnits: List<CoopRosterUnit> = listOf(
+        CoopRosterUnit("c1", "p1", "captain"),
+        CoopRosterUnit("c2", "p1", "intercessors"),
+        CoopRosterUnit("c3", "p2", "terminators"),
+        CoopRosterUnit("c4", "p2", "hellblasters"),
+        CoopRosterUnit("c5", "p3", "hive_tyrant"),
+        CoopRosterUnit("c6", "p3", "warriors"),
+        CoopRosterUnit("c7", "p4", "carnifex"),
+        CoopRosterUnit("c8", "p4", "termagants")
+    ),
+    val spawnAiEnemyIfSameFaction: Boolean = true
+)
+
+@Immutable
+data class SettingsState(
+    val soundVolume: Float = 0.8f,
+    val sfxEnabled: Boolean = true,
+    val graphicsLevel: Int = 3, // 1 = Low, 2 = Medium, 3 = High, 4 = Ultra
+    val screenBrightness: Float = 1.0f
+)
+

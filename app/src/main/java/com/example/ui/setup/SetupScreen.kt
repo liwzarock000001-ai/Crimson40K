@@ -1,5 +1,6 @@
 package com.example.ui.setup
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
@@ -22,8 +23,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CutCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Casino
@@ -98,6 +101,7 @@ import com.example.viewmodel.SetupUiState
 @Composable
 fun SetupScreen(
     state: SetupUiState,
+    onBackToMenu: () -> Unit,
     onToggleSide: () -> Unit,
     onPointLimitChange: (Int) -> Unit,
     onSave: () -> Unit,
@@ -110,6 +114,7 @@ fun SetupScreen(
     onSaveTemplate: (UnitTemplate) -> Unit,
     onDeploy: () -> Unit
 ) {
+    BackHandler { onBackToMenu() }
     val editingTemplate = state.editingTemplateId?.let { state.templates[it] }
 
     Box(
@@ -127,6 +132,7 @@ fun SetupScreen(
         Column(modifier = Modifier.fillMaxSize()) {
             SetupHeader(
                 state = state,
+                onBackToMenu = onBackToMenu,
                 onToggleSide = onToggleSide,
                 onPointLimitChange = onPointLimitChange,
                 onSave = onSave,
@@ -140,10 +146,12 @@ fun SetupScreen(
                     .fillMaxWidth()
             ) {
                 val isWide = maxWidth >= 700.dp
+                val listState = rememberLazyListState()
                 LazyColumn(
+                    state = listState,
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                    contentPadding = PaddingValues(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     if (isWide) {
                         item {
@@ -213,7 +221,7 @@ fun SetupScreen(
                 }
             }
 
-            SetupFooter(state = state, onDeploy = onDeploy)
+            SetupFooter(state = state)
         }
     }
 
@@ -229,6 +237,7 @@ fun SetupScreen(
 @Composable
 private fun SetupHeader(
     state: SetupUiState,
+    onBackToMenu: () -> Unit,
     onToggleSide: () -> Unit,
     onPointLimitChange: (Int) -> Unit,
     onSave: () -> Unit,
@@ -274,6 +283,24 @@ private fun SetupHeader(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                OutlinedButton(
+                    onClick = onBackToMenu,
+                    shape = grimdarkBevelShape(5.dp),
+                    border = BorderStroke(1.dp, BorderSteel),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        containerColor = PanelIronTop,
+                        contentColor = TextPrimary
+                    ),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                    modifier = Modifier
+                        .height(34.dp)
+                        .testTag("setup_back_menu_button")
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Menu", modifier = Modifier.size(14.dp))
+                    Spacer(Modifier.width(3.dp))
+                    Text("MENU", style = MaterialTheme.typography.labelSmall, maxLines = 1, softWrap = false)
+                }
+
                 Icon(
                     imageVector = Icons.Default.Shield,
                     contentDescription = null,
@@ -368,6 +395,39 @@ private fun SetupHeader(
                 }
             }
 
+            // Live Army Points Summary Display at Top
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(CutCornerShape(4.dp))
+                    .background(InputDark.copy(alpha = 0.90f))
+                    .border(1.dp, pal.trimMuted, CutCornerShape(4.dp))
+                    .padding(horizontal = 10.dp, vertical = 5.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                val marineOver = state.marinePoints > state.pointLimit
+                val xenosOver = state.xenosPoints > state.pointLimit
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("ULTRAMARINES:", style = MaterialTheme.typography.labelSmall, color = MarineBright)
+                    Text(
+                        text = "${state.marinePoints} / ${state.pointLimit} PT",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (marineOver) CrimsonSoft else TextPrimary,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("XENOS SWARM:", style = MaterialTheme.typography.labelSmall, color = XenosViolet)
+                    Text(
+                        text = "${state.xenosPoints} / ${state.pointLimit} PT",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (xenosOver) CrimsonSoft else TextPrimary,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+
             // Compact Beveled Point Limit Bar
             Row(
                 modifier = Modifier
@@ -444,8 +504,8 @@ private fun FactionSetupCard(
         accentBarColor = pal.primaryAccent
     ) {
         Column(
-            modifier = Modifier.padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            modifier = Modifier.padding(8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -625,9 +685,12 @@ private fun DeployedUnitRow(
             )
             val skillPart = if (template.isRangedMain) "R${template.range} BS${template.ballisticSkill}+" else "MELEE"
             val apPart = if (template.armorPen == 0) "AP0" else "AP-${template.armorPen}"
-            val assaultTag = if (template.mainWeaponAssault) " [ASSAULT]" else ""
+            val weaponTags = buildString {
+                if (template.mainWeaponAssault) append(" [ASSAULT]")
+                if (template.mainWeaponPistol) append(" [PISTOL]")
+            }
             Text(
-                text = "${template.mainWeaponName.uppercase()}$assaultTag: $skillPart • A${template.attacksPerModel} S${template.strength} $apPart D${template.damage}",
+                text = "${template.mainWeaponName.uppercase()}$weaponTags: $skillPart • A${template.attacksPerModel} S${template.strength} $apPart D${template.damage}",
                 style = MaterialTheme.typography.labelSmall,
                 color = WarmAmber,
                 maxLines = 1,
@@ -755,70 +818,40 @@ private fun CatalogUnitRow(
 
 @Composable
 private fun SetupFooter(
-    state: SetupUiState,
-    onDeploy: () -> Unit
+    state: SetupUiState
 ) {
     val pal = factionPalette(state.playerFaction)
     val isMarines = state.playerFaction == Faction.MARINES
-    Surface(
-        color = VoidObsidian,
-        border = BorderStroke(1.dp, pal.trimBorder),
-        modifier = Modifier.fillMaxWidth()
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .navigationBarsPadding()
+            .padding(horizontal = 12.dp, vertical = 6.dp)
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .navigationBarsPadding()
-                .padding(horizontal = 12.dp, vertical = 10.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                AnimatedVisibility(visible = state.validationWarning != null) {
-                    Text(
-                        text = state.validationWarning.orEmpty(),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = CrimsonSoft,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
-                AnimatedVisibility(visible = state.validationWarning == null && state.statusMessage != null) {
-                    Text(
-                        text = state.statusMessage.orEmpty(),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = EmeraldBuff,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
-                if (state.validationWarning == null && state.statusMessage == null) {
-                    Text(
-                        text = if (isMarines) "ULTRAMARINES COGITATOR READY • DEPLOY STRIKE FORCE"
-                        else "HIVE SYNAPSE LINK ARMED • UNLEASH THE SWARM",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = pal.badgeText
-                    )
-                }
+        Column(modifier = Modifier.fillMaxWidth()) {
+            AnimatedVisibility(visible = state.validationWarning != null) {
+                Text(
+                    text = state.validationWarning.orEmpty(),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = CrimsonSoft,
+                    fontWeight = FontWeight.SemiBold
+                )
             }
-
-            Button(
-                onClick = onDeploy,
-                enabled = state.canDeploy,
-                shape = grimdarkBevelShape(6.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = if (isMarines) MarineBright else XenosViolet,
-                    contentColor = TextPrimary,
-                    disabledContainerColor = PanelIronBottom,
-                    disabledContentColor = TextMuted
-                ),
-                border = BorderStroke(1.2.dp, pal.trimBorder),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
-                modifier = Modifier
-                    .height(48.dp)
-                    .testTag("deploy_bottom_button")
-            ) {
-                Text(stringResource(R.string.deploy_battle).uppercase(), style = MaterialTheme.typography.labelMedium)
-                Spacer(Modifier.width(6.dp))
-                Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, modifier = Modifier.size(16.dp))
+            AnimatedVisibility(visible = state.validationWarning == null && state.statusMessage != null) {
+                Text(
+                    text = state.statusMessage.orEmpty(),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = EmeraldBuff,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+            if (state.validationWarning == null && state.statusMessage == null) {
+                Text(
+                    text = if (isMarines) "ULTRAMARINES COGITATOR READY • DEPLOY STRIKE FORCE"
+                    else "HIVE SYNAPSE LINK ARMED • UNLEASH THE SWARM",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = pal.badgeText
+                )
             }
         }
     }

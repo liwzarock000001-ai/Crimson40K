@@ -1,0 +1,165 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidCoopRoom(data) {
+      return data.roomCode is string && data.roomCode.size() >= 4 && data.roomCode.size() <= 12 &&
+             data.roomCode.matches('^[a-zA-Z0-9_\\-]+$') &&
+             data.hostUid is string && data.hostUid.size() >= 1 && data.hostUid.size() <= 128 &&
+             data.hostName is string && data.hostName.size() >= 1 && data.hostName.size() <= 30 &&
+             data.status in ['LOBBY', 'ACTIVE', 'FINISHED'] &&
+             data.openForJoin is bool &&
+             data.memberUids is list && data.memberUids.size() >= 1 && data.memberUids.size() <= 4 &&
+             data.memberUids[0] is string && (data.hostUid in data.memberUids) &&
+             data.spawnAiEnemyIfSameFaction is bool &&
+             data.players is list && data.players.size() >= 1 && data.players.size() <= 4 &&
+             data.players[0] is map &&
+             data.assignedUnits is list && data.assignedUnits.size() <= 40 &&
+             (data.assignedUnits.size() == 0 || data.assignedUnits[0] is map) &&
+             (!('battleState' in data) || data.battleState is map) &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidCoopAction(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.hostUid is string && data.hostUid.size() >= 1 && data.hostUid.size() <= 128 &&
+             data.playerId in ['p1', 'p2', 'p3', 'p4'] &&
+             data.actionType in [
+               'TAP_WORLD', 'TOGGLE_MOVE', 'ADVANCE', 'SET_CM', 'WALK_CM',
+               'CONFIRM_MOVE', 'CANCEL_MOVE', 'TOGGLE_CHARGE', 'CONFIRM_CHARGE',
+               'CANCEL_CHARGE', 'STRIKE', 'WEAPON_MODE', 'ROTATE', 'END_TURN'
+             ] &&
+             (!('wx' in data) || data.wx is number) &&
+             (!('wy' in data) || data.wy is number) &&
+             (!('cm' in data) || data.cm is number) &&
+             (!('mode' in data) || (data.mode is string && data.mode.size() >= 1 && data.mode.size() <= 24)) &&
+             (!('left' in data) || data.left is bool) &&
+             data.createdAt is timestamp && data.createdAt <= request.time;
+    }
+
+    match /coop_rooms/{roomCode} {
+      // Members can always read their room; non-members may fetch only a specific open LOBBY room by Room Code
+      allow get: if isSignedIn() && isValidId(roomCode) && (
+        (request.auth.uid in existing().memberUids) ||
+        (existing().status == 'LOBBY' && existing().openForJoin == true)
+      );
+
+      // Listing rooms is strictly scoped to rooms the user belongs to (.whereArrayContains("memberUids", uid))
+      allow list: if isSignedIn() && (request.auth.uid in existing().memberUids);
+
+      allow create: if isSignedIn() &&
+                       isValidId(roomCode) &&
+                       isValidCoopRoom(incoming()) &&
+                       incoming().roomCode == roomCode &&
+                       incoming().hostUid == request.auth.uid &&
+                       incoming().status == 'LOBBY' &&
+                       incoming().memberUids.size() == 1 &&
+                       incoming().memberUids[0] == request.auth.uid &&
+                       incoming().keys().hasAll([
+                         'roomCode', 'hostUid', 'hostName', 'status', 'openForJoin',
+                         'memberUids', 'spawnAiEnemyIfSameFaction', 'players',
+                         'assignedUnits', 'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'roomCode', 'hostUid', 'hostName', 'status', 'openForJoin',
+                         'memberUids', 'spawnAiEnemyIfSameFaction', 'players',
+                         'assignedUnits', 'battleState', 'createdAt', 'updatedAt'
+                       ]);
+
+      allow update: if isSignedIn() &&
+                       isValidId(roomCode) &&
+                       isValidCoopRoom(incoming()) &&
+                       existing().status != 'FINISHED' &&
+                       incoming().roomCode == existing().roomCode &&
+                       incoming().hostUid == existing().hostUid &&
+                       incoming().createdAt == existing().createdAt &&
+                       (
+                         // Tier 1: Room Host updates lobby settings, launches battle, syncs state, or finishes match
+                         (
+                           existing().hostUid == request.auth.uid &&
+                           incoming().diff(existing()).affectedKeys().hasOnly([
+                             'hostName', 'status', 'openForJoin', 'memberUids',
+                             'spawnAiEnemyIfSameFaction', 'players', 'assignedUnits',
+                             'battleState', 'updatedAt'
+                           ])
+                         ) ||
+                         // Tier 2: Remote friend joins open LOBBY room by Room Code
+                         (
+                           existing().status == 'LOBBY' &&
+                           existing().openForJoin == true &&
+                           !(request.auth.uid in existing().memberUids) &&
+                           existing().memberUids.size() < 4 &&
+                           incoming().memberUids.hasAll(existing().memberUids) &&
+                           incoming().memberUids.size() == existing().memberUids.size() + 1 &&
+                           (request.auth.uid in incoming().memberUids) &&
+                           incoming().diff(existing()).affectedKeys().hasOnly([
+                             'memberUids', 'players', 'updatedAt'
+                           ])
+                         ) ||
+                         // Tier 3: Joined peer leaves the room
+                         (
+                           (request.auth.uid in existing().memberUids) &&
+                           existing().hostUid != request.auth.uid &&
+                           !(request.auth.uid in incoming().memberUids) &&
+                           incoming().diff(existing()).affectedKeys().hasOnly([
+                             'memberUids', 'players', 'updatedAt'
+                           ])
+                         )
+                       );
+
+      allow delete: if isSignedIn() && isValidId(roomCode) && existing().hostUid == request.auth.uid;
+
+      match /actions/{actionId} {
+        allow get: if isSignedIn() && isValidId(roomCode) && isValidId(actionId) && (
+          existing().hostUid == request.auth.uid || existing().userId == request.auth.uid
+        );
+
+        // Host observes room actions with .whereEqualTo("hostUid", uid)
+        allow list: if isSignedIn() && existing().hostUid == request.auth.uid;
+
+        allow create: if isSignedIn() &&
+                         isValidId(roomCode) &&
+                         isValidId(actionId) &&
+                         isValidCoopAction(incoming()) &&
+                         incoming().userId == request.auth.uid &&
+                         incoming().keys().hasAll(['userId', 'hostUid', 'playerId', 'actionType', 'createdAt']) &&
+                         incoming().keys().hasOnly([
+                           'userId', 'hostUid', 'playerId', 'actionType',
+                           'wx', 'wy', 'cm', 'mode', 'left', 'createdAt'
+                         ]) &&
+                         exists(/databases/$(database)/documents/coop_rooms/$(roomCode)) &&
+                         (request.auth.uid in get(/databases/$(database)/documents/coop_rooms/$(roomCode)).data.memberUids) &&
+                         incoming().hostUid == get(/databases/$(database)/documents/coop_rooms/$(roomCode)).data.hostUid &&
+                         get(/databases/$(database)/documents/coop_rooms/$(roomCode)).data.status == 'ACTIVE';
+
+        allow update: if false;
+
+        allow delete: if isSignedIn() && isValidId(roomCode) && isValidId(actionId) &&
+                         existing().hostUid == request.auth.uid;
+      }
+    }
+  }
+}

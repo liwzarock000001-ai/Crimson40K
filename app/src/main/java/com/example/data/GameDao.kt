@@ -25,4 +25,16 @@ interface GameDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertBattleRecord(record: BattleRecordEntity)
+
+    @Query("SELECT * FROM saved_skirmish_battle WHERE id = 1")
+    fun observeSavedBattle(): Flow<SavedSkirmishBattleEntity?>
+
+    @Query("SELECT * FROM saved_skirmish_battle WHERE id = 1")
+    suspend fun getSavedBattleOnce(): SavedSkirmishBattleEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun saveSkirmishBattle(battle: SavedSkirmishBattleEntity)
+
+    @Query("DELETE FROM saved_skirmish_battle")
+    suspend fun clearSavedBattle()
 }

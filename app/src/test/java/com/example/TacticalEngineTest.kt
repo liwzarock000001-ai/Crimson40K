@@ -141,17 +141,18 @@ class TacticalEngineTest {
         val intercessorTpl = DefaultCatalog.defaultTemplates.first { it.id == "intercessors" }
         val warriorTpl = DefaultCatalog.defaultTemplates.first { it.id == "warriors" }
 
-        val marine = BattleUnit("m", intercessorTpl, Faction.MARINES, 2, 6, Facing.EAST, intercessorTpl.maxTotalWounds, intercessorTpl.maxTotalWounds, 15f)
+        val rangedMarine = BattleUnit("m", intercessorTpl, Faction.MARINES, 1, 6, Facing.EAST, intercessorTpl.maxTotalWounds, intercessorTpl.maxTotalWounds, 15f)
+        val meleeMarine = BattleUnit("m_adj", intercessorTpl, Faction.MARINES, 2, 6, Facing.EAST, intercessorTpl.maxTotalWounds, intercessorTpl.maxTotalWounds, 15f)
         val warrior = BattleUnit("w", warriorTpl, Faction.XENOS, 3, 6, Facing.WEST, warriorTpl.maxTotalWounds, warriorTpl.maxTotalWounds, 15f)
 
-        val rangedPreview = TacticalRules.canTarget(marine, warrior, WeaponMode.MAIN, map)
+        val rangedPreview = TacticalRules.canTarget(rangedMarine, warrior, WeaponMode.MAIN, map, listOf(rangedMarine, warrior))
         assertNotNull(rangedPreview)
         assertFalse(rangedPreview!!.isMelee)
         // Intercessor BS 3+ with stationary (+1) => 2+
         assertEquals(2, rangedPreview.hitRollNeeded)
         assertEquals(5, rangedPreview.targetToughness)
 
-        val meleePreview = TacticalRules.canTarget(warrior, marine, WeaponMode.MAIN, map)
+        val meleePreview = TacticalRules.canTarget(warrior, meleeMarine, WeaponMode.MAIN, map, listOf(warrior, meleeMarine))
         assertNotNull(meleePreview)
         assertTrue(meleePreview!!.isMelee)
         assertEquals(3, meleePreview.hitRollNeeded) // Warrior WS 3+
@@ -210,7 +211,7 @@ class TacticalEngineTest {
         val assaultTpl = DefaultCatalog.defaultTemplates.first { it.id == "assault_intercessors" }
         val warriorTpl = DefaultCatalog.defaultTemplates.first { it.id == "warriors" }
 
-        val shooter = BattleUnit("m1", intercessorTpl, Faction.MARINES, 2, 5, Facing.EAST, intercessorTpl.maxTotalWounds, intercessorTpl.maxTotalWounds, 15f)
+        val shooter = BattleUnit("m1", intercessorTpl, Faction.MARINES, 1, 5, Facing.EAST, intercessorTpl.maxTotalWounds, intercessorTpl.maxTotalWounds, 15f)
         val brawler = BattleUnit("m2", assaultTpl, Faction.MARINES, 2, 6, Facing.EAST, assaultTpl.maxTotalWounds, assaultTpl.maxTotalWounds, 18f)
         val enemy = BattleUnit("x1", warriorTpl, Faction.XENOS, 3, 6, Facing.WEST, warriorTpl.maxTotalWounds, warriorTpl.maxTotalWounds, 15f)
 
@@ -352,5 +353,75 @@ class TacticalEngineTest {
         assertEquals(12, TacticalRules.attacksCount(customUnit, WeaponMode.MAIN)) // 3 models * 4 attacks = 12
         assertEquals(9, TacticalRules.attacksCount(customUnit, WeaponMode.PISTOL)) // 3 models * 3 pistol attacks = 9
     }
+
+    @Test
+    fun engagedMeleeBlocksNonPistolRangedAndAllowsPistols() {
+        val map = MapGenerator.generateSectorMap(1L)
+        val intercessorTpl = DefaultCatalog.defaultTemplates.first { it.id == "intercessors" } // has Bolt Pistol
+        val hellblasterTpl = DefaultCatalog.defaultTemplates.first { it.id == "hellblasters" } // has Plasma Pistol
+        val warriorTpl = DefaultCatalog.defaultTemplates.first { it.id == "warriors" }
+
+        // Intercessor engaged with adjacent Warrior at (3,6), plus distant Warrior at (6,6)
+        val intercessor = BattleUnit("m1", intercessorTpl, Faction.MARINES, 2, 6, Facing.EAST, intercessorTpl.maxTotalWounds, intercessorTpl.maxTotalWounds, 15f)
+        val adjacentFoe = BattleUnit("x1", warriorTpl, Faction.XENOS, 3, 6, Facing.WEST, warriorTpl.maxTotalWounds, warriorTpl.maxTotalWounds, 15f)
+        val distantFoe = BattleUnit("x2", warriorTpl, Faction.XENOS, 6, 6, Facing.WEST, warriorTpl.maxTotalWounds, warriorTpl.maxTotalWounds, 15f)
+        val allUnits = listOf(intercessor, adjacentFoe, distantFoe)
+
+        assertTrue(TacticalRules.isEngagedInMelee(intercessor, allUnits))
+
+        // Non-pistol main weapon (Bolt Rifle) CANNOT shoot distant enemy while engaged
+        assertEquals(null, TacticalRules.canTarget(intercessor, distantFoe, WeaponMode.MAIN, map, allUnits))
+        // Non-pistol ranged SKILL is also blocked while engaged
+        assertFalse(TacticalRules.canUseMode(intercessor, WeaponMode.SKILL, allUnits))
+        assertEquals(null, TacticalRules.canTarget(intercessor, distantFoe, WeaponMode.SKILL, map, allUnits))
+
+        // Targeting the adjacent foe in MAIN mode switches to MELEE (WS)
+        val meleeVsAdjacent = TacticalRules.canTarget(intercessor, adjacentFoe, WeaponMode.MAIN, map, allUnits)
+        assertNotNull(meleeVsAdjacent)
+        assertTrue(meleeVsAdjacent!!.isMelee)
+
+        // Bolt Pistol CAN shoot even while engaged in melee!
+        assertTrue(TacticalRules.canUseMode(intercessor, WeaponMode.PISTOL, allUnits))
+        val pistolVsAdjacent = TacticalRules.canTarget(intercessor, adjacentFoe, WeaponMode.PISTOL, map, allUnits)
+        assertNotNull(pistolVsAdjacent)
+        assertFalse(pistolVsAdjacent!!.isMelee)
+        assertTrue(pistolVsAdjacent.inRange)
+
+        // Main weapon WITH Pistol tag CAN shoot while engaged in melee!
+        val pistolTaggedHellblaster = BattleUnit(
+            "m2",
+            hellblasterTpl.copy(mainWeaponPistol = true),
+            Faction.MARINES,
+            2,
+            6,
+            Facing.EAST,
+            hellblasterTpl.maxTotalWounds,
+            hellblasterTpl.maxTotalWounds,
+            15f
+        )
+        val shootWithPistolTag = TacticalRules.canTarget(pistolTaggedHellblaster, distantFoe, WeaponMode.MAIN, map, listOf(pistolTaggedHellblaster, adjacentFoe, distantFoe))
+        assertNotNull(shootWithPistolTag)
+        assertFalse(shootWithPistolTag!!.isMelee)
+    }
+
+    @Test
+    fun meleeCounterAttackUsesSurvivingModelsWeaponStats() {
+        val map = MapGenerator.generateSectorMap(1L)
+        val termiTpl = DefaultCatalog.defaultTemplates.first { it.id == "terminators" }
+        val warriorTpl = DefaultCatalog.defaultTemplates.first { it.id == "warriors" }
+
+        // Terminator squad (5x 4W = 20W, reduced to 12W -> 3 surviving models) attacks adjacent Warrior
+        val attacker = BattleUnit("m1", termiTpl, Faction.MARINES, 2, 6, Facing.EAST, 12, termiTpl.maxTotalWounds, 12f)
+        val survivor = BattleUnit("x1", warriorTpl, Faction.XENOS, 3, 6, Facing.WEST, warriorTpl.maxTotalWounds, warriorTpl.maxTotalWounds, 15f)
+
+        val counter = TacticalRules.resolveMeleeCounterAttack(survivor, attacker, map, Random(7))
+        assertNotNull(counter)
+        assertTrue(counter!!.hits > 0 || counter.floatingTexts.isNotEmpty())
+
+        // Eliminated target (0 wounds left) cannot counter-attack
+        val deadDefender = survivor.copy(totalWounds = 0)
+        assertEquals(null, TacticalRules.resolveMeleeCounterAttack(deadDefender, attacker, map, Random(7)))
+    }
 }
+
 

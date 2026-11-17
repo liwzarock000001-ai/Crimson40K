@@ -392,7 +392,8 @@ object TacticalRules {
 
     fun effectiveIsMelee(attacker: BattleUnit, mode: WeaponMode, distTiles: Float): Boolean =
         weaponRange(attacker, mode) <= 1 ||
-            (mode == WeaponMode.MAIN && (attacker.hasCharged || distTiles <= 1.55f)) ||
+            (mode == WeaponMode.MAIN && attacker.hasCharged && distTiles <= 1.55f) ||
+            (mode == WeaponMode.MAIN && distTiles <= 1.55f && (!attacker.template.mainWeaponPistol || attacker.hasShot)) ||
             (mode == WeaponMode.SKILL && modeUsesMelee(attacker, mode))
 
     fun isEngagedInMelee(unit: BattleUnit, allUnits: List<BattleUnit>?): Boolean {
@@ -422,8 +423,8 @@ object TacticalRules {
                 val rangedMain = attacker.template.range > 1
                 when {
                     attacker.hasCharged -> !attacker.hasFought
-                    attacker.hasAdvanced -> rangedMain && attacker.template.mainWeaponAssault && !attacker.hasShot
-                    inMelee -> !attacker.hasFought
+                    attacker.hasAdvanced -> rangedMain && attacker.template.mainWeaponAssault && !attacker.hasShot && (!inMelee || attacker.template.mainWeaponPistol)
+                    inMelee -> if (attacker.template.mainWeaponPistol && !attacker.hasShot) true else !attacker.hasFought
                     else -> if (rangedMain) !attacker.hasShot else !attacker.hasFought
                 }
             }
@@ -441,7 +442,7 @@ object TacticalRules {
                     if (isMeleeSkill) {
                         attacker.skillCooldownLeft == 0 && !attacker.hasFought && !attacker.hasAdvanced
                     } else {
-                        if (inMelee) false else {
+                        if (inMelee && !attacker.template.mainWeaponPistol) false else {
                             attacker.skillCooldownLeft == 0 &&
                                 !attacker.hasShot &&
                                 !attacker.hasCharged &&
@@ -684,17 +685,9 @@ object TacticalRules {
         if (attacker.hasCharged && !isMelee) return null
 
         val isAttackerEngaged = isEngagedInMeleeAt(attacker, atkX, atkY, allUnits)
+        val hasPistolPrivilege = mode == WeaponMode.PISTOL || attacker.template.mainWeaponPistol
         // Rule: If in close combat range, cannot use shooting weapons unless it is a pistol / has Pistol tag
-        if (isAttackerEngaged && !isMelee && mode != WeaponMode.PISTOL) return null
-
-        // Cannot shoot non-pistol into an ongoing melee with friendly models
-        if (allUnits != null && !isMelee && mode != WeaponMode.PISTOL) {
-            val targetEngagedWithFriendlies = allUnits.any {
-                it.isAlive && it.faction == attacker.faction && it.uid != attacker.uid &&
-                    hypot(it.worldX - defender.worldX, it.worldY - defender.worldY) <= 1.55f
-            }
-            if (targetEngagedWithFriendlies) return null
-        }
+        if (isAttackerEngaged && !isMelee && !hasPistolPrivilege) return null
 
         val range = if (isMelee) 1 else weaponRange(attacker, mode)
         val maxReachTiles = if (isMelee) 1.55f else range.toFloat() + 0.45f

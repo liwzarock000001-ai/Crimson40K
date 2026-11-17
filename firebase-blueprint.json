@@ -1,0 +1,135 @@
+{
+  "entities": {
+    "CoopRoom": {
+      "title": "CoopRoom",
+      "description": "Cloud multiplayer room for 4-player Co-op matches keyed by a 6-digit Room Code.",
+      "type": "object",
+      "properties": {
+        "roomCode": {
+          "type": "string",
+          "description": "4-12 char alphanumeric Room Code matching the document ID."
+        },
+        "hostUid": {
+          "type": "string",
+          "description": "Firebase Auth UID of the room Host (immutable after creation)."
+        },
+        "hostName": {
+          "type": "string",
+          "description": "Display callsign of the Host commander."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["LOBBY", "ACTIVE", "FINISHED"],
+          "description": "Lifecycle phase of the online match."
+        },
+        "openForJoin": {
+          "type": "boolean",
+          "description": "Whether new remote players with the room code may join in LOBBY."
+        },
+        "memberUids": {
+          "type": "array",
+          "description": "Up to 4 authenticated Firebase UIDs participating in the room."
+        },
+        "spawnAiEnemyIfSameFaction": {
+          "type": "boolean",
+          "description": "Whether same-faction Co-op auto-spawns an AI opposition wave."
+        },
+        "players": {
+          "type": "array",
+          "description": "Up to 4 commander slot maps (id, name, faction, slotMode, ready, connectedClient, uid)."
+        },
+        "assignedUnits": {
+          "type": "array",
+          "description": "Up to 40 squad assignment maps (entryId, ownerPlayerId, templateId)."
+        },
+        "battleState": {
+          "type": "object",
+          "description": "Optional live tactical battle snapshot map written by Host while ACTIVE/FINISHED."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp set via FieldValue.serverTimestamp()."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp set via FieldValue.serverTimestamp()."
+        }
+      },
+      "required": [
+        "roomCode",
+        "hostUid",
+        "hostName",
+        "status",
+        "openForJoin",
+        "memberUids",
+        "spawnAiEnemyIfSameFaction",
+        "players",
+        "assignedUnits",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "CoopAction": {
+      "title": "CoopAction",
+      "description": "Tactical turn action command submitted by a remote Co-op client for the Host to execute.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Authenticated Firebase UID of the player submitting the command."
+        },
+        "hostUid": {
+          "type": "string",
+          "description": "Denormalized Host UID of the parent room for scoped listening and cleanup."
+        },
+        "playerId": {
+          "type": "string",
+          "enum": ["p1", "p2", "p3", "p4"],
+          "description": "Commander slot submitting the action."
+        },
+        "actionType": {
+          "type": "string",
+          "description": "Action identifier (TAP_WORLD, TOGGLE_MOVE, ADVANCE, SET_CM, WALK_CM, CONFIRM_MOVE, CANCEL_MOVE, TOGGLE_CHARGE, CONFIRM_CHARGE, CANCEL_CHARGE, STRIKE, WEAPON_MODE, ROTATE, END_TURN)."
+        },
+        "wx": {
+          "type": "number",
+          "description": "Optional world X coordinate."
+        },
+        "wy": {
+          "type": "number",
+          "description": "Optional world Y coordinate."
+        },
+        "cm": {
+          "type": "number",
+          "description": "Optional step distance in cm."
+        },
+        "mode": {
+          "type": "string",
+          "description": "Optional weapon mode enum string."
+        },
+        "left": {
+          "type": "boolean",
+          "description": "Optional rotation direction flag."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp set via FieldValue.serverTimestamp()."
+        }
+      },
+      "required": ["userId", "hostUid", "playerId", "actionType", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/coop_rooms/{roomCode}": {
+      "schema": { "$ref": "#/entities/CoopRoom" },
+      "description": "Online 4-player Co-op rooms indexed by Room Code."
+    },
+    "/coop_rooms/{roomCode}/actions/{actionId}": {
+      "schema": { "$ref": "#/entities/CoopAction" },
+      "description": "Remote player turn commands relayed to the room Host."
+    }
+  }
+}

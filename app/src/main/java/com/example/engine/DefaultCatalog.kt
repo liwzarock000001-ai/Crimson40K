@@ -141,8 +141,8 @@ object DefaultCatalog {
             skillDesc = "Teleports up to 9 tiles away (must be > 4 tiles from enemies). Grants 50% damage reduction for 1 turn.",
             skillCooldown = 4,
             passiveName = "Crux Terminatus",
-            passiveDesc = "4W each, T5, 2+ Armor Save & 4++ Storm Shield Invulnerable Save.",
-            mainWeaponName = "Storm Bolter & Power Fist",
+            passiveDesc = "4W each, T5, 2+ Armor Save, 4++ Storm Shield Invulnerable Save & Lightning Claws / Thunder Hammer.",
+            mainWeaponName = "Lightning Claws & Thunder Hammer",
             mainWeaponAssault = false,
             pistolDamage = 0
         ),
@@ -340,6 +340,7 @@ object DefaultCatalog {
                 put("weaponChoice", t.weaponChoice?.name ?: "")
                 put("mainWeaponName", t.mainWeaponName)
                 put("mainWeaponAssault", t.mainWeaponAssault)
+                put("mainWeaponPistol", t.mainWeaponPistol)
                 put("pistolAttacks", t.pistolAttacks)
                 put("pistolDamage", t.pistolDamage)
                 put("pistolStrength", t.pistolStrength)
@@ -383,6 +384,7 @@ object DefaultCatalog {
                     weaponChoice = wc,
                     mainWeaponName = obj.optString("mainWeaponName", existing.mainWeaponName).ifBlank { existing.mainWeaponName },
                     mainWeaponAssault = if (obj.has("mainWeaponAssault")) obj.optBoolean("mainWeaponAssault", existing.mainWeaponAssault) else existing.mainWeaponAssault,
+                    mainWeaponPistol = if (obj.has("mainWeaponPistol")) obj.optBoolean("mainWeaponPistol", existing.mainWeaponPistol) else existing.mainWeaponPistol,
                     pistolAttacks = obj.optInt("pistolAttacks", existing.pistolAttacks).coerceIn(1, 10),
                     pistolDamage = obj.optInt("pistolDamage", existing.pistolDamage).coerceIn(0, 12),
                     pistolStrength = obj.optInt("pistolStrength", existing.pistolStrength).coerceIn(1, 20),

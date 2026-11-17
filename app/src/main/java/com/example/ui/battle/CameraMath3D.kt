@@ -164,8 +164,8 @@ data class Camera3DParams(
 
     companion object {
         const val MIN_DISTANCE = 0.90f
-        const val MAX_DISTANCE = 26f
-        const val DEFAULT_DISTANCE = 15.0f
+        const val MAX_DISTANCE = 30f
+        const val DEFAULT_DISTANCE = 21.0f
     }
 }
 

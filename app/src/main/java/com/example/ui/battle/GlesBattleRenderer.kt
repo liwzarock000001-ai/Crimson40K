@@ -49,6 +49,8 @@ class GlesBattleRenderer(
     private var uUnlit = 0
     private var uIsUnit = 0
     private var uTime = 0
+    private var uGraphicsLevel = 0
+    private var uBrightness = 0
 
     // Pre-allocated scratch matrices & vectors (0 allocations per frame)
     private val projMat = FloatArray(16)
@@ -110,6 +112,8 @@ class GlesBattleRenderer(
         uUnlit = GLES20.glGetUniformLocation(program, "uUnlit")
         uIsUnit = GLES20.glGetUniformLocation(program, "uIsUnit")
         uTime = GLES20.glGetUniformLocation(program, "uTime")
+        uGraphicsLevel = GLES20.glGetUniformLocation(program, "uGraphicsLevel")
+        uBrightness = GLES20.glGetUniformLocation(program, "uBrightness")
     }
 
     override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
@@ -144,6 +148,8 @@ class GlesBattleRenderer(
         GLES20.glUseProgram(program)
         GLES20.glUniform3f(uEyePos, eyePos[0], eyePos[1], eyePos[2])
         GLES20.glUniform1f(uTime, elapsedSec)
+        GLES20.glUniform1f(uGraphicsLevel, state.graphicsLevel.coerceIn(1, 4).toFloat())
+        GLES20.glUniform1f(uBrightness, state.screenBrightness.coerceIn(0.5f, 1.5f))
         GLES20.glEnableVertexAttribArray(aPos)
         GLES20.glEnableVertexAttribArray(aNormal)
         GLES20.glEnableVertexAttribArray(aColor)
@@ -219,7 +225,7 @@ class GlesBattleRenderer(
             }
 
             // Charge 12" Ring & Preview Path OR Red Shooting/Melee Range Ring
-            if (!isTeleportMode && state.chargeModeActive && selectedUnit.faction == state.playerFaction) {
+            if (!isTeleportMode && state.chargeModeActive && state.canCommandUnit(selectedUnit)) {
                 Matrix.setIdentityM(modelMat, 0)
                 Matrix.translateM(modelMat, 0, sx, 0.020f, sz)
                 Matrix.scaleM(modelMat, 0, 12.45f, 1f, 12.45f)
@@ -251,10 +257,15 @@ class GlesBattleRenderer(
                     drawVbo(ringVbo, 1.0f, 0.65f, 0.16f, 0.96f, unlit = true)
                 }
             } else if (!isTeleportMode) {
-                val activeMode = if (selectedUnit.faction == state.playerFaction) state.weaponMode else WeaponMode.MAIN
-                val atkRange = if (selectedUnit.hasCharged && activeMode == WeaponMode.MAIN) 1 else TacticalRules.weaponRange(selectedUnit, activeMode)
+                val activeMode = if (state.canCommandUnit(selectedUnit)) state.weaponMode else WeaponMode.MAIN
+                val isEngaged = TacticalRules.isEngagedInMelee(selectedUnit, state.units)
+                val atkRange = when {
+                    selectedUnit.hasCharged && activeMode == WeaponMode.MAIN -> 1
+                    isEngaged && activeMode == WeaponMode.MAIN && (!selectedUnit.template.mainWeaponPistol || selectedUnit.hasShot) -> 1
+                    else -> TacticalRules.weaponRange(selectedUnit, activeMode)
+                }
                 val isMeleeRange = atkRange <= 1
-                val attackReady = TacticalRules.canUseMode(selectedUnit, activeMode)
+                val attackReady = TacticalRules.canUseMode(selectedUnit, activeMode, state.units)
                 val rangeRadiusTiles = if (isMeleeRange) 1.55f else atkRange.toFloat() + 0.45f
                 val rangeAlpha = if (attackReady) 0.72f + pulse * 0.18f else 0.28f
                 Matrix.setIdentityM(modelMat, 0)
@@ -425,8 +436,14 @@ class GlesBattleRenderer(
             }
         }
 
-        // 7. Drifting Warzone Embers & Ash Particles (zero heap allocations)
-        for (i in 0 until emberCount) {
+        // 7. Drifting Warzone Embers & Ash Particles (zero heap allocations, scaled by 4 graphics levels)
+        val activeEmbers = when (state.graphicsLevel) {
+            1 -> 0
+            2 -> 16
+            3 -> 32
+            else -> emberCount
+        }
+        for (i in 0 until activeEmbers) {
             val cycle = (elapsedSec * emberSpeed[i] + emberPhase[i]) % 3.2f
             val hFrac = cycle / 3.2f
             val py = 0.06f + hFrac * 2.5f
@@ -452,29 +469,29 @@ class GlesBattleRenderer(
 
     private fun subOffsetX(count: Int, idx: Int): Float = when (count) {
         1 -> 0f
-        2 -> if (idx == 0) -0.19f else 0.19f
-        3 -> if (idx == 0) 0.19f else -0.20f
-        4 -> if (idx == 0 || idx == 2) -0.20f else 0.20f
+        2 -> if (idx == 0) -0.34f else 0.34f
+        3 -> if (idx == 0) 0.34f else -0.36f
+        4 -> if (idx == 0 || idx == 2) -0.36f else 0.36f
         else -> when (idx) {
             0 -> 0f
-            1, 3 -> -0.25f
-            else -> 0.25f
+            1, 3 -> -0.44f
+            else -> 0.44f
         }
     }
 
     private fun subOffsetZ(count: Int, idx: Int): Float = when (count) {
         1 -> 0f
-        2 -> if (idx == 0) -0.16f else 0.16f
+        2 -> if (idx == 0) -0.28f else 0.28f
         3 -> when (idx) {
             0 -> 0f
-            1 -> -0.21f
-            else -> 0.21f
+            1 -> -0.38f
+            else -> 0.38f
         }
-        4 -> if (idx < 2) -0.20f else 0.20f
+        4 -> if (idx < 2) -0.36f else 0.36f
         else -> when (idx) {
             0 -> 0f
-            1, 2 -> -0.25f
-            else -> 0.25f
+            1, 2 -> -0.44f
+            else -> 0.44f
         }
     }
 
@@ -593,6 +610,8 @@ class GlesBattleRenderer(
             uniform float uUnlit;
             uniform float uIsUnit;
             uniform float uTime;
+            uniform float uGraphicsLevel;
+            uniform float uBrightness;
             varying vec3 vWorldPos;
             varying vec3 vNormal;
             varying vec4 vColor;
@@ -603,14 +622,16 @@ class GlesBattleRenderer(
 
             void main() {
                 if (uUnlit > 0.5) {
-                    gl_FragColor = vColor * uTint;
+                    vec4 unlitCol = vColor * uTint;
+                    gl_FragColor = vec4(clamp(unlitCol.rgb * uBrightness, 0.0, 1.0), unlitCol.a);
                     return;
                 }
 
                 // Self-illuminated emissive optics, plasma coils, hammer energy & crater magma (alpha >= 1.5)
                 if (vColor.a > 1.5) {
                     float pulse = 0.90 + 0.16 * sin(uTime * 3.8 + vWorldPos.x * 2.0);
-                    vec3 glow = clamp(vColor.rgb * uTint.rgb * pulse * 1.18, 0.0, 1.0);
+                    float glowBoost = uGraphicsLevel >= 3.5 ? 1.28 : 1.15;
+                    vec3 glow = clamp(vColor.rgb * uTint.rgb * pulse * glowBoost * uBrightness, 0.0, 1.0);
                     gl_FragColor = vec4(glow, uTint.a);
                     return;
                 }
@@ -630,31 +651,36 @@ class GlesBattleRenderer(
                     vec3 ambient = mix(vec3(0.14, 0.15, 0.20), vec3(0.28, 0.31, 0.38), hemi);
 
                     vec3 H = normalize(sunDir + V);
-                    float spec = pow(max(dot(N, H), 0.0), 28.0) * 0.36;
-                    float rim = pow(1.0 - max(dot(N, V), 0.0), 3.0) * 0.20;
+                    float specMult = uGraphicsLevel >= 2.5 ? (uGraphicsLevel >= 3.5 ? 0.46 : 0.36) : 0.0;
+                    float rimMult = uGraphicsLevel >= 2.5 ? (uGraphicsLevel >= 3.5 ? 0.28 : 0.20) : 0.0;
+                    float spec = pow(max(dot(N, H), 0.0), 28.0) * specMult;
+                    float rim = pow(1.0 - max(dot(N, V), 0.0), 3.0) * rimMult;
 
                     vec3 lit = baseCol.rgb * (ambient + diffSun * vec3(0.98, 0.96, 0.93) * 0.92 + diffFill * vec3(0.32, 0.42, 0.62) * 0.42)
                              + mix(vec3(0.85, 0.90, 0.98), baseCol.rgb, 0.35) * spec
                              + vec3(0.38, 0.52, 0.78) * rim;
 
                     float dist = length(uEyePos - vWorldPos);
-                    float distFog = clamp((dist - 24.0) / 34.0, 0.0, 0.55);
+                    float distFog = uGraphicsLevel >= 1.5 ? clamp((dist - 24.0) / 34.0, 0.0, 0.55) : 0.0;
                     vec3 fogColor = vec3(0.032, 0.036, 0.046);
-                    gl_FragColor = vec4(mix(lit, fogColor, distFog), baseCol.a);
+                    vec3 finalUnit = clamp(mix(lit, fogColor, distFog) * uBrightness, 0.0, 1.0);
+                    gl_FragColor = vec4(finalUnit, baseCol.a);
                     return;
                 }
 
-                // Procedural industrial deck weathering, cracks & stone surface grit for terrain
-                float grain = gritNoise(floor(vWorldPos.xz * 26.0)) * 0.12 - 0.06;
-                float seamX = abs(fract(vWorldPos.x + 0.5) - 0.5);
-                float seamZ = abs(fract(vWorldPos.z + 0.5) - 0.5);
-                float crackLine = abs(sin(vWorldPos.x * 3.1 + sin(vWorldPos.z * 2.3) * 1.6));
-                if (vWorldPos.y < 0.04) {
-                    float seam = smoothstep(0.47, 0.495, max(seamX, seamZ));
-                    float crack = (1.0 - smoothstep(0.0, 0.045, crackLine)) * 0.22;
-                    baseCol.rgb *= (1.0 + grain - seam * 0.35 - crack);
-                } else {
-                    baseCol.rgb *= (1.0 + grain * 0.75);
+                // Procedural industrial deck weathering, cracks & stone surface grit for terrain (L2+)
+                if (uGraphicsLevel >= 1.5) {
+                    float grain = gritNoise(floor(vWorldPos.xz * 26.0)) * 0.12 - 0.06;
+                    float seamX = abs(fract(vWorldPos.x + 0.5) - 0.5);
+                    float seamZ = abs(fract(vWorldPos.z + 0.5) - 0.5);
+                    float crackLine = abs(sin(vWorldPos.x * 3.1 + sin(vWorldPos.z * 2.3) * 1.6));
+                    if (vWorldPos.y < 0.04) {
+                        float seam = smoothstep(0.47, 0.495, max(seamX, seamZ));
+                        float crack = (1.0 - smoothstep(0.0, 0.045, crackLine)) * 0.22;
+                        baseCol.rgb *= (1.0 + grain - seam * 0.35 - crack);
+                    } else {
+                        baseCol.rgb *= (1.0 + grain * 0.75);
+                    }
                 }
 
                 // Bright Daytime Meadow Sunlight + Sky Ambient
@@ -667,8 +693,10 @@ class GlesBattleRenderer(
                 vec3 ambient = mix(vec3(0.38, 0.46, 0.34), vec3(0.65, 0.78, 0.92), hemi);
 
                 vec3 H = normalize(sunDir + V);
-                float spec = pow(max(dot(N, H), 0.0), 22.0) * 0.32;
-                float rim = pow(1.0 - max(dot(N, V), 0.0), 3.2) * 0.18;
+                float specTerrain = uGraphicsLevel >= 2.5 ? (uGraphicsLevel >= 3.5 ? 0.40 : 0.32) : 0.0;
+                float rimTerrain = uGraphicsLevel >= 2.5 ? (uGraphicsLevel >= 3.5 ? 0.24 : 0.18) : 0.0;
+                float spec = pow(max(dot(N, H), 0.0), 22.0) * specTerrain;
+                float rim = pow(1.0 - max(dot(N, V), 0.0), 3.2) * rimTerrain;
 
                 vec3 lit = baseCol.rgb * (ambient + diffSun * vec3(1.0, 0.96, 0.85) * 1.18 + diffFill * vec3(0.42, 0.56, 0.72) * 0.45)
                          + vec3(1.0, 0.96, 0.88) * spec
@@ -676,9 +704,9 @@ class GlesBattleRenderer(
 
                 // Light sunny atmosphere haze
                 float dist = length(uEyePos - vWorldPos);
-                float distFog = clamp((dist - 32.0) / 48.0, 0.0, 0.42);
+                float distFog = uGraphicsLevel >= 1.5 ? clamp((dist - 32.0) / 48.0, 0.0, 0.42) : 0.0;
                 vec3 fogColor = vec3(0.58, 0.75, 0.90);
-                vec3 finalRgb = mix(lit, fogColor, distFog);
+                vec3 finalRgb = clamp(mix(lit, fogColor, distFog) * uBrightness, 0.0, 1.0);
 
                 gl_FragColor = vec4(finalRgb, baseCol.a);
             }
