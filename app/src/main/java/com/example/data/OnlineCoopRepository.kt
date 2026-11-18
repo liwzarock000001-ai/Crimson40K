@@ -76,9 +76,13 @@ class OnlineCoopRepository(
     private val auth: FirebaseAuth = Firebase.auth
 ) {
     constructor(context: Context) : this(
-        FirebaseFirestore.getInstance(
-            context.applicationContext.getString(R.string.firestore_database_id)
-        )
+        try {
+            FirebaseFirestore.getInstance(
+                context.applicationContext.getString(R.string.firestore_database_id)
+            )
+        } catch (_: Exception) {
+            FirebaseFirestore.getInstance()
+        }
     )
 
     private fun requireUserId(): String {
