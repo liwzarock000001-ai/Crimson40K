@@ -69,8 +69,6 @@ fun Battlefield3DView(
     val glView = remember {
         GLSurfaceView(context).apply {
             setEGLContextClientVersion(2)
-            setEGLConfigChooser(8, 8, 8, 8, 16, 0)
-            holder.setFormat(PixelFormat.TRANSLUCENT)
             setRenderer(renderer)
             renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY
         }

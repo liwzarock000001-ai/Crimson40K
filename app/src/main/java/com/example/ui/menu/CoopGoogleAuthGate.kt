@@ -30,6 +30,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CloudQueue
 import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -37,6 +38,8 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -92,12 +95,14 @@ import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.auth.auth
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 
 internal fun FirebaseAuth.authStateFlow(): Flow<FirebaseUser?> = callbackFlow {
     val listener = FirebaseAuth.AuthStateListener { auth ->
@@ -141,7 +146,9 @@ fun attemptAutoGoogleSignIn(
     val activity = context.findActivity() ?: context
     scope.launch {
         try {
-            val cred = credentialManager.getCredential(activity, request).credential
+            val cred = withTimeout(10000L) {
+                credentialManager.getCredential(activity, request).credential
+            }
             if (cred is CustomCredential && cred.type == TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
                 val token = GoogleIdTokenCredential.createFrom(cred.data).idToken
                 Firebase.auth.signInWithCredential(GoogleAuthProvider.getCredential(token, null)).await()
@@ -149,10 +156,6 @@ fun attemptAutoGoogleSignIn(
             } else {
                 onUnauthenticated()
             }
-        } catch (_: NoCredentialException) {
-            onUnauthenticated()
-        } catch (_: GetCredentialException) {
-            onUnauthenticated()
         } catch (_: Exception) {
             onUnauthenticated()
         }
@@ -184,7 +187,9 @@ fun onGoogleSignInClicked(
         .build()
     scope.launch {
         try {
-            val cred = credentialManager.getCredential(activity, request).credential
+            val cred = withTimeout(15000L) {
+                credentialManager.getCredential(activity, request).credential
+            }
             if (cred is CustomCredential && cred.type == TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
                 val token = GoogleIdTokenCredential.createFrom(cred.data).idToken
                 Firebase.auth.signInWithCredential(GoogleAuthProvider.getCredential(token, null)).await()
@@ -192,6 +197,9 @@ fun onGoogleSignInClicked(
             } else {
                 onAuthError("Unexpected credential type returned.")
             }
+        } catch (e: TimeoutCancellationException) {
+            Log.w("Auth", "Google Sign-In timed out or Play Services unresponsive: ${e.message}", e)
+            onAuthError("Google Play Services is not responding. Please update Google Play Services or try again.")
         } catch (e: GetCredentialCancellationException) {
             Log.w("Auth", "Google Sign-In flow cancelled or dismissed: ${e.message}", e)
             onAuthCancelled()
@@ -200,10 +208,33 @@ fun onGoogleSignInClicked(
             onAuthError("No Google account available on this device. Please sign into a Google account in device Settings.")
         } catch (e: GetCredentialException) {
             Log.e("Auth", "Google Sign-In credential error", e)
-            onAuthError(e.localizedMessage ?: "Google Sign-In failed")
+            onAuthError(e.localizedMessage ?: "Google Sign-In failed (Play Services unresponsive)")
         } catch (e: Exception) {
             Log.e("Auth", "Google Sign-In failed", e)
             onAuthError(e.localizedMessage ?: "Google Sign-In failed")
+        }
+    }
+}
+
+fun signInWithCommanderEmail(
+    commanderName: String,
+    scope: CoroutineScope,
+    onAuthSuccess: () -> Unit,
+    onAuthError: (String) -> Unit
+) {
+    val sanitized = commanderName.trim().ifBlank { "Commander" }
+    val email = "cmd_${sanitized.lowercase().replace(Regex("[^a-z0-9]"), "")}_${Math.abs(sanitized.hashCode()) % 100000}@crimsonsector.app"
+    val password = "crimson_sector_secure_pass"
+    scope.launch {
+        try {
+            try {
+                Firebase.auth.signInWithEmailAndPassword(email, password).await()
+            } catch (_: Exception) {
+                Firebase.auth.createUserWithEmailAndPassword(email, password).await()
+            }
+            onAuthSuccess()
+        } catch (e: Exception) {
+            onAuthError(e.localizedMessage ?: "Commander Login failed")
         }
     }
 }
@@ -243,6 +274,7 @@ fun CoopGoogleAuthScreen(
     var isLoading by remember { mutableStateOf(false) }
     var isCheckingSilent by remember { mutableStateOf(true) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    var commanderName by remember { mutableStateOf("Commander") }
 
     LaunchedEffect(Unit) {
         attemptAutoGoogleSignIn(
@@ -401,6 +433,72 @@ fun CoopGoogleAuthScreen(
                         } else {
                             Text("SIGN IN WITH GOOGLE", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                         }
+                    }
+
+                    OutlinedTextField(
+                        value = commanderName,
+                        onValueChange = { commanderName = it },
+                        label = { Text("Commander Name", style = MaterialTheme.typography.labelSmall) },
+                        singleLine = true,
+                        leadingIcon = { Icon(Icons.Default.Person, contentDescription = null, tint = TacticalCyan) },
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = TacticalCyan,
+                            unfocusedBorderColor = BorderSteel,
+                            focusedLabelColor = TacticalCyan,
+                            unfocusedLabelColor = TextMuted,
+                            focusedTextColor = TextPrimary,
+                            unfocusedTextColor = TextPrimary,
+                            cursorColor = TacticalCyan
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Button(
+                        onClick = {
+                            errorMessage = null
+                            isLoading = true
+                            signInWithCommanderEmail(
+                                commanderName = commanderName,
+                                scope = scope,
+                                onAuthSuccess = {
+                                    isLoading = false
+                                    onAuthSuccess()
+                                },
+                                onAuthError = { msg ->
+                                    isLoading = false
+                                    errorMessage = msg
+                                }
+                            )
+                        },
+                        enabled = !isLoading && !isCheckingSilent,
+                        shape = grimdarkBevelShape(6.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = CardSlate,
+                            contentColor = TacticalCyan
+                        ),
+                        border = BorderStroke(1.5.dp, TacticalCyan),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(46.dp)
+                            .testTag("coop_commander_login_button")
+                    ) {
+                        Text("QUICK COMMANDER LOGIN (BYPASS GOOGLE)", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                    }
+
+                    OutlinedButton(
+                        onClick = onBackToMenu,
+                        shape = grimdarkBevelShape(6.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = InputDark,
+                            contentColor = TextPrimary
+                        ),
+                        border = BorderStroke(1.dp, BorderSteel),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(42.dp)
+                            .testTag("coop_return_menu_button")
+                    ) {
+                        Text("RETURN TO MAIN MENU", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
                     }
                 }
             }
