@@ -34,6 +34,10 @@
           "type": "boolean",
           "description": "Whether same-faction Co-op auto-spawns an AI opposition wave."
         },
+        "pointLimit": {
+          "type": "integer",
+          "description": "Per-commander requisition point limit (500-5000 PT) controlled by Host."
+        },
         "players": {
           "type": "array",
           "description": "Up to 4 commander slot maps (id, name, faction, slotMode, ready, connectedClient, uid)."
@@ -41,6 +45,10 @@
         "assignedUnits": {
           "type": "array",
           "description": "Up to 40 squad assignment maps (entryId, ownerPlayerId, templateId)."
+        },
+        "customTemplates": {
+          "type": "array",
+          "description": "Optional list of up to 30 unit template stat maps customized by the room Host and synced to all players."
         },
         "battleState": {
           "type": "object",
@@ -91,7 +99,7 @@
         },
         "actionType": {
           "type": "string",
-          "description": "Action identifier (TAP_WORLD, TOGGLE_MOVE, ADVANCE, SET_CM, WALK_CM, CONFIRM_MOVE, CANCEL_MOVE, TOGGLE_CHARGE, CONFIRM_CHARGE, CANCEL_CHARGE, STRIKE, WEAPON_MODE, ROTATE, END_TURN)."
+          "description": "Action identifier (TAP_WORLD, TOGGLE_MOVE, ADVANCE, SET_CM, WALK_CM, CONFIRM_MOVE, CANCEL_MOVE, TOGGLE_CHARGE, CONFIRM_CHARGE, CANCEL_CHARGE, STRIKE, WEAPON_MODE, ROTATE, FIGHT_FIRST, END_TURN)."
         },
         "wx": {
           "type": "number",

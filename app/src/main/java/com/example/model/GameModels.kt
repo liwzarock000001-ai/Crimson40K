@@ -4,7 +4,7 @@ import androidx.compose.runtime.Immutable
 
 enum class Faction(val displayName: String, val badgeTag: String) {
     MARINES("Ultramarines", "XIII: ULTRAMARINES"),
-    XENOS("Alien Swarm", "HIVE FLEET")
+    XENOS("Tyranids", "HIVE FLEET: TYRANIDS")
 }
 
 enum class Facing(val dx: Int, val dy: Int, val label: String) {
@@ -51,6 +51,7 @@ enum class UnitArchetype {
     HORMAGAUNT,
     WARRIOR,
     GENESTEALER,
+    VON_RYANS_LEAPER,
     CARNIFEX,
     HIVE_TYRANT
 }
@@ -161,6 +162,7 @@ data class BattleUnit(
     val buffTurnsLeft: Int = 0,
     val activeBuffLabel: String? = null,
     val damageReductionTurns: Int = 0,
+    val stealthTurnsLeft: Int = 0,
     val auraBuffed: Boolean = false,
     val kills: Int = 0,
     val damageDealt: Int = 0,
@@ -170,6 +172,7 @@ data class BattleUnit(
     val pos: GridPos get() = GridPos(x, y)
     val worldPos: WorldPos get() = WorldPos(worldX, worldY)
     val isAlive: Boolean get() = totalWounds > 0
+    val isCloaked: Boolean get() = stealthTurnsLeft > 0
     val hasRangedProfile: Boolean
         get() = template.range > 1 ||
             template.hasPistol ||
@@ -237,6 +240,7 @@ data class TargetPreview(
     val attacksCount: Int,
     val coverTag: CoverTag,
     val weaponMode: WeaponMode,
+    val weaponName: String = "",
     val inRange: Boolean,
     val hasLos: Boolean
 )
@@ -365,6 +369,7 @@ data class CoopState(
     val joinIpInput: String = "",
     val localPlayerId: String = "p1",
     val selectedConfigPlayerId: String = "p1",
+    val pointLimit: Int = 1000,
     val networkStatus: String = "Ready to create or join a room",
     val lobbyError: String? = null,
     val discoveredRooms: List<DiscoveredCoopRoom> = emptyList(),
@@ -375,16 +380,17 @@ data class CoopState(
         CoopPlayer("p4", "Commander 4", Faction.XENOS, CoopSlotMode.LOCAL_PLAYER, true, false)
     ),
     val assignedUnits: List<CoopRosterUnit> = listOf(
-        CoopRosterUnit("c1", "p1", "captain"),
-        CoopRosterUnit("c2", "p1", "intercessors"),
+        CoopRosterUnit("c1", "p1", "intercessors"),
+        CoopRosterUnit("c2", "p1", "assault_intercessors"),
         CoopRosterUnit("c3", "p2", "terminators"),
         CoopRosterUnit("c4", "p2", "hellblasters"),
-        CoopRosterUnit("c5", "p3", "hive_tyrant"),
-        CoopRosterUnit("c6", "p3", "warriors"),
+        CoopRosterUnit("c5", "p3", "warriors"),
+        CoopRosterUnit("c6", "p3", "von_ryans_leaper"),
         CoopRosterUnit("c7", "p4", "carnifex"),
         CoopRosterUnit("c8", "p4", "termagants")
     ),
-    val spawnAiEnemyIfSameFaction: Boolean = true
+    val spawnAiEnemyIfSameFaction: Boolean = true,
+    val remoteTemplates: Map<String, UnitTemplate>? = null
 )
 
 @Immutable

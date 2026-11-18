@@ -6,6 +6,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.displayCutoutPadding
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -24,6 +26,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CutCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -316,115 +319,167 @@ private fun SetupHeader(
                     modifier = Modifier.weight(1f)
                 )
 
-                OutlinedButton(
-                    onClick = onToggleSide,
-                    shape = grimdarkBevelShape(5.dp),
-                    border = BorderStroke(1.dp, pal.trimBorder),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        containerColor = pal.buttonSurface,
-                        contentColor = pal.headerText
-                    ),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                    modifier = Modifier
-                        .height(34.dp)
-                        .testTag("toggle_side_button")
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.Default.SwapHoriz, contentDescription = "Switch Faction", modifier = Modifier.size(14.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text(
-                        text = "PLAY: ${state.playerFaction.displayName.uppercase()}",
-                        style = MaterialTheme.typography.labelSmall,
-                        maxLines = 1,
-                        softWrap = false
-                    )
-                }
+                    OutlinedButton(
+                        onClick = onToggleSide,
+                        shape = grimdarkBevelShape(5.dp),
+                        border = BorderStroke(1.dp, pal.trimBorder),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = pal.buttonSurface,
+                            contentColor = pal.headerText
+                        ),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                        modifier = Modifier
+                            .height(34.dp)
+                            .testTag("toggle_side_button")
+                    ) {
+                        Icon(Icons.Default.SwapHoriz, contentDescription = "Switch Faction", modifier = Modifier.size(14.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            text = "PLAY: ${state.playerFaction.displayName.uppercase()}",
+                            style = MaterialTheme.typography.labelSmall,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    }
 
-                OutlinedButton(
-                    onClick = onSave,
-                    shape = grimdarkBevelShape(5.dp),
-                    border = BorderStroke(1.dp, EmeraldBorder),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        containerColor = EmeraldSurface,
-                        contentColor = EmeraldBuff
-                    ),
-                    contentPadding = PaddingValues(horizontal = 9.dp, vertical = 4.dp),
-                    modifier = Modifier
-                        .height(34.dp)
-                        .testTag("save_setup_button")
-                ) {
-                    Icon(Icons.Default.Save, contentDescription = "Save Roster", modifier = Modifier.size(14.dp))
-                    Spacer(Modifier.width(3.dp))
-                    Text(stringResource(R.string.btn_save).uppercase(), style = MaterialTheme.typography.labelSmall, maxLines = 1, softWrap = false)
-                }
+                    OutlinedButton(
+                        onClick = onSave,
+                        shape = grimdarkBevelShape(5.dp),
+                        border = BorderStroke(1.dp, EmeraldBorder),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = EmeraldSurface,
+                            contentColor = EmeraldBuff
+                        ),
+                        contentPadding = PaddingValues(horizontal = 9.dp, vertical = 4.dp),
+                        modifier = Modifier
+                            .height(34.dp)
+                            .testTag("save_setup_button")
+                    ) {
+                        Icon(Icons.Default.Save, contentDescription = "Save Stat", modifier = Modifier.size(14.dp))
+                        Spacer(Modifier.width(3.dp))
+                        Text(stringResource(R.string.btn_save).uppercase(), style = MaterialTheme.typography.labelSmall, maxLines = 1, softWrap = false)
+                    }
 
-                OutlinedButton(
-                    onClick = onReset,
-                    shape = grimdarkBevelShape(5.dp),
-                    border = BorderStroke(1.dp, BorderSteel),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        containerColor = PanelIronTop,
-                        contentColor = TextMuted
-                    ),
-                    contentPadding = PaddingValues(horizontal = 9.dp, vertical = 4.dp),
-                    modifier = Modifier
-                        .height(34.dp)
-                        .testTag("reset_setup_button")
-                ) {
-                    Icon(Icons.Default.RestartAlt, contentDescription = "Reset Roster", modifier = Modifier.size(14.dp))
-                    Spacer(Modifier.width(3.dp))
-                    Text(stringResource(R.string.btn_reset).uppercase(), style = MaterialTheme.typography.labelSmall, maxLines = 1, softWrap = false)
-                }
+                    OutlinedButton(
+                        onClick = onReset,
+                        shape = grimdarkBevelShape(5.dp),
+                        border = BorderStroke(1.dp, BorderSteel),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = PanelIronTop,
+                            contentColor = TextMuted
+                        ),
+                        contentPadding = PaddingValues(horizontal = 9.dp, vertical = 4.dp),
+                        modifier = Modifier
+                            .height(34.dp)
+                            .testTag("reset_setup_button")
+                    ) {
+                        Icon(Icons.Default.RestartAlt, contentDescription = "Reset Roster", modifier = Modifier.size(14.dp))
+                        Spacer(Modifier.width(3.dp))
+                        Text(stringResource(R.string.btn_reset).uppercase(), style = MaterialTheme.typography.labelSmall, maxLines = 1, softWrap = false)
+                    }
 
-                Button(
-                    onClick = onDeploy,
-                    enabled = state.canDeploy,
-                    shape = grimdarkBevelShape(5.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (isMarines) MarineBright else XenosViolet,
-                        contentColor = TextPrimary
-                    ),
-                    border = BorderStroke(1.dp, pal.trimBorder),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                    modifier = Modifier
-                        .height(34.dp)
-                        .testTag("deploy_top_button")
-                ) {
-                    Text("DEPLOY", style = MaterialTheme.typography.labelSmall, maxLines = 1, softWrap = false)
-                    Spacer(Modifier.width(3.dp))
-                    Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, modifier = Modifier.size(14.dp))
+                    Button(
+                        onClick = onDeploy,
+                        enabled = state.canDeploy,
+                        shape = grimdarkBevelShape(5.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (isMarines) MarineBright else XenosViolet,
+                            contentColor = TextPrimary
+                        ),
+                        border = BorderStroke(1.dp, pal.trimBorder),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                        modifier = Modifier
+                            .height(34.dp)
+                            .testTag("deploy_top_button")
+                    ) {
+                        Text("DEPLOY", style = MaterialTheme.typography.labelSmall, maxLines = 1, softWrap = false)
+                        Spacer(Modifier.width(3.dp))
+                        Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, modifier = Modifier.size(14.dp))
+                    }
                 }
             }
 
-            // Live Army Points Summary Display at Top
+            // Live Army Points Summary Display with Progress Bars at Top
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(CutCornerShape(4.dp))
-                    .background(InputDark.copy(alpha = 0.90f))
+                    .background(InputDark.copy(alpha = 0.92f))
                     .border(1.dp, pal.trimMuted, CutCornerShape(4.dp))
                     .padding(horizontal = 10.dp, vertical = 5.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 val marineOver = state.marinePoints > state.pointLimit
                 val xenosOver = state.xenosPoints > state.pointLimit
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("ULTRAMARINES:", style = MaterialTheme.typography.labelSmall, color = MarineBright)
-                    Text(
-                        text = "${state.marinePoints} / ${state.pointLimit} PT",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (marineOver) CrimsonSoft else TextPrimary,
-                        fontWeight = FontWeight.Bold
-                    )
+                val marineLeft = (state.pointLimit - state.marinePoints).coerceAtLeast(0)
+                val xenosLeft = (state.pointLimit - state.xenosPoints).coerceAtLeast(0)
+                val marineRatio = (state.marinePoints.toFloat() / state.pointLimit.coerceAtLeast(1).toFloat()).coerceIn(0f, 1f)
+                val xenosRatio = (state.xenosPoints.toFloat() / state.pointLimit.coerceAtLeast(1).toFloat()).coerceIn(0f, 1f)
+
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("ULTRAMARINES: ${state.marinePoints} / ${state.pointLimit} PT", style = MaterialTheme.typography.labelSmall, color = MarineBright, fontWeight = FontWeight.Bold)
+                        Text(
+                            text = if (marineOver) "OVER!" else "${marineLeft} PT LEFT",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (marineOver) CrimsonSoft else EmeraldBuff,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(5.dp)
+                            .clip(CutCornerShape(2.dp))
+                            .background(PanelIronBottom)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .fillMaxWidth(marineRatio)
+                                .background(if (marineOver) CrimsonSoft else MarineBright)
+                        )
+                    }
                 }
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("XENOS SWARM:", style = MaterialTheme.typography.labelSmall, color = XenosViolet)
-                    Text(
-                        text = "${state.xenosPoints} / ${state.pointLimit} PT",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (xenosOver) CrimsonSoft else TextPrimary,
-                        fontWeight = FontWeight.Bold
-                    )
+
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("TYRANIDS: ${state.xenosPoints} / ${state.pointLimit} PT", style = MaterialTheme.typography.labelSmall, color = XenosViolet, fontWeight = FontWeight.Bold)
+                        Text(
+                            text = if (xenosOver) "OVER!" else "${xenosLeft} PT LEFT",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (xenosOver) CrimsonSoft else EmeraldBuff,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(5.dp)
+                            .clip(CutCornerShape(2.dp))
+                            .background(PanelIronBottom)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .fillMaxWidth(xenosRatio)
+                                .background(if (xenosOver) CrimsonSoft else XenosViolet)
+                        )
+                    }
                 }
             }
 
@@ -585,7 +640,7 @@ private fun FactionSetupCard(
             HorizontalDivider(color = DividerIron)
 
             Text(
-                text = if (isMarines) "DEPLOYED STRIKE FORCE (${roster.size})" else "DEPLOYED SWARM (${roster.size})",
+                text = if (isMarines) "DEPLOYED STRIKE FORCE (${roster.size})" else "DEPLOYED TYRANIDS (${roster.size})",
                 style = MaterialTheme.typography.labelSmall,
                 color = pal.badgeText
             )
@@ -623,7 +678,7 @@ private fun FactionSetupCard(
 
             Spacer(Modifier.height(2.dp))
             Text(
-                text = if (isMarines) "ARMORY REINFORCEMENTS" else "SWARM BIO-STRAINS",
+                text = if (isMarines) "ARMORY REINFORCEMENTS" else "TYRANID BIO-STRAINS",
                 style = MaterialTheme.typography.labelSmall,
                 color = TextMuted
             )
@@ -632,6 +687,7 @@ private fun FactionSetupCard(
                 CatalogUnitRow(
                     template = tpl,
                     pointColor = pal.trimBorder,
+                    canAfford = totalPoints + tpl.points <= pointLimit,
                     onEdit = { onEditTemplate(tpl.id) },
                     onAdd = { onAddUnit(tpl.id) }
                 )
@@ -744,6 +800,7 @@ private fun DeployedUnitRow(
 private fun CatalogUnitRow(
     template: UnitTemplate,
     pointColor: Color,
+    canAfford: Boolean,
     onEdit: () -> Unit,
     onAdd: () -> Unit
 ) {
@@ -763,7 +820,7 @@ private fun CatalogUnitRow(
                 Text(
                     text = template.name.uppercase(),
                     style = MaterialTheme.typography.titleSmall,
-                    color = TextPrimary,
+                    color = if (canAfford) TextPrimary else TextMuted,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -771,7 +828,7 @@ private fun CatalogUnitRow(
                 Text(
                     text = "${template.points}PT",
                     style = MaterialTheme.typography.labelSmall,
-                    color = pointColor
+                    color = if (canAfford) pointColor else CrimsonSoft
                 )
             }
             val wpnTag = if (template.mainWeaponAssault) " [ASSAULT]" else ""
@@ -800,18 +857,25 @@ private fun CatalogUnitRow(
 
         OutlinedButton(
             onClick = onAdd,
+            enabled = canAfford,
             shape = grimdarkBevelShape(4.dp),
-            border = BorderStroke(1.dp, EmeraldBorder),
+            border = BorderStroke(1.dp, if (canAfford) EmeraldBorder else DividerIron),
             colors = ButtonDefaults.outlinedButtonColors(
-                containerColor = EmeraldSurface,
-                contentColor = EmeraldBuff
+                containerColor = if (canAfford) EmeraldSurface else InputDark,
+                contentColor = if (canAfford) EmeraldBuff else TextMuted,
+                disabledContainerColor = InputDark,
+                disabledContentColor = TextMuted
             ),
             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
             modifier = Modifier.height(34.dp)
         ) {
-            Icon(Icons.Default.Add, contentDescription = "Add ${template.name}", modifier = Modifier.size(14.dp))
-            Spacer(Modifier.width(2.dp))
-            Text("ADD", style = MaterialTheme.typography.labelSmall)
+            if (canAfford) {
+                Icon(Icons.Default.Add, contentDescription = "Add ${template.name}", modifier = Modifier.size(14.dp))
+                Spacer(Modifier.width(2.dp))
+                Text("ADD", style = MaterialTheme.typography.labelSmall)
+            } else {
+                Text("LIMIT", style = MaterialTheme.typography.labelSmall)
+            }
         }
     }
 }
@@ -848,7 +912,7 @@ private fun SetupFooter(
             if (state.validationWarning == null && state.statusMessage == null) {
                 Text(
                     text = if (isMarines) "ULTRAMARINES COGITATOR READY • DEPLOY STRIKE FORCE"
-                    else "HIVE SYNAPSE LINK ARMED • UNLEASH THE SWARM",
+                    else "HIVE SYNAPSE LINK ARMED • UNLEASH THE TYRANIDS",
                     style = MaterialTheme.typography.bodySmall,
                     color = pal.badgeText
                 )

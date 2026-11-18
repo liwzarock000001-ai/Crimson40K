@@ -102,11 +102,12 @@ class ExampleRobolectricTest {
   }
 
   @Test
-  fun `coop lobby snapshot preserves room code players and assigned units`() {
+  fun `coop lobby snapshot preserves room code players point limit and assigned units`() {
     val lobbyState = com.example.model.CoopState(
       inRoom = true,
       roomCode = "739204",
       hostIp = "192.168.1.44",
+      pointLimit = 1500,
       spawnAiEnemyIfSameFaction = false
     )
     val json = com.example.engine.BattleStateSerializer.serializeCoopLobbySnapshot(lobbyState)
@@ -117,6 +118,7 @@ class ExampleRobolectricTest {
     org.junit.Assert.assertNotNull(clientApplied)
     org.junit.Assert.assertTrue(clientApplied!!.inRoom)
     assertEquals("739204", clientApplied.roomCode)
+    assertEquals(1500, clientApplied.pointLimit)
     assertEquals(4, clientApplied.players.size)
     assertEquals(lobbyState.assignedUnits.size, clientApplied.assignedUnits.size)
     org.junit.Assert.assertFalse(clientApplied.spawnAiEnemyIfSameFaction)

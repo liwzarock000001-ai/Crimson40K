@@ -68,6 +68,12 @@ class OnlineCoopViewModel(
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
 
+    private val _createError = MutableStateFlow<String?>(null)
+    val createError: StateFlow<String?> = _createError.asStateFlow()
+
+    private val _joinError = MutableStateFlow<String?>(null)
+    val joinError: StateFlow<String?> = _joinError.asStateFlow()
+
     private val _incomingActions = MutableSharedFlow<OnlineClientAction>(extraBufferCapacity = 32)
     val incomingActions = _incomingActions.asSharedFlow()
 
@@ -79,6 +85,16 @@ class OnlineCoopViewModel(
 
     fun clearError() {
         _errorMessage.value = null
+        _createError.value = null
+        _joinError.value = null
+    }
+
+    fun clearCreateError() {
+        _createError.value = null
+    }
+
+    fun clearJoinError() {
+        _joinError.value = null
     }
 
     fun createOnlineRoom(
@@ -86,17 +102,22 @@ class OnlineCoopViewModel(
         initialPlayers: List<CoopPlayer>,
         initialUnits: List<CoopRosterUnit>,
         spawnAiIfSameFaction: Boolean,
+        pointLimit: Int = 1000,
+        templates: Map<String, UnitTemplate> = emptyMap(),
         onRoomReady: (roomCode: String, assignedSlot: String, isHost: Boolean) -> Unit
     ) {
         if (_isBusy.value) return
         viewModelScope.launch {
             _isBusy.value = true
+            _createError.value = null
             _errorMessage.value = null
             val res = repository.createOnlineRoom(
                 hostName = hostName.ifBlank { displayName },
                 initialPlayers = initialPlayers,
                 initialUnits = initialUnits,
-                spawnAiIfSameFaction = spawnAiIfSameFaction
+                spawnAiIfSameFaction = spawnAiIfSameFaction,
+                pointLimit = pointLimit,
+                templates = templates
             )
             _isBusy.value = false
             res.onSuccess { code ->
@@ -104,7 +125,9 @@ class OnlineCoopViewModel(
                 startObservingRoom(code, asHost = true)
                 onRoomReady(code, "p1", true)
             }.onFailure { err ->
-                _errorMessage.value = err.message ?: "Unable to create online room."
+                val msg = err.message ?: "Unable to create online room."
+                _createError.value = msg
+                _errorMessage.value = msg
             }
         }
     }
@@ -118,11 +141,12 @@ class OnlineCoopViewModel(
         if (_isBusy.value) return
         val cleanCode = roomCode.trim()
         if (cleanCode.isBlank()) {
-            _errorMessage.value = "Please enter the 6-digit Room Code."
+            _joinError.value = "Please enter the 6-digit Room Code."
             return
         }
         viewModelScope.launch {
             _isBusy.value = true
+            _joinError.value = null
             _errorMessage.value = null
             val res = repository.joinOnlineRoomByCode(
                 roomCode = cleanCode,
@@ -136,7 +160,9 @@ class OnlineCoopViewModel(
                 startObservingRoom(cleanCode, asHost = isHost)
                 onRoomReady(cleanCode, assignedSlot, isHost)
             }.onFailure { err ->
-                _errorMessage.value = err.message ?: "Could not join Room #$cleanCode."
+                val msg = err.message ?: "Could not join Room #$cleanCode."
+                _joinError.value = msg
+                _errorMessage.value = msg
             }
         }
     }
@@ -200,13 +226,13 @@ class OnlineCoopViewModel(
         }
     }
 
-    fun syncHostLobby(coopState: CoopState) {
+    fun syncHostLobby(coopState: CoopState, templates: Map<String, UnitTemplate> = emptyMap()) {
         val code = currentRoomCode ?: coopState.roomCode
         val snap = _activeRoom.value
         if (code.isBlank() || (snap != null && snap.hostUid != currentUserId)) return
         val uidMap = snap?.playerUids ?: mapOf("p1" to currentUserId)
         viewModelScope.launch {
-            repository.updateHostLobby(code, coopState, uidMap).onFailure { err ->
+            repository.updateHostLobby(code, coopState, uidMap, templates).onFailure { err ->
                 _errorMessage.value = err.message ?: "Failed to sync room changes."
             }
         }

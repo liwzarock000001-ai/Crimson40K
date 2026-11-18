@@ -90,7 +90,9 @@ fun CoopRoomGateway(
     myRoomsState: UiState<List<OnlineRoomSummary>>,
     isBusy: Boolean,
     signedInName: String,
-    errorMessage: String?,
+    errorMessage: String? = null,
+    createErrorMessage: String? = null,
+    joinErrorMessage: String? = null,
     onBackToMenu: () -> Unit,
     onSignOut: () -> Unit,
     onUpdateHostName: (String) -> Unit,
@@ -101,7 +103,10 @@ fun CoopRoomGateway(
     onJoinByRoomCode: () -> Unit,
     onRejoinRoom: (OnlineRoomSummary) -> Unit
 ) {
-    val activeError = errorMessage?.takeIf { it.isNotBlank() } ?: state.lobbyError
+    val activeCreateError = createErrorMessage?.takeIf { it.isNotBlank() }
+    val activeJoinError = joinErrorMessage?.takeIf { it.isNotBlank() }
+        ?: errorMessage?.takeIf { it.isNotBlank() && it != createErrorMessage }
+        ?: state.lobbyError
 
     Column(
         modifier = Modifier
@@ -109,12 +114,12 @@ fun CoopRoomGateway(
             .statusBarsPadding()
             .navigationBarsPadding()
             .displayCutoutPadding()
-            .padding(horizontal = 12.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         // Cloud Online Gateway Top Bar
         GrimdarkBevelPanel(
-            cut = 7.dp,
+            cut = 6.dp,
             borderColor = ImperialGold.copy(alpha = 0.7f),
             topColor = PanelIronTop,
             bottomColor = VoidObsidian,
@@ -125,7 +130,7 @@ fun CoopRoomGateway(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
@@ -139,7 +144,7 @@ fun CoopRoomGateway(
                     ),
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
                     modifier = Modifier
-                        .height(40.dp)
+                        .height(38.dp)
                         .testTag("coop_gateway_back_menu")
                 ) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", modifier = Modifier.size(16.dp))
@@ -172,7 +177,7 @@ fun CoopRoomGateway(
                         .clip(CutCornerShape(4.dp))
                         .background(InputDark)
                         .border(1.dp, EmeraldBorder.copy(alpha = 0.75f), CutCornerShape(4.dp))
-                        .padding(horizontal = 8.dp, vertical = 5.dp)
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
                 ) {
                     Icon(Icons.Default.Public, contentDescription = null, tint = EmeraldBuff, modifier = Modifier.size(14.dp))
                     Text(
@@ -195,7 +200,7 @@ fun CoopRoomGateway(
                     ),
                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                     modifier = Modifier
-                        .height(40.dp)
+                        .height(38.dp)
                         .testTag("coop_sign_out_button")
                 ) {
                     Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = "Sign Out", modifier = Modifier.size(15.dp))
@@ -215,15 +220,16 @@ fun CoopRoomGateway(
             if (isWide) {
                 Row(
                     modifier = Modifier.fillMaxSize(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     CreateOnlineRoomPanel(
                         commanderName = state.hostCommanderName,
                         isBusy = isBusy,
+                        createError = activeCreateError,
                         onUpdateName = onUpdateHostName,
                         onCreateRoom = onCreateOnlineRoom,
                         modifier = Modifier
-                            .weight(0.45f)
+                            .weight(0.44f)
                             .fillMaxHeight()
                     )
 
@@ -231,14 +237,14 @@ fun CoopRoomGateway(
                         state = state,
                         myRoomsState = myRoomsState,
                         isBusy = isBusy,
-                        activeError = activeError,
+                        joinError = activeJoinError,
                         onUpdateJoinName = onUpdateJoinName,
                         onUpdateRoomCodeInput = onUpdateRoomCodeInput,
                         onSelectClientSlot = onSelectClientSlot,
                         onJoinByRoomCode = onJoinByRoomCode,
                         onRejoinRoom = onRejoinRoom,
                         modifier = Modifier
-                            .weight(0.55f)
+                            .weight(0.56f)
                             .fillMaxHeight()
                     )
                 }
@@ -252,6 +258,7 @@ fun CoopRoomGateway(
                     CreateOnlineRoomPanel(
                         commanderName = state.hostCommanderName,
                         isBusy = isBusy,
+                        createError = activeCreateError,
                         onUpdateName = onUpdateHostName,
                         onCreateRoom = onCreateOnlineRoom,
                         modifier = Modifier.fillMaxWidth()
@@ -260,7 +267,7 @@ fun CoopRoomGateway(
                         state = state,
                         myRoomsState = myRoomsState,
                         isBusy = isBusy,
-                        activeError = activeError,
+                        joinError = activeJoinError,
                         onUpdateJoinName = onUpdateJoinName,
                         onUpdateRoomCodeInput = onUpdateRoomCodeInput,
                         onSelectClientSlot = onSelectClientSlot,
@@ -280,12 +287,13 @@ fun CoopRoomGateway(
 private fun CreateOnlineRoomPanel(
     commanderName: String,
     isBusy: Boolean,
+    createError: String?,
     onUpdateName: (String) -> Unit,
     onCreateRoom: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     GrimdarkBevelPanel(
-        cut = 9.dp,
+        cut = 8.dp,
         borderColor = ImperialGold.copy(alpha = 0.85f),
         topColor = CardSlate,
         bottomColor = VoidObsidian,
@@ -296,33 +304,36 @@ private fun CreateOnlineRoomPanel(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Image(
                     painter = painterResource(id = R.drawable.img_marine_crest),
                     contentDescription = "Host Crest",
                     contentScale = ContentScale.Crop,
                     modifier = Modifier
-                        .size(44.dp)
-                        .clip(CutCornerShape(6.dp))
-                        .border(1.2.dp, ImperialGold, CutCornerShape(6.dp))
+                        .size(34.dp)
+                        .clip(CutCornerShape(5.dp))
+                        .border(1.2.dp, ImperialGold, CutCornerShape(5.dp))
                 )
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "CREATE ONLINE ROOM",
-                        style = MaterialTheme.typography.titleMedium,
+                        style = MaterialTheme.typography.titleSmall,
                         color = ImperialGold,
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = "Host central command & share a 6-digit Room Code worldwide",
+                        text = "Host 4P match & share 6-digit code",
                         style = MaterialTheme.typography.labelSmall,
-                        color = TextMuted
+                        color = TextMuted,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
@@ -348,22 +359,43 @@ private fun CreateOnlineRoomPanel(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(CutCornerShape(6.dp))
+                    .clip(CutCornerShape(4.dp))
                     .background(InputDark)
-                    .border(1.dp, TacticalCyan.copy(alpha = 0.6f), CutCornerShape(6.dp))
-                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                    .border(1.dp, TacticalCyan.copy(alpha = 0.5f), CutCornerShape(4.dp))
+                    .padding(horizontal = 8.dp, vertical = 5.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                Icon(Icons.Default.CloudQueue, contentDescription = null, tint = TacticalCyan, modifier = Modifier.size(18.dp))
+                Icon(Icons.Default.CloudQueue, contentDescription = null, tint = TacticalCyan, modifier = Modifier.size(15.dp))
                 Text(
-                    text = "Friends can join from any network or mobile data using your Room Code — no shared Wi-Fi required.",
+                    text = "Friends can join over internet/mobile data without local Wi-Fi.",
                     style = MaterialTheme.typography.labelSmall,
                     color = TextMuted
                 )
             }
 
-            Spacer(Modifier.weight(1f, fill = true))
+            // Create Error Banner (displays ONLY on Create panel if error happens)
+            createError?.let { err ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(CutCornerShape(4.dp))
+                        .background(CrimsonDeep.copy(alpha = 0.85f))
+                        .border(1.dp, CrimsonSoft, CutCornerShape(4.dp))
+                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(Icons.Default.ErrorOutline, contentDescription = null, tint = CrimsonSoft, modifier = Modifier.size(15.dp))
+                    Text(
+                        text = err,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = TextPrimary
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(2.dp))
 
             Button(
                 onClick = onCreateRoom,
@@ -374,22 +406,22 @@ private fun CreateOnlineRoomPanel(
                     contentColor = EmeraldBuff
                 ),
                 border = BorderStroke(1.5.dp, EmeraldBorder),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(50.dp)
+                    .height(46.dp)
                     .testTag("coop_create_room_button")
             ) {
                 if (isBusy) {
                     CircularProgressIndicator(
                         color = EmeraldBuff,
                         strokeWidth = 2.dp,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(16.dp)
                     )
                     Spacer(Modifier.width(8.dp))
                     Text("CREATING ROOM...", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                 } else {
-                    Icon(Icons.Default.AddCircleOutline, contentDescription = null, modifier = Modifier.size(20.dp))
+                    Icon(Icons.Default.AddCircleOutline, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
                     Text("CREATE ONLINE ROOM", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                 }
@@ -403,7 +435,7 @@ private fun JoinOnlineRoomPanel(
     state: CoopState,
     myRoomsState: UiState<List<OnlineRoomSummary>>,
     isBusy: Boolean,
-    activeError: String?,
+    joinError: String?,
     onUpdateJoinName: (String) -> Unit,
     onUpdateRoomCodeInput: (String) -> Unit,
     onSelectClientSlot: (String) -> Unit,
@@ -412,7 +444,7 @@ private fun JoinOnlineRoomPanel(
     modifier: Modifier = Modifier
 ) {
     GrimdarkBevelPanel(
-        cut = 9.dp,
+        cut = 8.dp,
         borderColor = TacticalCyan.copy(alpha = 0.8f),
         topColor = PanelCharcoal,
         bottomColor = VoidObsidian,
@@ -420,264 +452,279 @@ private fun JoinOnlineRoomPanel(
         showRivets = false,
         modifier = modifier
     ) {
-        Column(
+        LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(14.dp),
+                .padding(horizontal = 12.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Icon(Icons.Default.Key, contentDescription = null, tint = TacticalCyan, modifier = Modifier.size(22.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "JOIN BY ROOM CODE",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = TacticalCyan,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        text = "Enter a friend's 6-digit Room Code or rejoin your recent rooms",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = TextMuted
-                    )
+            item {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(Icons.Default.Key, contentDescription = null, tint = TacticalCyan, modifier = Modifier.size(18.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "JOIN BY ROOM CODE",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = TacticalCyan,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "Enter a friend's 6-digit Room Code",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = TextMuted,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
             }
 
-            HorizontalDivider(color = DividerIron)
+            item {
+                HorizontalDivider(color = DividerIron)
+            }
 
             // Room Code Input + Primary JOIN Button
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                OutlinedTextField(
-                    value = state.joinRoomCodeInput,
-                    onValueChange = onUpdateRoomCodeInput,
-                    label = { Text("Room Code (เลขห้อง)", style = MaterialTheme.typography.labelSmall) },
-                    placeholder = { Text("e.g. 482915", color = TextMuted) },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = TacticalCyan,
-                        unfocusedBorderColor = BorderSteel,
-                        focusedTextColor = TextPrimary,
-                        unfocusedTextColor = TextPrimary,
-                        focusedContainerColor = InputDark,
-                        unfocusedContainerColor = InputDark
-                    ),
-                    modifier = Modifier
-                        .weight(1f)
-                        .testTag("coop_room_code_input")
-                )
-
-                Button(
-                    onClick = onJoinByRoomCode,
-                    enabled = !isBusy,
-                    shape = grimdarkBevelShape(6.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = PanelIronTop,
-                        contentColor = TacticalCyan
-                    ),
-                    border = BorderStroke(1.5.dp, TacticalCyan),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
-                    modifier = Modifier
-                        .height(54.dp)
-                        .testTag("coop_join_room_button")
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.AutoMirrored.Filled.Login, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("JOIN", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, maxLines = 1)
+                    OutlinedTextField(
+                        value = state.joinRoomCodeInput,
+                        onValueChange = onUpdateRoomCodeInput,
+                        label = { Text("Room Code (เลขห้อง)", style = MaterialTheme.typography.labelSmall) },
+                        placeholder = { Text("e.g. 482915", color = TextMuted) },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = TacticalCyan,
+                            unfocusedBorderColor = BorderSteel,
+                            focusedTextColor = TextPrimary,
+                            unfocusedTextColor = TextPrimary,
+                            focusedContainerColor = InputDark,
+                            unfocusedContainerColor = InputDark
+                        ),
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("coop_room_code_input")
+                    )
+
+                    Button(
+                        onClick = onJoinByRoomCode,
+                        enabled = !isBusy,
+                        shape = grimdarkBevelShape(6.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = PanelIronTop,
+                            contentColor = TacticalCyan
+                        ),
+                        border = BorderStroke(1.5.dp, TacticalCyan),
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                        modifier = Modifier
+                            .height(50.dp)
+                            .testTag("coop_join_room_button")
+                    ) {
+                        if (isBusy) {
+                            CircularProgressIndicator(
+                                color = TacticalCyan,
+                                strokeWidth = 2.dp,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        } else {
+                            Icon(Icons.AutoMirrored.Filled.Login, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("JOIN", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, maxLines = 1)
+                        }
+                    }
                 }
             }
 
             // Callsign + Player Slot Row
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                OutlinedTextField(
-                    value = state.joinCommanderName,
-                    onValueChange = onUpdateJoinName,
-                    label = { Text("Your Callsign", style = MaterialTheme.typography.labelSmall) },
-                    singleLine = true,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = TacticalCyan,
-                        unfocusedBorderColor = BorderSteel,
-                        focusedTextColor = TextPrimary,
-                        unfocusedTextColor = TextPrimary,
-                        focusedContainerColor = InputDark,
-                        unfocusedContainerColor = InputDark
-                    ),
-                    modifier = Modifier.weight(1f)
-                )
-
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text("PREFERRED SLOT", style = MaterialTheme.typography.labelSmall, color = TextMuted)
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        listOf("p2", "p3", "p4").forEach { pid ->
-                            val selected = state.localPlayerId == pid || (state.localPlayerId == "p1" && pid == "p2")
-                            Box(
-                                modifier = Modifier
-                                    .height(34.dp)
-                                    .clip(CutCornerShape(4.dp))
-                                    .background(if (selected) TacticalCyan.copy(alpha = 0.22f) else InputDark)
-                                    .border(1.dp, if (selected) TacticalCyan else BorderSteel, CutCornerShape(4.dp))
-                                    .clickable { onSelectClientSlot(pid) }
-                                    .padding(horizontal = 10.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = pid.uppercase(),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = if (selected) TacticalCyan else TextMuted,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Inline Error Banner if Join Failed or Room Not Found
-            activeError?.let { err ->
+            item {
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(CutCornerShape(5.dp))
-                        .background(CrimsonDeep.copy(alpha = 0.7f))
-                        .border(1.dp, CrimsonSoft, CutCornerShape(5.dp))
-                        .padding(horizontal = 10.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.Default.ErrorOutline, contentDescription = null, tint = CrimsonSoft, modifier = Modifier.size(16.dp))
-                    Text(
-                        text = err,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = TextPrimary
+                    OutlinedTextField(
+                        value = state.joinCommanderName,
+                        onValueChange = onUpdateJoinName,
+                        label = { Text("Your Callsign", style = MaterialTheme.typography.labelSmall) },
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = TacticalCyan,
+                            unfocusedBorderColor = BorderSteel,
+                            focusedTextColor = TextPrimary,
+                            unfocusedTextColor = TextPrimary,
+                            focusedContainerColor = InputDark,
+                            unfocusedContainerColor = InputDark
+                        ),
+                        modifier = Modifier.weight(1f)
                     )
-                }
-            }
 
-            val roomCount = (myRoomsState as? UiState.Success)?.data?.size ?: 0
-            Text(
-                text = "YOUR ONLINE ROOMS ($roomCount)",
-                style = MaterialTheme.typography.labelSmall,
-                color = ImperialGold,
-                fontWeight = FontWeight.Bold
-            )
-
-            LazyColumn(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                when (myRoomsState) {
-                    is UiState.Loading -> {
-                        item {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(CutCornerShape(5.dp))
-                                    .background(InputDark)
-                                    .border(1.dp, DividerIron, CutCornerShape(5.dp))
-                                    .padding(10.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                CircularProgressIndicator(color = TacticalCyan, strokeWidth = 2.dp, modifier = Modifier.size(16.dp))
-                                Text("Syncing online rooms...", style = MaterialTheme.typography.labelSmall, color = TextMuted)
-                            }
-                        }
-                    }
-                    is UiState.Error -> {
-                        item {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(CutCornerShape(5.dp))
-                                    .background(CrimsonDeep.copy(alpha = 0.55f))
-                                    .border(1.dp, CrimsonSoft, CutCornerShape(5.dp))
-                                    .padding(10.dp)
-                            ) {
-                                Text(myRoomsState.message, style = MaterialTheme.typography.labelSmall, color = TextPrimary)
-                            }
-                        }
-                    }
-                    is UiState.Success -> {
-                        val rooms = myRoomsState.data.filter { it.status != "FINISHED" }
-                        if (rooms.isEmpty()) {
-                            item {
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text("PREFERRED SLOT", style = MaterialTheme.typography.labelSmall, color = TextMuted)
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            listOf("p2", "p3", "p4").forEach { pid ->
+                                val selected = state.localPlayerId == pid || (state.localPlayerId == "p1" && pid == "p2")
                                 Box(
                                     modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(CutCornerShape(5.dp))
-                                        .background(InputDark)
-                                        .border(1.dp, DividerIron, CutCornerShape(5.dp))
-                                        .padding(10.dp)
+                                        .height(32.dp)
+                                        .clip(CutCornerShape(4.dp))
+                                        .background(if (selected) TacticalCyan.copy(alpha = 0.22f) else InputDark)
+                                        .border(1.dp, if (selected) TacticalCyan else BorderSteel, CutCornerShape(4.dp))
+                                        .clickable { onSelectClientSlot(pid) }
+                                        .padding(horizontal = 8.dp),
+                                    contentAlignment = Alignment.Center
                                 ) {
                                     Text(
-                                        text = "No active cloud rooms yet. Tap CREATE ONLINE ROOM or enter your friend's 6-digit Room Code above.",
+                                        text = pid.uppercase(),
                                         style = MaterialTheme.typography.labelSmall,
-                                        color = TextMuted
+                                        color = if (selected) TacticalCyan else TextMuted,
+                                        fontWeight = FontWeight.Bold
                                     )
                                 }
                             }
-                        } else {
-                            items(rooms, key = { it.roomCode }) { room ->
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(CutCornerShape(5.dp))
-                                        .background(RowSlate)
-                                        .border(1.dp, TacticalCyan.copy(alpha = 0.55f), CutCornerShape(5.dp))
-                                        .padding(horizontal = 10.dp, vertical = 7.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    Icon(Icons.Default.Groups, contentDescription = null, tint = ImperialGold, modifier = Modifier.size(18.dp))
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                            Text(
-                                                text = "ROOM #${room.roomCode}",
-                                                style = MaterialTheme.typography.labelMedium,
-                                                color = ImperialGold,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                            Text(
-                                                text = "${room.memberCount}/4 • ${room.status}",
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = EmeraldBuff
-                                            )
-                                        }
+                        }
+                    }
+                }
+            }
+
+            // Inline Join Error Banner
+            if (!joinError.isNullOrBlank()) {
+                item {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(CutCornerShape(4.dp))
+                            .background(CrimsonDeep.copy(alpha = 0.85f))
+                            .border(1.dp, CrimsonSoft, CutCornerShape(4.dp))
+                            .padding(horizontal = 8.dp, vertical = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(Icons.Default.ErrorOutline, contentDescription = null, tint = CrimsonSoft, modifier = Modifier.size(15.dp))
+                        Text(
+                            text = joinError,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = TextPrimary
+                        )
+                    }
+                }
+            }
+
+            item {
+                val roomCount = (myRoomsState as? UiState.Success)?.data?.size ?: 0
+                Text(
+                    text = "YOUR ONLINE ROOMS ($roomCount)",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = ImperialGold,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            when (myRoomsState) {
+                is UiState.Loading -> {
+                    item {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(CutCornerShape(4.dp))
+                                .background(InputDark)
+                                .border(1.dp, DividerIron, CutCornerShape(4.dp))
+                                .padding(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            CircularProgressIndicator(color = TacticalCyan, strokeWidth = 2.dp, modifier = Modifier.size(14.dp))
+                            Text("Syncing online rooms...", style = MaterialTheme.typography.labelSmall, color = TextMuted)
+                        }
+                    }
+                }
+                is UiState.Error -> {
+                    item {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(CutCornerShape(4.dp))
+                                .background(CrimsonDeep.copy(alpha = 0.55f))
+                                .border(1.dp, CrimsonSoft, CutCornerShape(4.dp))
+                                .padding(8.dp)
+                        ) {
+                            Text(myRoomsState.message, style = MaterialTheme.typography.labelSmall, color = TextPrimary)
+                        }
+                    }
+                }
+                is UiState.Success -> {
+                    val rooms = myRoomsState.data.filter { it.status != "FINISHED" }
+                    if (rooms.isEmpty()) {
+                        item {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(CutCornerShape(4.dp))
+                                    .background(InputDark)
+                                    .border(1.dp, DividerIron, CutCornerShape(4.dp))
+                                    .padding(8.dp)
+                            ) {
+                                Text(
+                                    text = "No active cloud rooms yet. Tap CREATE ONLINE ROOM or enter your friend's 6-digit Room Code above.",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = TextMuted
+                                )
+                            }
+                        }
+                    } else {
+                        items(rooms, key = { it.roomCode }) { room ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(CutCornerShape(4.dp))
+                                    .background(RowSlate)
+                                    .border(1.dp, TacticalCyan.copy(alpha = 0.55f), CutCornerShape(4.dp))
+                                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(Icons.Default.Groups, contentDescription = null, tint = ImperialGold, modifier = Modifier.size(16.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                         Text(
-                                            text = "Host: ${room.hostName}",
+                                            text = "ROOM #${room.roomCode}",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = ImperialGold,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Text(
+                                            text = "${room.memberCount}/4 • ${room.status}",
                                             style = MaterialTheme.typography.labelSmall,
-                                            color = WarmAmber,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
+                                            color = EmeraldBuff
                                         )
                                     }
-                                    OutlinedButton(
-                                        onClick = { onRejoinRoom(room) },
-                                        enabled = !isBusy,
-                                        shape = grimdarkBevelShape(4.dp),
-                                        border = BorderStroke(1.dp, EmeraldBorder),
-                                        colors = ButtonDefaults.outlinedButtonColors(
-                                            containerColor = EmeraldSurface,
-                                            contentColor = EmeraldBuff
-                                        ),
-                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
-                                        modifier = Modifier.height(32.dp)
-                                    ) {
-                                        Text("OPEN", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                                    }
+                                    Text(
+                                        text = "Host: ${room.hostName}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = WarmAmber,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                                OutlinedButton(
+                                    onClick = { onRejoinRoom(room) },
+                                    enabled = !isBusy,
+                                    shape = grimdarkBevelShape(4.dp),
+                                    border = BorderStroke(1.dp, EmeraldBorder),
+                                    colors = ButtonDefaults.outlinedButtonColors(
+                                        containerColor = EmeraldSurface,
+                                        contentColor = EmeraldBuff
+                                    ),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                    modifier = Modifier.height(30.dp)
+                                ) {
+                                    Text("OPEN", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
                                 }
                             }
                         }

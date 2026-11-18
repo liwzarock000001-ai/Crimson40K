@@ -42,6 +42,7 @@ object BattleStateSerializer {
                 put("buffTurnsLeft", u.buffTurnsLeft)
                 put("activeBuffLabel", u.activeBuffLabel ?: "")
                 put("damageReductionTurns", u.damageReductionTurns)
+                put("stealthTurnsLeft", u.stealthTurnsLeft)
                 put("auraBuffed", u.auraBuffed)
                 put("kills", u.kills)
                 put("damageDealt", u.damageDealt)
@@ -89,6 +90,7 @@ object BattleStateSerializer {
                         buffTurnsLeft = o.optInt("buffTurnsLeft", 0),
                         activeBuffLabel = buffLabel.ifBlank { null },
                         damageReductionTurns = o.optInt("damageReductionTurns", 0),
+                        stealthTurnsLeft = o.optInt("stealthTurnsLeft", 0),
                         auraBuffed = o.optBoolean("auraBuffed", false),
                         kills = o.optInt("kills", 0),
                         damageDealt = o.optInt("damageDealt", 0),
@@ -219,6 +221,7 @@ object BattleStateSerializer {
         obj.put("roomCode", state.roomCode)
         obj.put("hostIp", state.hostIp)
         obj.put("port", state.port)
+        obj.put("pointLimit", state.pointLimit)
         obj.put("spawnAiEnemyIfSameFaction", state.spawnAiEnemyIfSameFaction)
         obj.put("networkStatus", state.networkStatus)
 
@@ -283,6 +286,7 @@ object BattleStateSerializer {
                 roomCode = o.optString("roomCode", current.roomCode),
                 hostIp = o.optString("hostIp", current.hostIp),
                 port = o.optInt("port", current.port),
+                pointLimit = o.optInt("pointLimit", current.pointLimit).coerceIn(500, 5000),
                 spawnAiEnemyIfSameFaction = o.optBoolean("spawnAiEnemyIfSameFaction", current.spawnAiEnemyIfSameFaction),
                 networkStatus = o.optString("networkStatus", current.networkStatus),
                 lobbyError = null,

@@ -239,7 +239,7 @@ class TacticalEngineTest {
     fun advanceRollsD6AndBlocksChargeAndNonAssaultWeapons() {
         val (roll, bonusCm) = TacticalRules.rollAdvanceBonus(Random(42))
         assertTrue(roll in 1..6)
-        assertEquals(roll * TacticalRules.CM_PER_TILE, bonusCm, 0.01f)
+        assertEquals(roll.toFloat(), bonusCm, 0.01f)
 
         val intercessorTpl = DefaultCatalog.defaultTemplates.first { it.id == "intercessors" } // Assault = true
         val hellblasterTpl = DefaultCatalog.defaultTemplates.first { it.id == "hellblasters" } // Assault = false
@@ -422,6 +422,57 @@ class TacticalEngineTest {
         val deadDefender = survivor.copy(totalWounds = 0)
         assertEquals(null, TacticalRules.resolveMeleeCounterAttack(deadDefender, attacker, map, Random(7)))
     }
+
+    @Test
+    fun vonRyansLeaperPassivesCloakAndTargetWeaponNameWork() {
+        val map = MapGenerator.generateSectorMap(1L)
+        val intercessorTpl = DefaultCatalog.defaultTemplates.first { it.id == "intercessors" }
+        val leaperTpl = DefaultCatalog.defaultTemplates.first { it.id == "von_ryans_leaper" }
+
+        val shooter = BattleUnit("m1", intercessorTpl, Faction.MARINES, 2, 6, Facing.EAST, intercessorTpl.maxTotalWounds, intercessorTpl.maxTotalWounds, 15f)
+        val leaper = BattleUnit("x_vr", leaperTpl, Faction.XENOS, 4, 6, Facing.WEST, leaperTpl.maxTotalWounds, leaperTpl.maxTotalWounds, 20f)
+
+        // Ranged shot at Von Ryan's Leaper has -1 BS (+1 to hit roll needed: stationary 2+ becomes 3+)
+        val rangedPreview = TacticalRules.canTarget(shooter, leaper, WeaponMode.MAIN, map, listOf(shooter, leaper))
+        assertNotNull(rangedPreview)
+        assertFalse(rangedPreview!!.isMelee)
+        assertEquals(3, rangedPreview.hitRollNeeded)
+        assertEquals(intercessorTpl.mainWeaponName, rangedPreview.weaponName)
+
+        // Activate Chameleonic Cloak (1 turn invisible, 3 turn cooldown)
+        val cloakedLeaper = TacticalRules.activateSelfSkillIfApplicable(leaper)
+        assertNotNull(cloakedLeaper)
+        assertEquals(1, cloakedLeaper!!.stealthTurnsLeft)
+        assertEquals(3, cloakedLeaper.skillCooldownLeft)
+        assertTrue(cloakedLeaper.isCloaked)
+
+        // Cloaked Leaper cannot be targeted in ranged, melee, charge, or counter-attack
+        assertEquals(null, TacticalRules.canTarget(shooter, cloakedLeaper, WeaponMode.MAIN, map, listOf(shooter, cloakedLeaper)))
+        val adjMarine = shooter.copy(x = 3, y = 6, worldX = 3f, worldY = 6f)
+        assertEquals(null, TacticalRules.canTarget(adjMarine, cloakedLeaper, WeaponMode.MAIN, map, listOf(adjMarine, cloakedLeaper)))
+        assertEquals(null, TacticalRules.findChargeEngagementSpot(shooter, cloakedLeaper, listOf(shooter, cloakedLeaper), map))
+        assertEquals(null, TacticalRules.resolveMeleeCounterAttack(adjMarine, cloakedLeaper, map, Random(1)))
+    }
+
+    @Test
+    fun chargeRespectsMax12CmPerPipDistance() {
+        val map = MapGenerator.generateSectorMap(1L)
+        val intercessorTpl = DefaultCatalog.defaultTemplates.first { it.id == "intercessors" }
+        val warriorTpl = DefaultCatalog.defaultTemplates.first { it.id == "warriors" }
+
+        // 4 tiles = 12.0 cm center-to-center; adjacent engagement spot sits ~1.1 tiles from enemy (<= 12 cm) -> valid
+        val chargerNear = BattleUnit("m_near", intercessorTpl, Faction.MARINES, 5, 5, Facing.EAST, intercessorTpl.maxTotalWounds, intercessorTpl.maxTotalWounds, 0f)
+        val enemy = BattleUnit("x1", warriorTpl, Faction.XENOS, 9, 5, Facing.WEST, warriorTpl.maxTotalWounds, warriorTpl.maxTotalWounds, 15f)
+        val nearPreview = TacticalRules.findChargeEngagementSpot(chargerNear, enemy, listOf(chargerNear, enemy), map)
+        assertNotNull(nearPreview)
+        assertTrue(nearPreview!!.distanceCm <= 12.0f)
+
+        // 6 tiles away = ~15+ cm needed even to reach adjacent engagement tile -> > 12 cm, denied!
+        val chargerFar = BattleUnit("m_far", intercessorTpl, Faction.MARINES, 2, 5, Facing.EAST, intercessorTpl.maxTotalWounds, intercessorTpl.maxTotalWounds, 0f)
+        val farPreview = TacticalRules.findChargeEngagementSpot(chargerFar, enemy, listOf(chargerFar, enemy), map)
+        assertEquals(null, farPreview)
+    }
 }
+
 
 

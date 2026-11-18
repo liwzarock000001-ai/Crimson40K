@@ -122,6 +122,7 @@ class MainActivity : ComponentActivity() {
                                 onConfirmStrike = vm::confirmStrike,
                                 onSelectWeaponMode = vm::selectWeaponMode,
                                 onRotateUnit = vm::rotateSelectedUnit,
+                                onFightFirst = vm::triggerFightFirst,
                                 onEndTurn = vm::endPlayerTurn,
                                 onToggleAutoFocus = vm::toggleAutoFocus,
                                 onCenterCamera = vm::centerCamera,
@@ -206,6 +207,8 @@ private fun CoopFlowHost(
             val activeRoom by onlineVm.activeRoom.collectAsStateWithLifecycle()
             val isOnlineBusy by onlineVm.isBusy.collectAsStateWithLifecycle()
             val onlineError by onlineVm.errorMessage.collectAsStateWithLifecycle()
+            val onlineCreateError by onlineVm.createError.collectAsStateWithLifecycle()
+            val onlineJoinError by onlineVm.joinError.collectAsStateWithLifecycle()
 
             LaunchedEffect(user.uid, onlineDisplayName) {
                 if (coopState.hostCommanderName == "Commander 1") {
@@ -217,8 +220,8 @@ private fun CoopFlowHost(
             }
 
             DisposableEffect(onlineVm, vm) {
-                vm.onlineLobbySyncPublisher = { st ->
-                    onlineVm.syncHostLobby(st)
+                vm.onlineLobbySyncPublisher = { st, templates ->
+                    onlineVm.syncHostLobby(st, templates)
                 }
                 vm.onlineHostStatePublisher = { st, templates ->
                     onlineVm.publishBattleState(st, templates)
@@ -241,7 +244,9 @@ private fun CoopFlowHost(
                     players = room.players,
                     assignedUnits = room.assignedUnits,
                     spawnAi = room.spawnAiEnemyIfSameFaction,
-                    status = room.status
+                    status = room.status,
+                    customTemplates = room.customTemplates,
+                    pointLimit = room.pointLimit
                 )
                 if (room.hostUid != user.uid) {
                     val bMap = room.battleMap
@@ -268,6 +273,12 @@ private fun CoopFlowHost(
                 }
             }
 
+            val activeCoopTemplates = if (coopState.networkRole == com.example.model.CoopNetworkRole.CLIENT) {
+                coopState.remoteTemplates ?: setupState.templates
+            } else {
+                setupState.templates
+            }
+
             Crossfade(targetState = currentScreen, label = "coop_navigation") { coopScreen ->
                 if (coopScreen == AppScreen.COOP_BATTLE) {
                     BattleScreen(
@@ -285,6 +296,7 @@ private fun CoopFlowHost(
                         onConfirmStrike = vm::confirmStrike,
                         onSelectWeaponMode = vm::selectWeaponMode,
                         onRotateUnit = vm::rotateSelectedUnit,
+                        onFightFirst = vm::triggerFightFirst,
                         onEndTurn = vm::endPlayerTurn,
                         onToggleAutoFocus = vm::toggleAutoFocus,
                         onCenterCamera = vm::centerCamera,
@@ -301,7 +313,7 @@ private fun CoopFlowHost(
                             )
                             onlineVm.leaveActiveRoom(
                                 finalInactiveBattle = inactiveBattle,
-                                templates = setupState.templates
+                                templates = activeCoopTemplates
                             )
                             vm.returnToSetup()
                         }
@@ -309,11 +321,16 @@ private fun CoopFlowHost(
                 } else {
                     CoopLobbyScreen(
                         state = coopState,
-                        templates = setupState.templates,
+                        templates = activeCoopTemplates,
+                        allTemplates = setupState.templates,
+                        editingTemplateId = setupState.editingTemplateId,
+                        statStatusMessage = setupState.statusMessage,
                         myRoomsState = myRoomsState,
                         isBusy = isOnlineBusy,
                         signedInName = onlineDisplayName,
                         onlineErrorMessage = onlineError,
+                        createErrorMessage = onlineCreateError,
+                        joinErrorMessage = onlineJoinError,
                         onBackToMenu = {
                             onlineVm.leaveActiveRoom()
                             vm.leaveCoopRoom()
@@ -370,7 +387,9 @@ private fun CoopFlowHost(
                                 hostName = coopState.hostCommanderName.ifBlank { onlineDisplayName },
                                 initialPlayers = preparedPlayers,
                                 initialUnits = coopState.assignedUnits,
-                                spawnAiIfSameFaction = coopState.spawnAiEnemyIfSameFaction
+                                spawnAiIfSameFaction = coopState.spawnAiEnemyIfSameFaction,
+                                pointLimit = coopState.pointLimit,
+                                templates = setupState.templates
                             ) { roomCode, slot, isHost ->
                                 vm.enterOnlineRoom(roomCode, slot, isHost)
                             }
@@ -395,10 +414,16 @@ private fun CoopFlowHost(
                         onUpdatePlayerFaction = vm::updateCoopPlayerFaction,
                         onCycleSlotMode = vm::cycleCoopPlayerSlotMode,
                         onSelectConfigPlayer = vm::selectCoopConfigPlayer,
+                        onSetPointLimit = vm::setCoopPointLimit,
                         onAddUnitForPlayer = vm::addCoopUnitForPlayer,
                         onRemoveCoopUnit = vm::removeCoopUnit,
                         onToggleAiOpposition = vm::toggleCoopAiOpposition,
                         onSelectLocalClientSlot = vm::selectLocalClientPlayerId,
+                        onOpenStatEditor = vm::openStatEditor,
+                        onCloseStatEditor = vm::closeStatEditor,
+                        onSaveEditedTemplate = vm::saveEditedTemplate,
+                        onSaveSetup = vm::saveSetupToDatabase,
+                        onResetSetup = vm::resetSetupToDefaults,
                         onStartCoopMatch = vm::startCoopMatch
                     )
                 }

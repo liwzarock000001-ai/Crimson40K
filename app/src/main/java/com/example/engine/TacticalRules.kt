@@ -437,6 +437,7 @@ object TacticalRules {
             WeaponMode.SKILL -> when (attacker.template.archetype) {
                 UnitArchetype.TERMINATOR -> attacker.skillCooldownLeft == 0 && !attacker.hasAdvanced && !attacker.hasCharged && !inMelee
                 UnitArchetype.HORMAGAUNT -> attacker.skillCooldownLeft == 0 && !attacker.hasCharged
+                UnitArchetype.VON_RYANS_LEAPER -> attacker.skillCooldownLeft == 0 && !attacker.isCloaked
                 else -> {
                     val isMeleeSkill = weaponRange(attacker, mode) <= 1
                     if (isMeleeSkill) {
@@ -454,9 +455,31 @@ object TacticalRules {
         }
     }
 
+    fun weaponDisplayName(attacker: BattleUnit, mode: WeaponMode, isMelee: Boolean): String = when (mode) {
+        WeaponMode.PISTOL -> attacker.template.pistolWeaponName
+        WeaponMode.SKILL -> when (attacker.template.archetype) {
+            UnitArchetype.HELLBLASTER -> "${attacker.template.mainWeaponName} (Supercharge)"
+            UnitArchetype.CARNIFEX -> "Bio-Plasma Blast"
+            UnitArchetype.HIVE_TYRANT -> "Psychic Scream"
+            UnitArchetype.DREADNOUGHT -> "Sweeping Barrage"
+            UnitArchetype.ASSAULT_MARINE -> "Chainsword Whirlwind"
+            else -> "${attacker.template.mainWeaponName} (${attacker.template.skillName})"
+        }
+        WeaponMode.MAIN -> {
+            if (isMelee && attacker.template.isRangedMain &&
+                attacker.template.archetype != UnitArchetype.TERMINATOR &&
+                attacker.template.archetype != UnitArchetype.DREADNOUGHT
+            ) {
+                "Close Combat Weapon"
+            } else {
+                attacker.template.mainWeaponName
+            }
+        }
+    }
+
     fun rollAdvanceBonus(rng: Random = Random.Default): Pair<Int, Float> {
         val roll = rng.nextInt(1, 7)
-        return roll to (roll * CM_PER_TILE)
+        return roll to roll.toFloat()
     }
 
     fun findChargeEngagementSpot(
@@ -465,9 +488,10 @@ object TacticalRules {
         allUnits: List<BattleUnit>,
         map: Array<Array<TerrainType>>
     ): ChargePreview? {
-        if (!charger.canCharge || !target.isAlive || charger.faction == target.faction) return null
+        if (!charger.canCharge || !target.isAlive || target.isCloaked || charger.faction == target.faction) return null
         val curDist = hypot(charger.worldX - target.worldX, charger.worldY - target.worldY)
-        if (curDist <= 1.55f || curDist > 12.45f) return null
+        val maxChargeCenterDist = (12.0f / CM_PER_TILE) + 1.55f
+        if (curDist <= 1.55f || curDist > maxChargeCenterDist) return null
 
         // Check direct straight-line charge point at 1.05 tiles from target
         val dirX = (charger.worldX - target.worldX) / curDist
@@ -478,9 +502,9 @@ object TacticalRules {
             canWalkStraightCm(charger.worldX, charger.worldY, directX, directY, charger.uid, allUnits, map)
         ) {
             val dTiles = hypot(directX - charger.worldX, directY - charger.worldY)
-            if (dTiles <= 12.0f) {
-                val dCm = dTiles * CM_PER_TILE
-                val reqRoll = ceil(dTiles.toDouble()).toInt().coerceIn(2, 12)
+            val dCm = dTiles * CM_PER_TILE
+            if (dCm <= 12.0f + 0.05f) {
+                val reqRoll = ceil(dCm.toDouble()).toInt().coerceIn(2, 12)
                 return ChargePreview(
                     targetUid = target.uid,
                     targetName = target.template.name,
@@ -495,7 +519,8 @@ object TacticalRules {
         }
 
         // Fallback BFS around obstacles to find closest walkable engagement tile adjacent to target
-        val search = computeReachableTiles(charger, map, allUnits, maxMpOverride = 12)
+        val maxChargeTilesBfs = ceil(12.0f / CM_PER_TILE).toInt() + 1
+        val search = computeReachableTiles(charger, map, allUnits, maxMpOverride = maxChargeTilesBfs)
         var bestTile: GridPos? = null
         var bestWorldDist = Float.MAX_VALUE
         for (dy in -1..1) {
@@ -515,7 +540,8 @@ object TacticalRules {
                         px = step.x.toFloat()
                         py = step.y.toFloat()
                     }
-                    if (pathLen <= 12.0f && pathLen < bestWorldDist) {
+                    val pathCm = pathLen * CM_PER_TILE
+                    if (pathCm <= 12.0f + 0.05f && pathLen < bestWorldDist) {
                         bestWorldDist = pathLen
                         bestTile = gp
                     }
@@ -525,12 +551,13 @@ object TacticalRules {
         val dest = bestTile ?: return null
         val tilePath = reconstructPath(dest, charger.pos, search.parents)
         val worldPath = tilePath.map { WorldPos(it.x.toFloat(), it.y.toFloat()) }
-        val reqRoll = ceil(bestWorldDist.toDouble()).toInt().coerceIn(2, 12)
+        val distCm = bestWorldDist * CM_PER_TILE
+        val reqRoll = ceil(distCm.toDouble()).toInt().coerceIn(2, 12)
         return ChargePreview(
             targetUid = target.uid,
             targetName = target.template.name,
             distanceTiles = bestWorldDist,
-            distanceCm = bestWorldDist * CM_PER_TILE,
+            distanceCm = distCm,
             requiredRoll = reqRoll,
             destinationX = dest.x.toFloat(),
             destinationY = dest.y.toFloat(),
@@ -612,7 +639,8 @@ object TacticalRules {
         attacker: BattleUnit,
         mode: WeaponMode,
         coverTag: CoverTag,
-        isMelee: Boolean
+        isMelee: Boolean,
+        defender: BattleUnit? = null
     ): Int {
         var needed = if (isMelee) attacker.effectiveWeaponSkill else attacker.effectiveBallisticSkill
         if (!isMelee && attacker.template.archetype == UnitArchetype.INTERCESSOR && attacker.moveCmLeft >= attacker.template.moveCm - 0.1f) {
@@ -627,7 +655,11 @@ object TacticalRules {
         if (coverTag == CoverTag.REAR || coverTag == CoverTag.FLANK) {
             needed -= 1
         }
-        return needed.coerceIn(2, 6)
+        val leaperBsPenalty = !isMelee && defender?.template?.archetype == UnitArchetype.VON_RYANS_LEAPER
+        if (leaperBsPenalty) {
+            needed += 1
+        }
+        return needed.coerceIn(2, if (leaperBsPenalty) 7 else 6)
     }
 
     fun computeWoundRollNeeded(
@@ -676,7 +708,7 @@ object TacticalRules {
         map: Array<Array<TerrainType>>,
         allUnits: List<BattleUnit>? = null
     ): TargetPreview? {
-        if (!attacker.isAlive || !defender.isAlive || attacker.faction == defender.faction) return null
+        if (!attacker.isAlive || !defender.isAlive || defender.isCloaked || attacker.faction == defender.faction) return null
         if (mode == WeaponMode.SKILL && attacker.template.archetype == UnitArchetype.TERMINATOR) return null
         if (!canUseMode(attacker, mode, allUnits)) return null
 
@@ -704,11 +736,12 @@ object TacticalRules {
         val ignoreCover = mode == WeaponMode.SKILL && attacker.template.archetype == UnitArchetype.GENESTEALER
         val coverTag = evaluateCoverTag(atkX, atkY, defender, map, ignoreCover)
 
-        val hitRollNeeded = computeHitRollNeeded(attacker, mode, coverTag, isMelee)
+        val hitRollNeeded = computeHitRollNeeded(attacker, mode, coverTag, isMelee, defender)
         val woundRollNeeded = computeWoundRollNeeded(attacker, defender, mode, coverTag, isMelee)
         val s = weaponStrength(attacker, mode, isMelee)
         val ap = weaponAp(attacker, mode, isMelee)
         val (saveRollNeeded, usingInvuln) = computeEffectiveSave(defender, ap, coverTag)
+        val displayWeaponName = weaponDisplayName(attacker, mode, isMelee)
 
         val hitProb = d6SuccessProbability(hitRollNeeded)
         val woundProb = d6SuccessProbability(woundRollNeeded)
@@ -737,6 +770,7 @@ object TacticalRules {
             attacksCount = attacks,
             coverTag = coverTag,
             weaponMode = mode,
+            weaponName = displayWeaponName,
             inRange = inRange,
             hasLos = los
         )
@@ -1030,7 +1064,7 @@ object TacticalRules {
         rng: Random = Random.Default
     ): CounterAttackOutcome? {
         if (!counterAttacker.isAlive || counterAttacker.aliveModels <= 0) return null
-        if (!target.isAlive || target.aliveModels <= 0) return null
+        if (!target.isAlive || target.aliveModels <= 0 || target.isCloaked) return null
         val dist = hypot(counterAttacker.worldX - target.worldX, counterAttacker.worldY - target.worldY)
         if (dist > 1.55f) return null
 
@@ -1128,6 +1162,12 @@ object TacticalRules {
                 skillCooldownLeft = unit.template.skillCooldown,
                 buffTurnsLeft = 1,
                 activeBuffLabel = "LEAP +9 cm"
+            )
+            UnitArchetype.VON_RYANS_LEAPER -> unit.copy(
+                stealthTurnsLeft = 1,
+                skillCooldownLeft = unit.template.skillCooldown,
+                buffTurnsLeft = maxOf(unit.buffTurnsLeft, 1),
+                activeBuffLabel = "CLOAKED (INVISIBLE 1T)"
             )
             else -> null
         }

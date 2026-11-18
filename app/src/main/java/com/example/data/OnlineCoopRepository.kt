@@ -65,10 +65,12 @@ data class OnlineRoomSnapshot(
     val openForJoin: Boolean = true,
     val memberUids: List<String> = emptyList(),
     val spawnAiEnemyIfSameFaction: Boolean = true,
+    val pointLimit: Int = 1000,
     val players: List<CoopPlayer> = emptyList(),
     val playerUids: Map<String, String> = emptyMap(),
     val assignedUnits: List<CoopRosterUnit> = emptyList(),
-    val battleMap: Map<String, Any?>? = null
+    val battleMap: Map<String, Any?>? = null,
+    val customTemplates: Map<String, UnitTemplate>? = null
 )
 
 class OnlineCoopRepository(
@@ -77,9 +79,12 @@ class OnlineCoopRepository(
 ) {
     constructor(context: Context) : this(
         try {
-            FirebaseFirestore.getInstance(
-                context.applicationContext.getString(R.string.firestore_database_id)
-            )
+            val dbId = context.applicationContext.getString(R.string.firestore_database_id).trim()
+            if (dbId.isNotBlank() && dbId != "(default)") {
+                FirebaseFirestore.getInstance(dbId)
+            } else {
+                FirebaseFirestore.getInstance()
+            }
         } catch (_: Exception) {
             FirebaseFirestore.getInstance()
         }
@@ -153,21 +158,15 @@ class OnlineCoopRepository(
         hostName: String,
         initialPlayers: List<CoopPlayer>,
         initialUnits: List<CoopRosterUnit>,
-        spawnAiIfSameFaction: Boolean
+        spawnAiIfSameFaction: Boolean,
+        pointLimit: Int = 1000,
+        templates: Map<String, UnitTemplate> = emptyMap()
     ): Result<String> {
         var docPath = "coop_rooms"
         return try {
             val uid = requireUserId()
             val cleanHostName = hostName.trim().ifBlank { "Commander 1" }.take(24)
-            var roomCode = Random.nextInt(100000, 999999).toString()
-
-            // Try to avoid collision if the random 6-digit code already exists
-            for (attempt in 0 until 3) {
-                val existing = db.collection("coop_rooms").document(roomCode).get().await()
-                if (!existing.exists()) break
-                roomCode = Random.nextInt(100000, 999999).toString()
-            }
-
+            val roomCode = Random.nextInt(100000, 999999).toString()
             val docRef = db.collection("coop_rooms").document(roomCode)
             docPath = docRef.path
 
@@ -178,19 +177,23 @@ class OnlineCoopRepository(
             }
             val unitsList = initialUnits.take(40).map { rosterUnitToMap(it) }
 
-            val payload = mapOf(
-                "roomCode" to roomCode,
-                "hostUid" to uid,
-                "hostName" to cleanHostName,
-                "status" to "LOBBY",
-                "openForJoin" to true,
-                "memberUids" to listOf(uid),
-                "spawnAiEnemyIfSameFaction" to spawnAiIfSameFaction,
-                "players" to playersList,
-                "assignedUnits" to unitsList,
-                "createdAt" to FieldValue.serverTimestamp(),
-                "updatedAt" to FieldValue.serverTimestamp()
-            )
+            val payload = buildMap<String, Any> {
+                put("roomCode", roomCode)
+                put("hostUid", uid)
+                put("hostName", cleanHostName)
+                put("status", "LOBBY")
+                put("openForJoin", true)
+                put("memberUids", listOf(uid))
+                put("spawnAiEnemyIfSameFaction", spawnAiIfSameFaction)
+                put("pointLimit", pointLimit.coerceIn(500, 5000))
+                put("players", playersList)
+                put("assignedUnits", unitsList)
+                if (templates.isNotEmpty()) {
+                    put("customTemplates", templatesToMapList(templates))
+                }
+                put("createdAt", FieldValue.serverTimestamp())
+                put("updatedAt", FieldValue.serverTimestamp())
+            }
             docRef.set(payload).await()
             Result.success(roomCode)
         } catch (e: CancellationException) {
@@ -347,7 +350,8 @@ class OnlineCoopRepository(
     suspend fun updateHostLobby(
         roomCode: String,
         coopState: CoopState,
-        playerUids: Map<String, String>
+        playerUids: Map<String, String>,
+        templates: Map<String, UnitTemplate> = emptyMap()
     ): Result<Unit> {
         val docPath = "coop_rooms/$roomCode"
         return try {
@@ -358,14 +362,17 @@ class OnlineCoopRepository(
                 playerToMap(p, playerUids[p.id] ?: "")
             }
             val unitsList = coopState.assignedUnits.take(40).map { rosterUnitToMap(it) }
-            docRef.update(
-                mapOf(
-                    "players" to playersList,
-                    "assignedUnits" to unitsList,
-                    "spawnAiEnemyIfSameFaction" to coopState.spawnAiEnemyIfSameFaction,
-                    "updatedAt" to FieldValue.serverTimestamp()
-                )
-            ).await()
+            val updates = buildMap<String, Any> {
+                put("players", playersList)
+                put("assignedUnits", unitsList)
+                put("spawnAiEnemyIfSameFaction", coopState.spawnAiEnemyIfSameFaction)
+                put("pointLimit", coopState.pointLimit.coerceIn(500, 5000))
+                if (templates.isNotEmpty()) {
+                    put("customTemplates", templatesToMapList(templates))
+                }
+                put("updatedAt", FieldValue.serverTimestamp())
+            }
+            docRef.update(updates).await()
             Result.success(Unit)
         } catch (e: CancellationException) {
             throw e
@@ -500,6 +507,8 @@ class OnlineCoopRepository(
         }
         val battleRaw = data["battleState"] as? Map<*, *>
         val battleMap = battleRaw?.entries?.associate { (k, v) -> k.toString() to v }
+        val customTplRaw = (data["customTemplates"] as? List<*>)?.takeIf { it.isNotEmpty() }
+        val parsedCustomTemplates = customTplRaw?.let { parseTemplatesMapList(it) }?.takeIf { it.isNotEmpty() }
 
         return OnlineRoomSnapshot(
             roomCode = (data["roomCode"] as? String) ?: doc.id,
@@ -509,10 +518,12 @@ class OnlineCoopRepository(
             openForJoin = (data["openForJoin"] as? Boolean) ?: true,
             memberUids = members,
             spawnAiEnemyIfSameFaction = (data["spawnAiEnemyIfSameFaction"] as? Boolean) ?: true,
+            pointLimit = ((data["pointLimit"] as? Number)?.toInt() ?: 1000).coerceIn(500, 5000),
             players = parsedPlayers,
             playerUids = uidsByPlayer,
             assignedUnits = parsedUnits,
-            battleMap = battleMap
+            battleMap = battleMap,
+            customTemplates = parsedCustomTemplates
         )
     }
 
@@ -581,6 +592,7 @@ class OnlineCoopRepository(
                 "buffTurnsLeft" to u.buffTurnsLeft,
                 "activeBuffLabel" to (u.activeBuffLabel ?: ""),
                 "damageReductionTurns" to u.damageReductionTurns,
+                "stealthTurnsLeft" to u.stealthTurnsLeft,
                 "auraBuffed" to u.auraBuffed,
                 "kills" to u.kills,
                 "damageDealt" to u.damageDealt,
@@ -596,40 +608,7 @@ class OnlineCoopRepository(
                 "slotMode" to p.slotMode.name
             )
         }
-        val tplList = templates.values.map { t ->
-            mapOf(
-                "id" to t.id,
-                "name" to t.name,
-                "faction" to t.faction.name,
-                "archetype" to t.archetype.name,
-                "role" to t.role,
-                "points" to t.points,
-                "squadSize" to t.squadSize,
-                "woundsPerModel" to t.woundsPerModel,
-                "moveCm" to t.moveCm,
-                "toughness" to t.toughness,
-                "save" to t.save,
-                "invulnSave" to (t.invulnSave ?: 0),
-                "armorPen" to t.armorPen,
-                "strength" to t.strength,
-                "damage" to t.damage,
-                "attacksPerModel" to t.attacksPerModel,
-                "range" to t.range,
-                "ballisticSkill" to t.ballisticSkill,
-                "weaponSkill" to t.weaponSkill,
-                "mainWeaponName" to t.mainWeaponName,
-                "mainWeaponAssault" to t.mainWeaponAssault,
-                "mainWeaponPistol" to t.mainWeaponPistol,
-                "pistolWeaponName" to t.pistolWeaponName,
-                "pistolAttacks" to t.pistolAttacks,
-                "pistolDamage" to t.pistolDamage,
-                "pistolStrength" to t.pistolStrength,
-                "pistolArmorPen" to t.pistolArmorPen,
-                "pistolRange" to t.pistolRange,
-                "pistolCooldown" to t.pistolCooldown,
-                "weaponChoice" to (t.weaponChoice?.name ?: "")
-            )
-        }
+        val tplList = templatesToMapList(templates)
         val summaryMap = state.summary?.let { sum ->
             mapOf(
                 "winner" to sum.winner.name,
@@ -661,53 +640,106 @@ class OnlineCoopRepository(
         }
     }
 
+    private fun templatesToMapList(templates: Map<String, UnitTemplate>): List<Map<String, Any>> {
+        return templates.values.take(30).map { t ->
+            mapOf(
+                "id" to t.id,
+                "name" to t.name,
+                "faction" to t.faction.name,
+                "archetype" to t.archetype.name,
+                "role" to t.role,
+                "points" to t.points,
+                "squadSize" to t.squadSize,
+                "woundsPerModel" to t.woundsPerModel,
+                "moveCm" to t.moveCm,
+                "toughness" to t.toughness,
+                "save" to t.save,
+                "invulnSave" to (t.invulnSave ?: 0),
+                "armorPen" to t.armorPen,
+                "strength" to t.strength,
+                "damage" to t.damage,
+                "attacksPerModel" to t.attacksPerModel,
+                "range" to t.range,
+                "ballisticSkill" to t.ballisticSkill,
+                "weaponSkill" to t.weaponSkill,
+                "mainWeaponName" to t.mainWeaponName,
+                "mainWeaponAssault" to t.mainWeaponAssault,
+                "mainWeaponPistol" to t.mainWeaponPistol,
+                "pistolWeaponName" to t.pistolWeaponName,
+                "pistolAttacks" to t.pistolAttacks,
+                "pistolDamage" to t.pistolDamage,
+                "pistolStrength" to t.pistolStrength,
+                "pistolArmorPen" to t.pistolArmorPen,
+                "pistolRange" to t.pistolRange,
+                "pistolCooldown" to t.pistolCooldown,
+                "skillName" to t.skillName,
+                "skillDesc" to t.skillDesc,
+                "skillCooldown" to t.skillCooldown,
+                "passiveName" to t.passiveName,
+                "passiveDesc" to t.passiveDesc,
+                "weaponChoice" to (t.weaponChoice?.name ?: "")
+            )
+        }
+    }
+
+    private fun parseTemplatesMapList(rawList: List<*>): Map<String, UnitTemplate> {
+        val baseTemplates = DefaultCatalog.defaultTemplates.associateBy { it.id }.toMutableMap()
+        val tplRows = rawList.mapNotNull { it as? Map<*, *> }
+        for (row in tplRows) {
+            val id = row["id"] as? String ?: continue
+            val base = baseTemplates[id] ?: DefaultCatalog.defaultTemplates.first()
+            val inv = (row["invulnSave"] as? Number)?.toInt() ?: 0
+            val factionRaw = (row["faction"] as? String) ?: base.faction.name
+            val archRaw = (row["archetype"] as? String) ?: base.archetype.name
+            val wwcRaw = (row["weaponChoice"] as? String).orEmpty()
+            val parsedChoice = if (wwcRaw.isBlank()) base.weaponChoice else {
+                enumValues<WarriorWeaponChoice>().firstOrNull { it.name == wwcRaw } ?: base.weaponChoice
+            }
+            baseTemplates[id] = base.copy(
+                id = id,
+                name = (row["name"] as? String) ?: base.name,
+                faction = enumValues<Faction>().firstOrNull { it.name == factionRaw } ?: base.faction,
+                archetype = enumValues<UnitArchetype>().firstOrNull { it.name == archRaw } ?: base.archetype,
+                role = (row["role"] as? String) ?: base.role,
+                points = (row["points"] as? Number)?.toInt() ?: base.points,
+                squadSize = (row["squadSize"] as? Number)?.toInt() ?: base.squadSize,
+                woundsPerModel = (row["woundsPerModel"] as? Number)?.toInt() ?: base.woundsPerModel,
+                moveCm = (row["moveCm"] as? Number)?.toInt() ?: base.moveCm,
+                toughness = (row["toughness"] as? Number)?.toInt() ?: base.toughness,
+                save = (row["save"] as? Number)?.toInt() ?: base.save,
+                invulnSave = if (inv > 0) inv else null,
+                armorPen = (row["armorPen"] as? Number)?.toInt() ?: base.armorPen,
+                strength = (row["strength"] as? Number)?.toInt() ?: base.strength,
+                damage = (row["damage"] as? Number)?.toInt() ?: base.damage,
+                attacksPerModel = (row["attacksPerModel"] as? Number)?.toInt() ?: base.attacksPerModel,
+                range = (row["range"] as? Number)?.toInt() ?: base.range,
+                ballisticSkill = (row["ballisticSkill"] as? Number)?.toInt() ?: base.ballisticSkill,
+                weaponSkill = (row["weaponSkill"] as? Number)?.toInt() ?: base.weaponSkill,
+                mainWeaponName = (row["mainWeaponName"] as? String) ?: base.mainWeaponName,
+                mainWeaponAssault = (row["mainWeaponAssault"] as? Boolean) ?: base.mainWeaponAssault,
+                mainWeaponPistol = (row["mainWeaponPistol"] as? Boolean) ?: base.mainWeaponPistol,
+                pistolWeaponName = (row["pistolWeaponName"] as? String) ?: base.pistolWeaponName,
+                pistolAttacks = (row["pistolAttacks"] as? Number)?.toInt() ?: base.pistolAttacks,
+                pistolDamage = (row["pistolDamage"] as? Number)?.toInt() ?: base.pistolDamage,
+                pistolStrength = (row["pistolStrength"] as? Number)?.toInt() ?: base.pistolStrength,
+                pistolArmorPen = (row["pistolArmorPen"] as? Number)?.toInt() ?: base.pistolArmorPen,
+                pistolRange = (row["pistolRange"] as? Number)?.toInt() ?: base.pistolRange,
+                pistolCooldown = (row["pistolCooldown"] as? Number)?.toInt() ?: base.pistolCooldown,
+                skillName = (row["skillName"] as? String) ?: base.skillName,
+                skillDesc = (row["skillDesc"] as? String) ?: base.skillDesc,
+                skillCooldown = (row["skillCooldown"] as? Number)?.toInt() ?: base.skillCooldown,
+                passiveName = (row["passiveName"] as? String) ?: base.passiveName,
+                passiveDesc = (row["passiveDesc"] as? String) ?: base.passiveDesc,
+                weaponChoice = parsedChoice
+            )
+        }
+        return baseTemplates
+    }
+
     fun applyBattleMapToState(battleMap: Map<String, Any?>, current: BattleUiState): BattleUiState? {
         return try {
-            val baseTemplates = DefaultCatalog.defaultTemplates.associateBy { it.id }.toMutableMap()
-            val tplRows = (battleMap["templates"] as? List<*>)?.mapNotNull { it as? Map<*, *> } ?: emptyList()
-            for (row in tplRows) {
-                val id = row["id"] as? String ?: continue
-                val base = baseTemplates[id] ?: DefaultCatalog.defaultTemplates.first()
-                val inv = (row["invulnSave"] as? Number)?.toInt() ?: 0
-                val factionRaw = (row["faction"] as? String) ?: base.faction.name
-                val archRaw = (row["archetype"] as? String) ?: base.archetype.name
-                val wwcRaw = (row["weaponChoice"] as? String).orEmpty()
-                val parsedChoice = if (wwcRaw.isBlank()) base.weaponChoice else {
-                    enumValues<WarriorWeaponChoice>().firstOrNull { it.name == wwcRaw } ?: base.weaponChoice
-                }
-                baseTemplates[id] = base.copy(
-                    id = id,
-                    name = (row["name"] as? String) ?: base.name,
-                    faction = enumValues<Faction>().firstOrNull { it.name == factionRaw } ?: base.faction,
-                    archetype = enumValues<UnitArchetype>().firstOrNull { it.name == archRaw } ?: base.archetype,
-                    role = (row["role"] as? String) ?: base.role,
-                    points = (row["points"] as? Number)?.toInt() ?: base.points,
-                    squadSize = (row["squadSize"] as? Number)?.toInt() ?: base.squadSize,
-                    woundsPerModel = (row["woundsPerModel"] as? Number)?.toInt() ?: base.woundsPerModel,
-                    moveCm = (row["moveCm"] as? Number)?.toInt() ?: base.moveCm,
-                    toughness = (row["toughness"] as? Number)?.toInt() ?: base.toughness,
-                    save = (row["save"] as? Number)?.toInt() ?: base.save,
-                    invulnSave = if (inv > 0) inv else null,
-                    armorPen = (row["armorPen"] as? Number)?.toInt() ?: base.armorPen,
-                    strength = (row["strength"] as? Number)?.toInt() ?: base.strength,
-                    damage = (row["damage"] as? Number)?.toInt() ?: base.damage,
-                    attacksPerModel = (row["attacksPerModel"] as? Number)?.toInt() ?: base.attacksPerModel,
-                    range = (row["range"] as? Number)?.toInt() ?: base.range,
-                    ballisticSkill = (row["ballisticSkill"] as? Number)?.toInt() ?: base.ballisticSkill,
-                    weaponSkill = (row["weaponSkill"] as? Number)?.toInt() ?: base.weaponSkill,
-                    mainWeaponName = (row["mainWeaponName"] as? String) ?: base.mainWeaponName,
-                    mainWeaponAssault = (row["mainWeaponAssault"] as? Boolean) ?: base.mainWeaponAssault,
-                    mainWeaponPistol = (row["mainWeaponPistol"] as? Boolean) ?: base.mainWeaponPistol,
-                    pistolWeaponName = (row["pistolWeaponName"] as? String) ?: base.pistolWeaponName,
-                    pistolAttacks = (row["pistolAttacks"] as? Number)?.toInt() ?: base.pistolAttacks,
-                    pistolDamage = (row["pistolDamage"] as? Number)?.toInt() ?: base.pistolDamage,
-                    pistolStrength = (row["pistolStrength"] as? Number)?.toInt() ?: base.pistolStrength,
-                    pistolArmorPen = (row["pistolArmorPen"] as? Number)?.toInt() ?: base.pistolArmorPen,
-                    pistolRange = (row["pistolRange"] as? Number)?.toInt() ?: base.pistolRange,
-                    pistolCooldown = (row["pistolCooldown"] as? Number)?.toInt() ?: base.pistolCooldown,
-                    weaponChoice = parsedChoice
-                )
-            }
+            val rawTemplates = (battleMap["templates"] as? List<*>) ?: emptyList<Any>()
+            val baseTemplates = parseTemplatesMapList(rawTemplates)
 
             val mapId = (battleMap["mapId"] as? Number)?.toLong() ?: 1L
             val sectorMap = if (current.map.id == mapId) current.map else SectorMap(mapId, MapGenerator.generateSectorMap(mapId))
@@ -746,6 +778,7 @@ class OnlineCoopRepository(
                     buffTurnsLeft = (row["buffTurnsLeft"] as? Number)?.toInt() ?: 0,
                     activeBuffLabel = buffLabel.ifBlank { null },
                     damageReductionTurns = (row["damageReductionTurns"] as? Number)?.toInt() ?: 0,
+                    stealthTurnsLeft = (row["stealthTurnsLeft"] as? Number)?.toInt() ?: 0,
                     auraBuffed = (row["auraBuffed"] as? Boolean) ?: false,
                     kills = (row["kills"] as? Number)?.toInt() ?: 0,
                     damageDealt = (row["damageDealt"] as? Number)?.toInt() ?: 0,

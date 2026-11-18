@@ -34,13 +34,15 @@ service cloud.firestore {
              data.memberUids is list && data.memberUids.size() >= 1 && data.memberUids.size() <= 4 &&
              data.memberUids[0] is string && (data.hostUid in data.memberUids) &&
              data.spawnAiEnemyIfSameFaction is bool &&
+             (!('pointLimit' in data) || (data.pointLimit is number && data.pointLimit >= 500 && data.pointLimit <= 5000)) &&
              data.players is list && data.players.size() >= 1 && data.players.size() <= 4 &&
              data.players[0] is map &&
              data.assignedUnits is list && data.assignedUnits.size() <= 40 &&
              (data.assignedUnits.size() == 0 || data.assignedUnits[0] is map) &&
+             (!('customTemplates' in data) || (data.customTemplates is list && data.customTemplates.size() <= 30 && (data.customTemplates.size() == 0 || data.customTemplates[0] is map))) &&
              (!('battleState' in data) || data.battleState is map) &&
-             data.createdAt is timestamp && data.createdAt <= request.time &&
-             data.updatedAt is timestamp && data.updatedAt <= request.time;
+             data.createdAt is timestamp &&
+             data.updatedAt is timestamp;
     }
 
     function isValidCoopAction(data) {
@@ -50,7 +52,7 @@ service cloud.firestore {
              data.actionType in [
                'TAP_WORLD', 'TOGGLE_MOVE', 'ADVANCE', 'SET_CM', 'WALK_CM',
                'CONFIRM_MOVE', 'CANCEL_MOVE', 'TOGGLE_CHARGE', 'CONFIRM_CHARGE',
-               'CANCEL_CHARGE', 'STRIKE', 'WEAPON_MODE', 'ROTATE', 'END_TURN'
+               'CANCEL_CHARGE', 'STRIKE', 'WEAPON_MODE', 'ROTATE', 'FIGHT_FIRST', 'END_TURN'
              ] &&
              (!('wx' in data) || data.wx is number) &&
              (!('wy' in data) || data.wy is number) &&
@@ -63,6 +65,7 @@ service cloud.firestore {
     match /coop_rooms/{roomCode} {
       // Members can always read their room; non-members may fetch only a specific open LOBBY room by Room Code
       allow get: if isSignedIn() && isValidId(roomCode) && (
+        resource == null ||
         (request.auth.uid in existing().memberUids) ||
         (existing().status == 'LOBBY' && existing().openForJoin == true)
       );
@@ -85,8 +88,8 @@ service cloud.firestore {
                        ]) &&
                        incoming().keys().hasOnly([
                          'roomCode', 'hostUid', 'hostName', 'status', 'openForJoin',
-                         'memberUids', 'spawnAiEnemyIfSameFaction', 'players',
-                         'assignedUnits', 'battleState', 'createdAt', 'updatedAt'
+                         'memberUids', 'spawnAiEnemyIfSameFaction', 'pointLimit', 'players',
+                         'assignedUnits', 'customTemplates', 'battleState', 'createdAt', 'updatedAt'
                        ]);
 
       allow update: if isSignedIn() &&
@@ -102,8 +105,8 @@ service cloud.firestore {
                            existing().hostUid == request.auth.uid &&
                            incoming().diff(existing()).affectedKeys().hasOnly([
                              'hostName', 'status', 'openForJoin', 'memberUids',
-                             'spawnAiEnemyIfSameFaction', 'players', 'assignedUnits',
-                             'battleState', 'updatedAt'
+                             'spawnAiEnemyIfSameFaction', 'pointLimit', 'players', 'assignedUnits',
+                             'customTemplates', 'battleState', 'updatedAt'
                            ])
                          ) ||
                          // Tier 2: Remote friend joins open LOBBY room by Room Code

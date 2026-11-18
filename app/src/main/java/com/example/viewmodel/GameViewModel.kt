@@ -80,9 +80,9 @@ data class SetupUiState(
     val validationWarning: String?
         get() = when {
             marineRoster.isEmpty() -> "Ultramarines require at least 1 squad."
-            xenosRoster.isEmpty() -> "Alien Swarm requires at least 1 squad."
+            xenosRoster.isEmpty() -> "Tyranids require at least 1 squad."
             marinePoints > pointLimit -> "Ultramarines exceed $pointLimit pt limit."
-            xenosPoints > pointLimit -> "Alien Swarm exceeds $pointLimit pt limit."
+            xenosPoints > pointLimit -> "Tyranids exceed $pointLimit pt limit."
             else -> null
         }
     val canDeploy: Boolean get() = validationWarning == null
@@ -186,7 +186,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private var actionJob: Job? = null
 
     // Cloud Online Co-op bridge callbacks (wired in MainActivity only after Google Sign-In)
-    var onlineLobbySyncPublisher: ((CoopState) -> Unit)? = null
+    var onlineLobbySyncPublisher: ((CoopState, Map<String, UnitTemplate>) -> Unit)? = null
     var onlineHostStatePublisher: ((BattleUiState, Map<String, UnitTemplate>) -> Unit)? = null
     var onlineClientActionSender: ((actionType: String, wx: Float?, wy: Float?, cm: Float?, mode: WeaponMode?, left: Boolean?) -> Unit)? = null
 
@@ -368,7 +368,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         players: List<CoopPlayer>,
         assignedUnits: List<CoopRosterUnit>,
         spawnAi: Boolean,
-        status: String
+        status: String,
+        customTemplates: Map<String, UnitTemplate>? = null,
+        pointLimit: Int? = null
     ) {
         if (status == "FINISHED") return
         _coopState.update { current ->
@@ -387,7 +389,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 players = resolvedPlayers,
                 assignedUnits = assignedUnits,
                 spawnAiEnemyIfSameFaction = spawnAi,
-                networkStatus = nextStatusText
+                pointLimit = (pointLimit ?: current.pointLimit).coerceIn(500, 5000),
+                networkStatus = nextStatusText,
+                remoteTemplates = customTemplates ?: current.remoteTemplates
             )
         }
     }
@@ -406,7 +410,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 clientConnected = false,
                 localPlayerId = "p1",
                 lobbyError = errorMessage,
-                networkStatus = "Ready for long-distance Online Co-op"
+                networkStatus = "Ready for long-distance Online Co-op",
+                remoteTemplates = null
             )
         }
         if (_battleState.value.isCoopMode && _battleState.value.active) {
@@ -419,7 +424,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private fun broadcastLobbyIfHost() {
         val st = _coopState.value
         if (st.inRoom && st.networkRole == CoopNetworkRole.LOCAL_OR_HOST && st.serverRunning) {
-            onlineLobbySyncPublisher?.invoke(st)
+            onlineLobbySyncPublisher?.invoke(st, _setupState.value.templates)
         }
     }
 
@@ -482,19 +487,45 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     fun selectCoopConfigPlayer(playerId: String) {
         sound.play(SoundType.CLICK)
-        _coopState.update { it.copy(selectedConfigPlayerId = playerId) }
+        _coopState.update { it.copy(selectedConfigPlayerId = playerId, lobbyError = null) }
+    }
+
+    fun setCoopPointLimit(points: Int) {
+        sound.play(SoundType.CLICK)
+        _coopState.update {
+            it.copy(pointLimit = points.coerceIn(500, 5000), lobbyError = null)
+        }
+        broadcastLobbyIfHost()
     }
 
     fun addCoopUnitForPlayer(playerId: String, templateId: String) {
+        val current = _coopState.value
+        val templates = _setupState.value.templates
+        val unitTpl = templates[templateId]
+        val unitCost = unitTpl?.points ?: 0
+        val currentUsed = current.assignedUnits
+            .filter { it.ownerPlayerId == playerId }
+            .sumOf { templates[it.templateId]?.points ?: 0 }
+        if (currentUsed + unitCost > current.pointLimit) {
+            sound.play(SoundType.CLICK)
+            val remaining = (current.pointLimit - currentUsed).coerceAtLeast(0)
+            val name = unitTpl?.name ?: templateId
+            _coopState.update {
+                it.copy(lobbyError = "Cannot add $name ($unitCost PT): only $remaining / ${current.pointLimit} PT left")
+            }
+            return
+        }
         sound.play(SoundType.CLICK)
         val entry = CoopRosterUnit("c_${nextIdCounter++}", playerId, templateId)
-        _coopState.update { it.copy(assignedUnits = it.assignedUnits + entry) }
+        _coopState.update { it.copy(assignedUnits = it.assignedUnits + entry, lobbyError = null) }
         broadcastLobbyIfHost()
     }
 
     fun removeCoopUnit(entryId: String) {
         sound.play(SoundType.CLICK)
-        _coopState.update { it.copy(assignedUnits = it.assignedUnits.filterNot { u -> u.entryId == entryId }) }
+        _coopState.update {
+            it.copy(assignedUnits = it.assignedUnits.filterNot { u -> u.entryId == entryId }, lobbyError = null)
+        }
         broadcastLobbyIfHost()
     }
 
@@ -517,7 +548,23 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         val coop = _coopState.value
         val activePlayers = coop.players.filter { it.isActive }
         if (activePlayers.isEmpty()) return
-        val templates = _setupState.value.templates
+        val templates = if (coop.networkRole == CoopNetworkRole.CLIENT) {
+            coop.remoteTemplates ?: _setupState.value.templates
+        } else {
+            _setupState.value.templates
+        }
+        val overPlayer = activePlayers.firstOrNull { p ->
+            val pPts = coop.assignedUnits
+                .filter { it.ownerPlayerId == p.id }
+                .sumOf { templates[it.templateId]?.points ?: 0 }
+            pPts > coop.pointLimit
+        }
+        if (overPlayer != null) {
+            _coopState.update {
+                it.copy(lobbyError = "${overPlayer.name} exceeds ${coop.pointLimit} PT limit! Remove squads or raise limit.")
+            }
+            return
+        }
 
         aiJob?.cancel()
         actionJob?.cancel()
@@ -579,7 +626,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         if (sameFactionCoop && coop.spawnAiEnemyIfSameFaction) {
             val aiFaction = if (hasMarines) Faction.XENOS else Faction.MARINES
             val aiTemplateIds = if (aiFaction == Faction.XENOS) {
-                listOf("hive_tyrant", "carnifex", "warriors", "genestealers", "termagants", "hormagaunts")
+                listOf("carnifex", "warriors", "von_ryans_leaper", "termagants", "hormagaunts")
             } else {
                 listOf("captain", "dreadnought", "terminators", "hellblasters", "intercessors", "assault_intercessors")
             }
@@ -746,6 +793,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             "STRIKE" -> confirmStrike(fromLanClient = true)
             "WEAPON_MODE" -> if (mode != null) selectWeaponMode(mode, fromLanClient = true)
             "ROTATE" -> if (left != null) rotateSelectedUnit(left, fromLanClient = true)
+            "FIGHT_FIRST" -> triggerFightFirst(fromLanClient = true)
             "END_TURN" -> endPlayerTurn(fromLanClient = true)
         }
     }
@@ -813,8 +861,17 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     fun addRosterUnit(faction: Faction, templateId: String) {
         sound.play(SoundType.CLICK)
-        val slot = RosterSlot("slot_${nextIdCounter++}", templateId)
         _setupState.update { state ->
+            val tpl = state.templates[templateId]
+            val cost = tpl?.points ?: 0
+            val used = if (faction == Faction.MARINES) state.marinePoints else state.xenosPoints
+            if (used + cost > state.pointLimit) {
+                val left = (state.pointLimit - used).coerceAtLeast(0)
+                return@update state.copy(
+                    statusMessage = "Cannot add ${tpl?.name ?: templateId} ($cost PT): only $left / ${state.pointLimit} PT left!"
+                )
+            }
+            val slot = RosterSlot("slot_${nextIdCounter++}", templateId)
             if (faction == Faction.MARINES) {
                 state.copy(marineRoster = state.marineRoster + slot, statusMessage = null)
             } else {
@@ -859,7 +916,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             if (faction == Faction.MARINES) {
                 state.copy(marineRoster = chosen, statusMessage = "Randomized Ultramarines ($spent pts)")
             } else {
-                state.copy(xenosRoster = chosen, statusMessage = "Randomized Swarm ($spent pts)")
+                state.copy(xenosRoster = chosen, statusMessage = "Randomized Tyranids ($spent pts)")
             }
         }
     }
@@ -896,9 +953,23 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             state.copy(
                 templates = state.templates + (adjusted.id to adjusted),
                 editingTemplateId = null,
-                statusMessage = "Updated ${adjusted.name} stats"
+                statusMessage = "Saved ${adjusted.name} stats for room & next game!"
             )
         }
+        val s = _setupState.value
+        viewModelScope.launch {
+            repository.saveConfig(
+                SavedConfigEntity(
+                    id = 1,
+                    playerFaction = s.playerFaction.name,
+                    pointLimit = s.pointLimit,
+                    marineRosterJson = DefaultCatalog.serializeRoster(s.marineRoster),
+                    xenosRosterJson = DefaultCatalog.serializeRoster(s.xenosRoster),
+                    customTemplatesJson = DefaultCatalog.serializeTemplates(s.templates)
+                )
+            )
+        }
+        broadcastLobbyIfHost()
     }
 
     fun saveSetupToDatabase() {
@@ -915,7 +986,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     customTemplatesJson = DefaultCatalog.serializeTemplates(s.templates)
                 )
             )
-            _setupState.update { it.copy(statusMessage = "Saved army configuration!") }
+            _setupState.update { it.copy(statusMessage = "Saved all unit stats for next game & synced to room!") }
+            broadcastLobbyIfHost()
         }
     }
 
@@ -924,6 +996,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             repository.resetConfig()
             _setupState.value = SetupUiState(statusMessage = "Reset to Crimson Sector defaults")
+            broadcastLobbyIfHost()
         }
     }
 
@@ -1143,9 +1216,10 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 } else {
                     val curDist = hypot(sel.worldX - unitHit.worldX, sel.worldY - unitHit.worldY)
                     val msg = when {
+                        unitHit.isCloaked -> "CHAMELEONIC CLOAK: UNTARGETABLE"
                         !sel.canCharge -> if (sel.hasAdvanced) "NO CHARGE AFTER ADVANCE" else "ALREADY CHARGED"
                         curDist <= 1.55f -> "ALREADY IN MELEE"
-                        curDist > 12.45f -> "OUT OF 12\" CHARGE"
+                        curDist > 12.45f -> "OUT OF 12 CM CHARGE"
                         else -> "NO CHARGE PATH"
                     }
                     spawnFloatingText(pos, msg, 0xFFFF4D58L)
@@ -1154,6 +1228,10 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             } else if (!state.moveModeActive) {
                 val sel = state.selectedUnit ?: return
                 if (!state.canCommandUnit(sel)) return
+                if (unitHit.isCloaked) {
+                    spawnFloatingText(pos, "CHAMELEONIC CLOAK: UNTARGETABLE", 0xFF4CC9F0L)
+                    return
+                }
                 val preview = TacticalRules.canTarget(sel, unitHit, state.weaponMode, state.map.rows, state.units)
                 if (preview != null && preview.inRange && preview.hasLos) {
                     sound.play(SoundType.CLICK)
@@ -1190,7 +1268,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         if (!state.canCommandUnit(sel)) return
 
         if (state.chargeModeActive) {
-            spawnFloatingText(pos, "TAP ENEMY WITHIN 12\"", 0xFFFFB703L)
+            spawnFloatingText(pos, "TAP ENEMY WITHIN 12 CM", 0xFFFFB703L)
             return
         }
 
@@ -1267,13 +1345,13 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 moveCmLeft = u.moveCmLeft + bonusCm,
                 hasAdvanced = true,
                 activeBuffLabel = if (u.template.mainWeaponAssault) {
-                    "ADVANCE +$roll\" (ASSAULT)"
+                    "ADVANCE +$roll cm (ASSAULT)"
                 } else {
-                    "ADVANCE +$roll\" (NO SHOOT/CHRG)"
+                    "ADVANCE +$roll cm (NO SHOOT/CHRG)"
                 }
             )
         }
-        spawnFloatingText(selected.pos, "ADVANCE +$roll\" (+${bonusCm.toInt()} cm)", 0xFF38D96CL)
+        spawnFloatingText(selected.pos, "ADVANCE +$roll cm (+${bonusCm.toInt()} cm)", 0xFF38D96CL)
         val nextState = state.copy(
             units = updatedUnits,
             weaponMode = WeaponMode.MAIN,
@@ -1820,13 +1898,122 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private suspend fun executeAttack(attackerUid: String, targetUid: String, mode: WeaponMode) {
+    fun triggerFightFirst(fromLanClient: Boolean = false) {
+        if (shouldForwardToLanHost(fromLanClient)) {
+            forwardClientAction("FIGHT_FIRST")
+            return
+        }
         val state = _battleState.value
-        val attacker = state.units.firstOrNull { it.uid == attackerUid && it.isAlive } ?: return
-        val target = state.units.firstOrNull { it.uid == targetUid && it.isAlive } ?: return
+        if (!state.isPlayerTurn || state.isAnimating) return
+        val selected = state.selectedUnit ?: return
+        if (!state.canCommandUnit(selected)) return
+        if (selected.template.archetype != UnitArchetype.VON_RYANS_LEAPER) return
+        if (selected.hasFought) {
+            spawnFloatingText(selected.pos, "ALREADY FOUGHT", 0xFF9AA3B2L)
+            return
+        }
+        val adjEnemy = state.units
+            .filter { it.isAlive && !it.isCloaked && it.faction != selected.faction }
+            .minByOrNull { hypot(it.worldX - selected.worldX, it.worldY - selected.worldY) }
+            ?.takeIf { hypot(it.worldX - selected.worldX, it.worldY - selected.worldY) <= 1.55f }
+        if (adjEnemy == null) {
+            spawnFloatingText(selected.pos, "NO ADJACENT ENEMY", 0xFFFF4D58L)
+            return
+        }
+        actionJob?.cancel()
+        actionJob = viewModelScope.launch {
+            spawnFloatingText(selected.pos, "⚡ FIGHT FIRST!", 0xFFFFD166L)
+            executeAttack(selected.uid, adjEnemy.uid, WeaponMode.MAIN, skipCounterAttack = true)
+        }
+    }
+
+    private suspend fun executeAttack(
+        attackerUid: String,
+        targetUid: String,
+        mode: WeaponMode,
+        skipCounterAttack: Boolean = false
+    ) {
+        var state = _battleState.value
+        var attacker = state.units.firstOrNull { it.uid == attackerUid && it.isAlive } ?: return
+        var target = state.units.firstOrNull { it.uid == targetUid && it.isAlive } ?: return
 
         val distTiles = hypot(attacker.worldX - target.worldX, attacker.worldY - target.worldY)
         val isMelee = TacticalRules.effectiveIsMelee(attacker, mode, distTiles)
+
+        // Von Ryan's Leaper Tabletop Passive: Fight First pre-strike when engaged in melee
+        var leaperPreStruck = false
+        if (isMelee && !skipCounterAttack &&
+            target.template.archetype == UnitArchetype.VON_RYANS_LEAPER &&
+            target.isAlive && target.aliveModels > 0 && !target.hasFought && !target.isCloaked
+        ) {
+            leaperPreStruck = true
+            _battleState.update { it.copy(isAnimating = true) }
+            spawnFloatingText(target.pos, "⚡ FIGHT FIRST!", 0xFFFFD166L)
+            sound.play(SoundType.MELEE)
+            val preOutcome = TacticalRules.resolveMeleeCounterAttack(target, attacker, state.map.rows)
+            if (preOutcome != null) {
+                val preNow = System.currentTimeMillis()
+                val preProj = ProjectileVfx(
+                    id = nextIdCounter++,
+                    fromX = target.worldX,
+                    fromY = target.worldY,
+                    toX = attacker.worldX,
+                    toY = attacker.worldY,
+                    colorArgb = 0xFFC77DFFL,
+                    isBeam = false,
+                    isMelee = true,
+                    startTimeMs = preNow
+                )
+                val preFloats = preOutcome.floatingTexts.mapIndexed { idx, pair ->
+                    FloatingTextVfx(
+                        id = nextIdCounter++,
+                        gridX = pair.first.x.toFloat(),
+                        gridY = pair.first.y.toFloat() - idx * 0.35f,
+                        text = pair.second.first,
+                        colorArgb = pair.second.second,
+                        startTimeMs = preNow + 200L + idx * 180L
+                    )
+                }
+                val leaperWithFought = preOutcome.updatedDefender.copy(hasFought = true)
+                val preUnits = TacticalRules.applyAuras(
+                    state.units.map { u ->
+                        when (u.uid) {
+                            leaperWithFought.uid -> leaperWithFought
+                            preOutcome.updatedAttacker.uid -> preOutcome.updatedAttacker
+                            else -> u
+                        }
+                    }
+                )
+                val preKillsPlayer = if (target.faction == state.playerFaction && preOutcome.updatedAttacker.totalWounds == 0) 1 else 0
+                val preKillsEnemy = if (target.faction != state.playerFaction && preOutcome.updatedAttacker.totalWounds == 0) 1 else 0
+                val preUpdated = state.copy(
+                    units = preUnits,
+                    projectiles = (state.projectiles + preProj).filter { preNow - it.startTimeMs < 1800 },
+                    floatingTexts = (state.floatingTexts + preFloats).filter { preNow - it.startTimeMs < 3200 },
+                    playerKills = state.playerKills + preKillsPlayer,
+                    enemyKills = state.enemyKills + preKillsEnemy,
+                    focusGridPos = if (state.autoFocusCamera) attacker.pos else state.focusGridPos
+                )
+                val afterPre = checkVictoryOrUpdate(recomputeSelectionOverlays(preUpdated))
+                _battleState.value = afterPre
+                syncCoopHostIfNeeded(afterPre)
+                scheduleVfxCleanup()
+                delay(900L)
+            }
+            state = _battleState.value
+            val nextAttacker = state.units.firstOrNull { it.uid == attackerUid && it.isAlive }
+            val nextTarget = state.units.firstOrNull { it.uid == targetUid && it.isAlive }
+            if (!state.active || state.summary != null || nextAttacker == null || nextTarget == null) {
+                _battleState.update { st ->
+                    if (!st.active) st else recomputeSelectionOverlays(st.copy(isAnimating = false))
+                }
+                syncCoopHostIfNeeded(_battleState.value)
+                return
+            }
+            attacker = nextAttacker
+            target = nextTarget
+        }
+
         sound.play(
             when {
                 isMelee -> SoundType.MELEE
@@ -1880,9 +2067,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         val addedEnemyKills = if (attacker.faction != state.playerFaction) outcome.killsCount else 0
 
         val survivingAttacker = newUnits.firstOrNull { it.uid == attacker.uid }
-        val counterDefenders = if (isMelee && survivingAttacker != null && survivingAttacker.isAlive) {
+        val counterDefenders = if (isMelee && !skipCounterAttack && !leaperPreStruck && survivingAttacker != null && survivingAttacker.isAlive) {
             outcome.updatedTargets.mapNotNull { t ->
-                newUnits.firstOrNull { it.uid == t.uid && it.isAlive && it.aliveModels > 0 }?.takeIf { def ->
+                newUnits.firstOrNull { it.uid == t.uid && it.isAlive && it.aliveModels > 0 && !it.isCloaked }?.takeIf { def ->
                     hypot(def.worldX - survivingAttacker.worldX, def.worldY - survivingAttacker.worldY) <= 1.55f
                 }
             }
@@ -2007,7 +2194,11 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             val selfUpdated = TacticalRules.activateSelfSkillIfApplicable(selected)
             if (selfUpdated != null) {
                 val units = TacticalRules.applyAuras(state.units.map { if (it.uid == selfUpdated.uid) selfUpdated else it })
-                spawnFloatingText(selected.pos, "BOUNDING LEAP!", 0xFF38D96CL)
+                if (selected.template.archetype == UnitArchetype.VON_RYANS_LEAPER) {
+                    spawnFloatingText(selected.pos, "CHAMELEONIC CLOAK! (1T INVISIBLE)", 0xFF4CC9F0L)
+                } else {
+                    spawnFloatingText(selected.pos, "BOUNDING LEAP!", 0xFF38D96CL)
+                }
                 val next = recomputeSelectionOverlays(
                     state.copy(units = units, weaponMode = WeaponMode.MAIN, movePreview = null, targetPreview = null)
                 )
@@ -2272,7 +2463,13 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                             if (it.uid == decision.unitUid) TacticalRules.activateSelfSkillIfApplicable(it) ?: it else it
                         }
                         val u = units.firstOrNull { it.uid == decision.unitUid }
-                        if (u != null) spawnFloatingText(u.pos, "LEAP!", 0xFFC77DFFL)
+                        if (u != null) {
+                            if (u.template.archetype == UnitArchetype.VON_RYANS_LEAPER) {
+                                spawnFloatingText(u.pos, "CHAMELEONIC CLOAK!", 0xFF4CC9F0L)
+                            } else {
+                                spawnFloatingText(u.pos, "LEAP!", 0xFFC77DFFL)
+                            }
+                        }
                         _battleState.update { it.copy(units = units, focusGridPos = if (it.autoFocusCamera) u?.pos else it.focusGridPos) }
                         syncCoopHostIfNeeded(_battleState.value)
                         delay(840)
@@ -2288,11 +2485,11 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                             else u.copy(
                                 moveCmLeft = u.moveCmLeft + bonusCm,
                                 hasAdvanced = true,
-                                activeBuffLabel = if (u.template.mainWeaponAssault) "ADVANCE +$roll\" (ASSAULT)" else "ADVANCE +$roll\""
+                                activeBuffLabel = if (u.template.mainWeaponAssault) "ADVANCE +$roll cm (ASSAULT)" else "ADVANCE +$roll cm"
                             )
                         }
                         val u = units.firstOrNull { it.uid == decision.unitUid }
-                        if (u != null) spawnFloatingText(u.pos, "ADVANCE +$roll\"", 0xFF38D96CL)
+                        if (u != null) spawnFloatingText(u.pos, "ADVANCE +$roll cm", 0xFF38D96CL)
                         _battleState.update { it.copy(units = units, focusGridPos = if (it.autoFocusCamera) u?.pos else it.focusGridPos) }
                         syncCoopHostIfNeeded(_battleState.value)
                         delay(650)
@@ -2399,6 +2596,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             else {
                 val nextBuffTurns = (u.buffTurnsLeft - 1).coerceAtLeast(0)
                 val nextDamageReduction = (u.damageReductionTurns - 1).coerceAtLeast(0)
+                val nextStealthTurns = (u.stealthTurnsLeft - 1).coerceAtLeast(0)
                 u.copy(
                     moveCmLeft = u.template.moveCm.toFloat(),
                     hasAdvanced = false,
@@ -2409,7 +2607,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     pistolCooldownLeft = (u.pistolCooldownLeft - 1).coerceAtLeast(0),
                     buffTurnsLeft = nextBuffTurns,
                     damageReductionTurns = nextDamageReduction,
-                    activeBuffLabel = if (nextBuffTurns > 0 || nextDamageReduction > 0) u.activeBuffLabel else null
+                    stealthTurnsLeft = nextStealthTurns,
+                    activeBuffLabel = if (nextBuffTurns > 0 || nextDamageReduction > 0 || nextStealthTurns > 0) u.activeBuffLabel else null
                 )
             }
         }
@@ -2420,6 +2619,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             else {
                 val nextBuffTurns = (u.buffTurnsLeft - 1).coerceAtLeast(0)
                 val nextDamageReduction = (u.damageReductionTurns - 1).coerceAtLeast(0)
+                val nextStealthTurns = (u.stealthTurnsLeft - 1).coerceAtLeast(0)
                 u.copy(
                     moveCmLeft = u.template.moveCm.toFloat(),
                     hasAdvanced = false,
@@ -2430,7 +2630,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     pistolCooldownLeft = (u.pistolCooldownLeft - 1).coerceAtLeast(0),
                     buffTurnsLeft = nextBuffTurns,
                     damageReductionTurns = nextDamageReduction,
-                    activeBuffLabel = if (nextBuffTurns > 0 || nextDamageReduction > 0) u.activeBuffLabel else null
+                    stealthTurnsLeft = nextStealthTurns,
+                    activeBuffLabel = if (nextBuffTurns > 0 || nextDamageReduction > 0 || nextStealthTurns > 0) u.activeBuffLabel else null
                 )
             }
         }

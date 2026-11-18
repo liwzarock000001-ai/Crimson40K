@@ -37,12 +37,13 @@ object UnitMeshSculptor3D {
             UnitArchetype.ASSAULT_MARINE,
             UnitArchetype.CAPTAIN -> buildPrimarisUltramarine(m, archetype)
 
-            UnitArchetype.TERMAGANT,
-            UnitArchetype.HORMAGAUNT,
-            UnitArchetype.WARRIOR,
-            UnitArchetype.GENESTEALER,
-            UnitArchetype.CARNIFEX,
-            UnitArchetype.HIVE_TYRANT -> buildTyranidXenos(m, archetype)
+            UnitArchetype.TERMAGANT -> buildTermagant(m)
+            UnitArchetype.HORMAGAUNT -> buildHormagaunt(m)
+            UnitArchetype.WARRIOR -> buildTyranidWarrior(m)
+            UnitArchetype.VON_RYANS_LEAPER -> buildVonRyansLeaper(m)
+            UnitArchetype.GENESTEALER -> buildGenestealer(m)
+            UnitArchetype.CARNIFEX -> buildCarnifex(m)
+            UnitArchetype.HIVE_TYRANT -> buildHiveTyrant(m)
         }
         return m.build()
     }
@@ -754,70 +755,373 @@ object UnitMeshSculptor3D {
         }
     }
 
-    private fun buildTyranidXenos(m: MeshAccumulator, archetype: UnitArchetype) {
-        val s = when (archetype) {
-            UnitArchetype.HIVE_TYRANT -> 1.60f
-            UnitArchetype.CARNIFEX -> 1.50f
-            UnitArchetype.WARRIOR -> 1.24f
-            UnitArchetype.GENESTEALER -> 1.06f
-            else -> 0.94f
-        }
-        val (chR, chG, chB) = when (archetype) {
-            UnitArchetype.HIVE_TYRANT -> Triple(0.36f, 0.15f, 0.48f)
-            UnitArchetype.CARNIFEX -> Triple(0.30f, 0.13f, 0.40f)
-            UnitArchetype.GENESTEALER -> Triple(0.22f, 0.14f, 0.46f)
-            else -> Triple(0.28f, 0.14f, 0.36f)
-        }
-        val boneR = 0.48f; val boneG = 0.40f; val boneB = 0.34f
-        val talonR = 0.62f; val talonG = 0.13f; val talonB = 0.16f
+    // Hive Fleet Leviathan Tyranids Authentic Palette
+    private val FLESH_R = 0.84f; private val FLESH_G = 0.72f; private val FLESH_B = 0.72f
+    private val FLESH_SHADE_R = 0.68f; private val FLESH_SHADE_G = 0.50f; private val FLESH_SHADE_B = 0.54f
+    private val CHITIN_R = 0.26f; private val CHITIN_G = 0.11f; private val CHITIN_B = 0.34f
+    private val CHITIN_HI_R = 0.50f; private val CHITIN_HI_G = 0.20f; private val CHITIN_HI_B = 0.42f
+    private val TALON_DK_R = 0.15f; private val TALON_DK_G = 0.08f; private val TALON_DK_B = 0.11f
+    private val TALON_TIP_R = 0.64f; private val TALON_TIP_G = 0.14f; private val TALON_TIP_B = 0.18f
+    private val TENDRIL_R = 0.92f; private val TENDRIL_G = 0.42f; private val TENDRIL_B = 0.18f
 
-        // Compact Alien Spore Plinth
-        m.addCylinder(0f, 0.002f, 0f, 0.17f * s, 0.15f * s, 0.022f, 10, 0.13f, 0.09f, 0.13f)
+    private fun buildTermagant(m: MeshAccumulator) {
+        val s = 0.92f
+        // Compact desert/ash tactical base
+        m.addCylinder(0f, 0.002f, 0f, 0.16f * s, 0.145f * s, 0.022f, 10, 0.13f, 0.10f, 0.12f)
         val by = 0.022f
 
-        // Muscular Digitigrade Hind Limbs (2-segment bent legs)
+        // Agile Sprinting Digitigrade Hind Legs (staggered stride)
+        for (side in floatArrayOf(-1f, 1f)) {
+            val z = side * 0.082f * s
+            val fOff = if (side < 0f) 0.035f * s else -0.045f * s
+            m.addOrientedCylinder(fOff - 0.02f * s, by + 0.018f * s, z, fOff - 0.07f * s, by + 0.115f * s, z, 0.022f * s, 0.028f * s, 8, r = FLESH_SHADE_R, g = FLESH_SHADE_G, b = FLESH_SHADE_B)
+            m.addOrientedCylinder(fOff - 0.07f * s, by + 0.115f * s, z, -0.02f * s, by + 0.21f * s, z * 0.78f, 0.030f * s, 0.042f * s, 8, r = FLESH_R, g = FLESH_G, b = FLESH_B)
+            m.addOrientedEllipsoid(fOff, by + 0.014f * s, z, 0.046f * s, 0.018f * s, 0.030f * s, phiEndDeg = 90f, latSegs = 3, lonSegs = 6, r = TALON_DK_R, g = TALON_DK_G, b = TALON_DK_B)
+        }
+
+        // Low-slung Horizontal Ribbed Torso + Segmented Purple Chitin Dorsal Plates
+        m.addOrientedEllipsoid(0.03f * s, by + 0.215f * s, 0f, 0.145f * s, 0.076f * s, 0.078f * s, rotZDeg = -14f, latSegs = 5, lonSegs = 10, r = FLESH_R, g = FLESH_G, b = FLESH_B)
+        m.addOrientedEllipsoid(0.02f * s, by + 0.258f * s, 0f, 0.155f * s, 0.068f * s, 0.088f * s, rotZDeg = -14f, phiEndDeg = 95f, latSegs = 4, lonSegs = 10, r = CHITIN_R, g = CHITIN_G, b = CHITIN_B)
+        // Edge-highlighted chitin ridge plates along spine
+        for (i in 0 until 3) {
+            val px = (-0.06f + i * 0.065f) * s
+            m.addOrientedBox(px, by + 0.302f * s - i * 0.008f * s, 0f, 0.052f * s, 0.018f * s, 0.076f * s, rotZDeg = -16f, r = CHITIN_HI_R, g = CHITIN_HI_G, b = CHITIN_HI_B)
+        }
+
+        // Long Counter-Balancing Tail
+        m.addOrientedCylinder(-0.09f * s, by + 0.19f * s, 0f, -0.23f * s, by + 0.16f * s, 0f, 0.034f * s, 0.022f * s, 8, r = FLESH_SHADE_R, g = FLESH_SHADE_G, b = FLESH_SHADE_B)
+        m.addOrientedCylinder(-0.23f * s, by + 0.16f * s, 0f, -0.34f * s, by + 0.21f * s, 0f, 0.022f * s, 0.008f * s, 6, r = CHITIN_R, g = CHITIN_G, b = CHITIN_B)
+
+        // Swept Gaunt Head + Extended Chitin Head Crest + Bright Amber Eyes
+        m.addOrientedEllipsoid(0.17f * s, by + 0.255f * s, 0f, 0.095f * s, 0.048f * s, 0.048f * s, rotZDeg = -8f, latSegs = 4, lonSegs = 8, r = FLESH_R, g = FLESH_G, b = FLESH_B)
+        m.addOrientedBox(0.125f * s, by + 0.295f * s, 0f, 0.11f * s, 0.024f * s, 0.068f * s, rotZDeg = 14f, r = CHITIN_R, g = CHITIN_G, b = CHITIN_B)
+        m.addOrientedEllipsoid(0.22f * s, by + 0.262f * s, -0.028f * s, 0.014f * s, 0.011f * s, 0.011f * s, latSegs = 3, lonSegs = 6, r = 1.0f, g = 0.62f, b = 0.12f, a = E)
+        m.addOrientedEllipsoid(0.22f * s, by + 0.262f * s, 0.028f * s, 0.014f * s, 0.011f * s, 0.011f * s, latSegs = 3, lonSegs = 6, r = 1.0f, g = 0.62f, b = 0.12f, a = E)
+
+        // Symbiote Bio-Fleshborer gripped under thorax with both fore-arms + ammo-sac + dark organic barrel
+        for (side in floatArrayOf(-1f, 1f)) {
+            m.addOrientedCylinder(0.06f * s, by + 0.20f * s, side * 0.065f * s, 0.14f * s, by + 0.155f * s, side * 0.036f * s, 0.020f * s, 0.016f * s, 6, r = FLESH_R, g = FLESH_G, b = FLESH_B)
+        }
+        m.addOrientedEllipsoid(0.16f * s, by + 0.155f * s, 0f, 0.115f * s, 0.042f * s, 0.044f * s, latSegs = 4, lonSegs = 8, r = CHITIN_HI_R, g = CHITIN_HI_G, b = CHITIN_HI_B)
+        m.addOrientedEllipsoid(0.14f * s, by + 0.115f * s, 0f, 0.048f * s, 0.032f * s, 0.034f * s, latSegs = 3, lonSegs = 6, r = TENDRIL_R * 0.78f, g = TENDRIL_G * 0.78f, b = TENDRIL_B * 0.78f)
+        m.addOrientedCylinder(0.24f * s, by + 0.162f * s, 0f, 0.37f * s, by + 0.168f * s, 0f, 0.022f * s, 0.016f * s, 8, r = TALON_DK_R, g = TALON_DK_G, b = TALON_DK_B)
+    }
+
+    private fun buildHormagaunt(m: MeshAccumulator) {
+        val s = 0.98f
+        m.addCylinder(0f, 0.002f, 0f, 0.165f * s, 0.15f * s, 0.022f, 10, 0.13f, 0.09f, 0.13f)
+        val by = 0.022f
+
+        // Bounding Sprint Legs (Left foot pushing off turf, Right leg tucked high in mid-stride!)
+        // Left leg grounded push-off
+        m.addOrientedCylinder(-0.07f * s, by + 0.015f * s, -0.085f * s, -0.14f * s, by + 0.13f * s, -0.085f * s, 0.024f * s, 0.030f * s, 8, r = FLESH_SHADE_R, g = FLESH_SHADE_G, b = FLESH_SHADE_B)
+        m.addOrientedCylinder(-0.14f * s, by + 0.13f * s, -0.085f * s, -0.02f * s, by + 0.24f * s, -0.068f * s, 0.032f * s, 0.046f * s, 8, r = FLESH_R, g = FLESH_G, b = FLESH_B)
+        m.addOrientedEllipsoid(-0.05f * s, by + 0.015f * s, -0.085f * s, 0.052f * s, 0.020f * s, 0.032f * s, phiEndDeg = 90f, latSegs = 3, lonSegs = 6, r = TALON_DK_R, g = TALON_DK_G, b = TALON_DK_B)
+        // Right leg tucked mid-leap forward
+        m.addOrientedCylinder(0.05f * s, by + 0.095f * s, 0.085f * s, -0.04f * s, by + 0.175f * s, 0.085f * s, 0.024f * s, 0.032f * s, 8, r = FLESH_SHADE_R, g = FLESH_SHADE_G, b = FLESH_SHADE_B)
+        m.addOrientedCylinder(-0.04f * s, by + 0.175f * s, 0.085f * s, 0.02f * s, by + 0.25f * s, 0.068f * s, 0.032f * s, 0.046f * s, 8, r = FLESH_R, g = FLESH_G, b = FLESH_B)
+
+        // Forward-Lunging Sleek Torso + Sharp Swept Carapace
+        m.addOrientedEllipsoid(0.045f * s, by + 0.26f * s, 0f, 0.15f * s, 0.072f * s, 0.076f * s, rotZDeg = 18f, latSegs = 5, lonSegs = 10, r = FLESH_R, g = FLESH_G, b = FLESH_B)
+        m.addOrientedEllipsoid(0.035f * s, by + 0.295f * s, 0f, 0.16f * s, 0.062f * s, 0.084f * s, rotZDeg = 18f, phiEndDeg = 95f, latSegs = 4, lonSegs = 10, r = CHITIN_R, g = CHITIN_G, b = CHITIN_B)
+
+        // Long Whip Tail arching behind
+        m.addOrientedCylinder(-0.08f * s, by + 0.22f * s, 0f, -0.25f * s, by + 0.20f * s, 0f, 0.034f * s, 0.020f * s, 8, r = FLESH_SHADE_R, g = FLESH_SHADE_G, b = FLESH_SHADE_B)
+        m.addOrientedCylinder(-0.25f * s, by + 0.20f * s, 0f, -0.40f * s, by + 0.28f * s, 0f, 0.020f * s, 0.006f * s, 6, r = CHITIN_HI_R, g = CHITIN_HI_G, b = CHITIN_HI_B)
+
+        // Snarling Swept Predator Skull
+        m.addOrientedEllipsoid(0.20f * s, by + 0.305f * s, 0f, 0.105f * s, 0.048f * s, 0.048f * s, rotZDeg = -6f, latSegs = 4, lonSegs = 8, r = FLESH_R, g = FLESH_G, b = FLESH_B)
+        m.addOrientedBox(0.155f * s, by + 0.345f * s, 0f, 0.12f * s, 0.024f * s, 0.064f * s, rotZDeg = 16f, r = CHITIN_HI_R, g = CHITIN_HI_G, b = CHITIN_HI_B)
+        m.addOrientedEllipsoid(0.26f * s, by + 0.312f * s, -0.026f * s, 0.015f * s, 0.011f * s, 0.011f * s, latSegs = 3, lonSegs = 6, r = 1.0f, g = 0.50f, b = 0.08f, a = E)
+        m.addOrientedEllipsoid(0.26f * s, by + 0.312f * s, 0.026f * s, 0.015f * s, 0.011f * s, 0.011f * s, latSegs = 3, lonSegs = 6, r = 1.0f, g = 0.50f, b = 0.08f, a = E)
+
+        // Paired Long Razor Scything Talons Reaching Far Ahead to Slash!
+        for (side in floatArrayOf(-1f, 1f)) {
+            val sz = side * 0.088f * s
+            m.addOrientedCylinder(0.10f * s, by + 0.27f * s, sz, 0.21f * s, by + 0.22f * s, sz * 1.32f, 0.026f * s, 0.020f * s, 6, r = FLESH_R, g = FLESH_G, b = FLESH_B)
+            m.addOrientedCylinder(0.21f * s, by + 0.22f * s, sz * 1.32f, 0.42f * s, by + 0.32f * s, sz * 0.92f, 0.022f * s, 0.004f * s, 6, r = TALON_TIP_R, g = TALON_TIP_G, b = TALON_TIP_B)
+            // Secondary lower grasping talons
+            m.addOrientedCylinder(0.08f * s, by + 0.21f * s, side * 0.068f * s, 0.19f * s, by + 0.16f * s, side * 0.09f * s, 0.018f * s, 0.005f * s, 6, r = TALON_DK_R, g = TALON_DK_G, b = TALON_DK_B)
+        }
+    }
+
+    private fun buildTyranidWarrior(m: MeshAccumulator) {
+        val s = 1.28f
+        m.addCylinder(0f, 0.002f, 0f, 0.20f * s, 0.185f * s, 0.026f, 12, 0.13f, 0.10f, 0.14f)
+        val by = 0.026f
+
+        // Heavy Synapse Stalker Legs with Chitin Thigh & Shin Armor
+        for (side in floatArrayOf(-1f, 1f)) {
+            val z = side * 0.105f * s
+            m.addOrientedCylinder(-0.02f * s, by + 0.02f * s, z, -0.075f * s, by + 0.16f * s, z, 0.034f * s, 0.042f * s, 8, r = FLESH_SHADE_R, g = FLESH_SHADE_G, b = FLESH_SHADE_B)
+            m.addOrientedCylinder(-0.075f * s, by + 0.16f * s, z, -0.01f * s, by + 0.29f * s, z * 0.85f, 0.045f * s, 0.056f * s, 8, r = FLESH_R, g = FLESH_G, b = FLESH_B)
+            m.addOrientedBox(-0.03f * s, by + 0.20f * s, z + side * 0.03f * s, 0.062f * s, 0.11f * s, 0.036f * s, rotZDeg = 18f, r = CHITIN_R, g = CHITIN_G, b = CHITIN_B)
+            m.addOrientedEllipsoid(0.01f * s, by + 0.018f * s, z, 0.064f * s, 0.024f * s, 0.044f * s, phiEndDeg = 90f, latSegs = 3, lonSegs = 6, r = TALON_DK_R, g = TALON_DK_G, b = TALON_DK_B)
+        }
+
+        // Tall Upright Armored Torso & Ribbed Exoskeleton
+        m.addOrientedEllipsoid(0f, by + 0.36f * s, 0f, 0.115f * s, 0.145f * s, 0.115f * s, rotZDeg = -8f, latSegs = 5, lonSegs = 10, r = FLESH_R, g = FLESH_G, b = FLESH_B)
+        m.addOrientedBox(-0.025f * s, by + 0.38f * s, 0f, 0.135f * s, 0.24f * s, 0.20f * s, rotZDeg = -8f, r = CHITIN_R, g = CHITIN_G, b = CHITIN_B)
+        // Broad Armored Shoulder Carapace Plates + 3 Dorsal Spore Chimneys
+        for (side in floatArrayOf(-1f, 1f)) {
+            m.addOrientedBox(-0.01f * s, by + 0.46f * s, side * 0.14f * s, 0.13f * s, 0.065f * s, 0.11f * s, rotXDeg = side * 22f, r = CHITIN_HI_R, g = CHITIN_HI_G, b = CHITIN_HI_B)
+            m.addOrientedCylinder(-0.06f * s, by + 0.44f * s, side * 0.065f * s, -0.14f * s, by + 0.56f * s, side * 0.088f * s, 0.028f * s, 0.014f * s, 6, r = CHITIN_R, g = CHITIN_G, b = CHITIN_B)
+        }
+        m.addOrientedCylinder(-0.05f * s, by + 0.46f * s, 0f, -0.13f * s, by + 0.61f * s, 0f, 0.032f * s, 0.014f * s, 6, r = CHITIN_HI_R, g = CHITIN_HI_G, b = CHITIN_HI_B)
+
+        // Heavy Armored Tail
+        m.addOrientedCylinder(-0.08f * s, by + 0.24f * s, 0f, -0.22f * s, by + 0.18f * s, 0f, 0.048f * s, 0.028f * s, 8, r = CHITIN_R, g = CHITIN_G, b = CHITIN_B)
+        m.addOrientedCylinder(-0.22f * s, by + 0.18f * s, 0f, -0.32f * s, by + 0.22f * s, 0f, 0.028f * s, 0.010f * s, 6, r = TALON_DK_R, g = TALON_DK_G, b = TALON_DK_B)
+
+        // Horned Warrior Crest Head + Mandibles + Glowing Violet Synapse Eyes
+        m.addOrientedEllipsoid(0.085f * s, by + 0.495f * s, 0f, 0.088f * s, 0.062f * s, 0.066f * s, latSegs = 4, lonSegs = 8, r = FLESH_R, g = FLESH_G, b = FLESH_B)
+        m.addOrientedBox(0.055f * s, by + 0.545f * s, 0f, 0.145f * s, 0.038f * s, 0.140f * s, rotZDeg = 18f, r = CHITIN_HI_R, g = CHITIN_HI_G, b = CHITIN_HI_B)
+        m.addOrientedCylinder(0.14f * s, by + 0.545f * s, 0f, 0.21f * s, by + 0.625f * s, 0f, 0.018f * s, 0.005f * s, 6, r = TALON_TIP_R, g = TALON_TIP_G, b = TALON_TIP_B)
+        m.addOrientedEllipsoid(0.145f * s, by + 0.505f * s, -0.032f * s, 0.016f * s, 0.012f * s, 0.012f * s, latSegs = 3, lonSegs = 6, r = 0.85f, g = 0.35f, b = 1.0f, a = E)
+        m.addOrientedEllipsoid(0.145f * s, by + 0.505f * s, 0.032f * s, 0.016f * s, 0.012f * s, 0.012f * s, latSegs = 3, lonSegs = 6, r = 0.85f, g = 0.35f, b = 1.0f, a = E)
+
+        // Upper Arm Pair: Twin Massive Crimson-Hilt Tyranid BONESWORDS
+        for (side in floatArrayOf(-1f, 1f)) {
+            val sz = side * 0.145f * s
+            m.addOrientedCylinder(0.03f * s, by + 0.44f * s, sz, 0.14f * s, by + 0.38f * s, sz * 1.2f, 0.032f * s, 0.026f * s, 8, r = FLESH_R, g = FLESH_G, b = FLESH_B)
+            // Serrated Chitin Bonesword Blade
+            m.addOrientedBox(0.28f * s, by + 0.46f * s, sz * 1.15f, 0.34f * s, 0.052f * s, 0.020f * s, rotZDeg = 28f, rotYDeg = -side * 12f, r = TALON_DK_R, g = TALON_DK_G, b = TALON_DK_B)
+            m.addOrientedBox(0.30f * s, by + 0.47f * s, sz * 1.15f, 0.32f * s, 0.018f * s, 0.022f * s, rotZDeg = 28f, rotYDeg = -side * 12f, r = TALON_TIP_R, g = TALON_TIP_G, b = TALON_TIP_B)
+        }
+        // Lower Arm Pair: Rendering Claws
+        for (side in floatArrayOf(-1f, 1f)) {
+            val sz = side * 0.115f * s
+            m.addOrientedCylinder(0.04f * s, by + 0.31f * s, sz, 0.16f * s, by + 0.28f * s, sz * 1.25f, 0.024f * s, 0.016f * s, 6, r = FLESH_SHADE_R, g = FLESH_SHADE_G, b = FLESH_SHADE_B)
+            m.addOrientedCylinder(0.16f * s, by + 0.28f * s, sz * 1.25f, 0.26f * s, by + 0.32f * s, sz * 1.05f, 0.018f * s, 0.004f * s, 6, r = TALON_DK_R, g = TALON_DK_G, b = TALON_DK_B)
+        }
+    }
+
+    private fun buildVonRyansLeaper(m: MeshAccumulator) {
+        val s = 1.15f
+        // 1. Scenic Tactical Rubble Base (matching Leviathan Leaper photo!)
+        m.addCylinder(0f, 0.002f, 0f, 0.195f * s, 0.180f * s, 0.024f, 12, 0.13f, 0.10f, 0.09f)
+        m.addOrientedBox(0.05f * s, 0.030f, -0.04f * s, 0.12f * s, 0.032f, 0.10f * s, rotYDeg = 18f, r = 0.28f, g = 0.26f, b = 0.24f)
+        m.addOrientedEllipsoid(-0.07f * s, 0.028f, 0.06f * s, 0.06f * s, 0.022f, 0.05f * s, latSegs = 3, lonSegs = 6, r = 0.24f, g = 0.22f, b = 0.20f)
+        val by = 0.036f
+
+        // 2. Dynamic Coiled Digitigrade Hunter Legs + Segmented Carapace Shin Plates (left planted, right coiled in ambush stride)
+        // Left Leg (-Z, forward planted on rock)
+        m.addOrientedCylinder(0.05f * s, by + 0.015f * s, -0.090f * s, -0.035f * s, by + 0.145f * s, -0.102f * s, 0.026f * s, 0.034f * s, 8, r = FLESH_SHADE_R, g = FLESH_SHADE_G, b = FLESH_SHADE_B)
+        m.addOrientedCylinder(-0.035f * s, by + 0.145f * s, -0.102f * s, 0.015f * s, by + 0.260f * s, -0.075f * s, 0.036f * s, 0.048f * s, 8, r = FLESH_R, g = FLESH_G, b = FLESH_B)
+        m.addOrientedBox(-0.015f * s, by + 0.185f * s, -0.115f * s, 0.054f * s, 0.11f * s, 0.032f * s, rotZDeg = -22f, r = CHITIN_R, g = CHITIN_G, b = CHITIN_B)
+        m.addOrientedEllipsoid(0.075f * s, by + 0.012f * s, -0.090f * s, 0.054f * s, 0.020f * s, 0.036f * s, phiEndDeg = 90f, latSegs = 3, lonSegs = 6, r = TALON_DK_R, g = TALON_DK_G, b = TALON_DK_B)
+
+        // Right Leg (+Z, coiled rear-up)
+        m.addOrientedCylinder(-0.045f * s, by + 0.025f * s, 0.095f * s, -0.125f * s, by + 0.145f * s, 0.105f * s, 0.026f * s, 0.034f * s, 8, r = FLESH_SHADE_R, g = FLESH_SHADE_G, b = FLESH_SHADE_B)
+        m.addOrientedCylinder(-0.125f * s, by + 0.145f * s, 0.105f * s, -0.02f * s, by + 0.255f * s, 0.075f * s, 0.036f * s, 0.048f * s, 8, r = FLESH_R, g = FLESH_G, b = FLESH_B)
+        m.addOrientedBox(-0.07f * s, by + 0.19f * s, 0.118f * s, 0.056f * s, 0.11f * s, 0.032f * s, rotZDeg = 20f, r = CHITIN_R, g = CHITIN_G, b = CHITIN_B)
+        m.addOrientedEllipsoid(-0.025f * s, by + 0.020f * s, 0.095f * s, 0.052f * s, 0.020f * s, 0.034f * s, phiEndDeg = 90f, latSegs = 3, lonSegs = 6, r = TALON_DK_R, g = TALON_DK_G, b = TALON_DK_B)
+
+        // 3. Crouched Agile Flesh Torso & Overlapping Layered Chitin Carapace + Magenta Ridges
+        m.addOrientedEllipsoid(0.035f * s, by + 0.285f * s, 0f, 0.135f * s, 0.088f * s, 0.086f * s, rotZDeg = 16f, latSegs = 5, lonSegs = 10, r = FLESH_R, g = FLESH_G, b = FLESH_B)
+        m.addOrientedEllipsoid(0.022f * s, by + 0.325f * s, 0f, 0.145f * s, 0.076f * s, 0.096f * s, rotZDeg = 16f, phiEndDeg = 102f, latSegs = 5, lonSegs = 10, r = CHITIN_R, g = CHITIN_G, b = CHITIN_B)
+        // Stepped Leviathan Magenta Carapace Ridges
+        for (i in 0 until 4) {
+            val rx = (-0.06f + i * 0.055f) * s
+            val ry = by + (0.365f + i * 0.012f) * s
+            m.addOrientedBox(rx, ry, 0f, 0.048f * s, 0.020f * s, 0.112f * s - i * 0.008f * s, rotZDeg = 20f, r = CHITIN_HI_R, g = CHITIN_HI_G, b = CHITIN_HI_B)
+        }
+
+        // 4. Sweeping Curved Armored Bladed Tail (matching photo!)
+        m.addOrientedCylinder(-0.08f * s, by + 0.255f * s, 0f, -0.22f * s, by + 0.195f * s, -0.02f * s, 0.040f * s, 0.026f * s, 8, r = FLESH_R, g = FLESH_G, b = FLESH_B)
+        m.addOrientedCylinder(-0.22f * s, by + 0.195f * s, -0.02f * s, -0.34f * s, by + 0.145f * s, -0.04f * s, 0.026f * s, 0.016f * s, 8, r = CHITIN_R, g = CHITIN_G, b = CHITIN_B)
+        m.addOrientedCylinder(-0.34f * s, by + 0.145f * s, -0.04f * s, -0.43f * s, by + 0.215f * s, -0.02f * s, 0.016f * s, 0.004f * s, 6, r = TALON_TIP_R, g = TALON_TIP_G, b = TALON_TIP_B)
+
+        // 5. Iconic Von Ryan's Leaper Stalker Skull: Swept Back Crest + ORANGE-CORAL Feeder Tendrils!
+        val hx = 0.175f * s
+        val hy = by + 0.345f * s
+        m.addOrientedEllipsoid(hx, hy, 0f, 0.095f * s, 0.050f * s, 0.052f * s, rotZDeg = -14f, latSegs = 4, lonSegs = 8, r = FLESH_R, g = FLESH_G, b = FLESH_B)
+        // High Swept-Back Lictor/Leaper Chitin Cranial Crest
+        m.addOrientedBox(hx - 0.028f * s, hy + 0.044f * s, 0f, 0.140f * s, 0.028f * s, 0.072f * s, rotZDeg = 22f, r = CHITIN_HI_R, g = CHITIN_HI_G, b = CHITIN_HI_B)
+        m.addOrientedCylinder(hx - 0.01f * s, hy + 0.052f * s, 0f, hx - 0.09f * s, hy + 0.105f * s, 0f, 0.020f * s, 0.005f * s, 6, r = CHITIN_R, g = CHITIN_G, b = CHITIN_B)
+        // Fierce Glowing Eyes
+        m.addOrientedEllipsoid(hx + 0.055f * s, hy + 0.010f * s, -0.028f * s, 0.015f * s, 0.010f * s, 0.010f * s, latSegs = 3, lonSegs = 6, r = 1.0f, g = 0.65f, b = 0.15f, a = E)
+        m.addOrientedEllipsoid(hx + 0.055f * s, hy + 0.010f * s, 0.028f * s, 0.015f * s, 0.010f * s, 0.010f * s, latSegs = 3, lonSegs = 6, r = 1.0f, g = 0.65f, b = 0.15f, a = E)
+
+        // Signature Bright Orange-Coral Facial Feeder Tendrils (4-tendril undulating cluster hanging forward-down!)
+        for (tIdx in 0 until 4) {
+            val tz = (tIdx - 1.5f) * 0.022f * s
+            val lenScale = if (tIdx == 1 || tIdx == 2) 1.0f else 0.78f
+            val mx = hx + 0.078f * s
+            val my = hy - 0.025f * s
+            val midX = mx + 0.036f * s * lenScale
+            val midY = my - 0.048f * s * lenScale
+            val tipX = midX + 0.012f * s * lenScale
+            val tipY = midY - 0.052f * s * lenScale
+            m.addOrientedCylinder(mx, my, tz, midX, midY, tz * 1.2f, 0.014f * s, 0.010f * s, 6, r = TENDRIL_R, g = TENDRIL_G, b = TENDRIL_B)
+            m.addOrientedCylinder(midX, midY, tz * 1.2f, tipX, tipY, tz * 0.85f, 0.010f * s, 0.004f * s, 6, r = TENDRIL_R * 1.05f, g = TENDRIL_G * 0.80f, b = TENDRIL_B * 0.75f)
+        }
+
+        // 6. Signature Giant Towering Upper Mantis Scything Talons (arching high above shoulders & sweeping down-forward!)
+        for (side in floatArrayOf(-1f, 1f)) {
+            val shZ = side * 0.088f * s
+            val shY = by + 0.355f * s
+            val elX = -0.02f * s
+            val elY = by + 0.545f * s
+            val elZ = side * 0.145f * s
+            val wrX = 0.14f * s
+            val wrY = by + 0.615f * s
+            val wrZ = side * 0.135f * s
+            val bladeTipX = 0.33f * s
+            val bladeTipY = by + 0.455f * s
+            val bladeTipZ = side * 0.095f * s
+
+            // Muscular bone-pink upper mantis limb arching upward-back
+            m.addOrientedCylinder(0.05f * s, shY, shZ, elX, elY, elZ, 0.026f * s, 0.022f * s, 6, r = FLESH_R, g = FLESH_G, b = FLESH_B)
+            // Raised chitin forearm segment
+            m.addOrientedCylinder(elX, elY, elZ, wrX, wrY, wrZ, 0.024f * s, 0.026f * s, 6, r = FLESH_R, g = FLESH_G, b = FLESH_B)
+            m.addOrientedEllipsoid(wrX, wrY, wrZ, 0.028f * s, 0.024f * s, 0.024f * s, latSegs = 3, lonSegs = 6, r = CHITIN_HI_R, g = CHITIN_HI_G, b = CHITIN_HI_B)
+            // Towering Segmented Mantis Scythe Blade (obsidian base -> crimson tip)
+            val midBladeX = (wrX + bladeTipX) * 0.5f + 0.04f * s
+            val midBladeY = (wrY + bladeTipY) * 0.5f + 0.04f * s
+            val midBladeZ = side * 0.118f * s
+            m.addOrientedCylinder(wrX, wrY, wrZ, midBladeX, midBladeY, midBladeZ, 0.028f * s, 0.020f * s, 6, r = TALON_DK_R, g = TALON_DK_G, b = TALON_DK_B)
+            m.addOrientedCylinder(midBladeX, midBladeY, midBladeZ, bladeTipX, bladeTipY, bladeTipZ, 0.020f * s, 0.004f * s, 6, r = TALON_TIP_R, g = TALON_TIP_G, b = TALON_TIP_B)
+        }
+
+        // 7. Lower Curved Razor Mantis Arms ready to strike
+        for (side in floatArrayOf(-1f, 1f)) {
+            val lshZ = side * 0.082f * s
+            val lelX = 0.14f * s
+            val lelY = by + 0.245f * s
+            val lelZ = side * 0.132f * s
+            val lTipX = 0.30f * s
+            val lTipY = by + 0.195f * s
+            val lTipZ = side * 0.085f * s
+            m.addOrientedCylinder(0.08f * s, by + 0.285f * s, lshZ, lelX, lelY, lelZ, 0.022f * s, 0.018f * s, 6, r = FLESH_R, g = FLESH_G, b = FLESH_B)
+            m.addOrientedCylinder(lelX, lelY, lelZ, lTipX, lTipY, lTipZ, 0.020f * s, 0.004f * s, 6, r = TALON_TIP_R, g = TALON_TIP_G, b = TALON_TIP_B)
+        }
+    }
+
+    private fun buildGenestealer(m: MeshAccumulator) {
+        val s = 1.08f
+        m.addCylinder(0f, 0.002f, 0f, 0.175f * s, 0.16f * s, 0.022f, 10, 0.11f, 0.10f, 0.16f)
+        val by = 0.022f
+        val indigoR = 0.18f; val indigoG = 0.12f; val indigoB = 0.44f
+        val fleshBlueR = 0.66f; val fleshBlueG = 0.58f; val fleshBlueB = 0.78f
+
         for (side in floatArrayOf(-1f, 1f)) {
             val z = side * 0.095f * s
-            m.addOrientedCylinder(-0.04f * s, by + 0.02f * s, z, -0.10f * s, by + 0.13f * s, z, 0.032f * s, 0.040f * s, 8, r = boneR * 0.82f, g = boneG * 0.82f, b = boneB * 0.82f)
-            m.addOrientedCylinder(-0.10f * s, by + 0.13f * s, z, -0.02f * s, by + 0.25f * s, z * 0.8f, 0.042f * s, 0.056f * s, 8, r = boneR, g = boneG, b = boneB)
-            m.addOrientedEllipsoid(-0.01f * s, by + 0.018f * s, z, 0.058f * s, 0.024f * s, 0.042f * s, phiEndDeg = 90f, latSegs = 3, lonSegs = 6, r = talonR, g = talonG, b = talonB)
+            m.addOrientedCylinder(-0.02f * s, by + 0.018f * s, z, -0.09f * s, by + 0.13f * s, z, 0.028f * s, 0.036f * s, 8, r = fleshBlueR * 0.85f, g = fleshBlueG * 0.85f, b = fleshBlueB * 0.85f)
+            m.addOrientedCylinder(-0.09f * s, by + 0.13f * s, z, -0.01f * s, by + 0.24f * s, z * 0.8f, 0.038f * s, 0.048f * s, 8, r = fleshBlueR, g = fleshBlueG, b = fleshBlueB)
+            m.addOrientedEllipsoid(0f, by + 0.016f * s, z, 0.052f * s, 0.020f * s, 0.038f * s, phiEndDeg = 90f, latSegs = 3, lonSegs = 6, r = indigoR, g = indigoG, b = indigoB)
         }
+        // Hunched Spine + Ribbed Chitin Shell
+        m.addOrientedEllipsoid(0.03f * s, by + 0.255f * s, 0f, 0.135f * s, 0.088f * s, 0.095f * s, rotZDeg = 12f, latSegs = 5, lonSegs = 10, r = fleshBlueR, g = fleshBlueG, b = fleshBlueB)
+        m.addOrientedEllipsoid(0.01f * s, by + 0.295f * s, 0f, 0.145f * s, 0.075f * s, 0.105f * s, rotZDeg = 12f, phiEndDeg = 100f, latSegs = 5, lonSegs = 10, r = indigoR, g = indigoG, b = indigoB)
 
-        // Ribbed Organic Torso & Overlapping Chitin Carapace Shells
-        m.addOrientedEllipsoid(0.02f * s, by + 0.26f * s, 0f, 0.15f * s, 0.10f * s, 0.105f * s, rotZDeg = -18f, latSegs = 5, lonSegs = 10, r = boneR, g = boneG, b = boneB)
-        m.addOrientedEllipsoid(0.01f * s, by + 0.305f * s, 0f, 0.165f * s, 0.088f * s, 0.118f * s, rotZDeg = -18f, phiEndDeg = 100f, latSegs = 5, lonSegs = 10, r = chR, g = chG, b = chB)
+        // Iconic Bulbous Ribbed Genestealer Broodlord Skull
+        m.addOrientedEllipsoid(0.16f * s, by + 0.295f * s, 0f, 0.105f * s, 0.068f * s, 0.074f * s, rotZDeg = -8f, latSegs = 5, lonSegs = 10, r = indigoR * 1.15f, g = indigoG * 1.15f, b = indigoB * 1.15f)
+        m.addOrientedEllipsoid(0.225f * s, by + 0.298f * s, -0.034f * s, 0.016f * s, 0.012f * s, 0.012f * s, latSegs = 3, lonSegs = 6, r = 1.0f, g = 0.45f, b = 0.15f, a = E)
+        m.addOrientedEllipsoid(0.225f * s, by + 0.298f * s, 0.034f * s, 0.016f * s, 0.012f * s, 0.012f * s, latSegs = 3, lonSegs = 6, r = 1.0f, g = 0.45f, b = 0.15f, a = E)
 
-        // Dorsal Chitin Spines
-        m.addOrientedCylinder(-0.07f * s, by + 0.34f * s, 0f, -0.13f * s, by + 0.48f * s, 0f, 0.038f * s, 0.008f * s, 6, r = talonR, g = talonG, b = talonB)
-        m.addOrientedCylinder(0.02f * s, by + 0.35f * s, 0f, -0.02f * s, by + 0.45f * s, 0f, 0.030f * s, 0.008f * s, 6, r = chR * 1.2f, g = chG * 1.2f, b = chB * 1.2f)
-
-        // Curved Segmented Tail
-        m.addOrientedCylinder(-0.10f * s, by + 0.23f * s, 0f, -0.22f * s, by + 0.19f * s, 0f, 0.045f * s, 0.030f * s, 8, r = chR * 0.9f, g = chG * 0.9f, b = chB * 0.9f)
-        m.addOrientedCylinder(-0.22f * s, by + 0.19f * s, 0f, -0.33f * s, by + 0.24f * s, 0f, 0.030f * s, 0.010f * s, 8, r = talonR, g = talonG, b = talonB)
-
-        // Crested Predator Head + Glowing Orange Eyes + Mandibles
-        m.addOrientedEllipsoid(0.165f * s, by + 0.33f * s, 0f, 0.105f * s, 0.062f * s, 0.065f * s, rotZDeg = -10f, latSegs = 4, lonSegs = 8, r = boneR, g = boneG, b = boneB)
-        m.addOrientedEllipsoid(0.145f * s, by + 0.365f * s, 0f, 0.115f * s, 0.045f * s, 0.068f * s, rotZDeg = 12f, phiEndDeg = 95f, latSegs = 4, lonSegs = 8, r = chR * 1.15f, g = chG * 1.15f, b = chB * 1.15f)
-        m.addOrientedEllipsoid(0.225f * s, by + 0.34f * s, -0.032f * s, 0.020f * s, 0.015f * s, 0.015f * s, latSegs = 3, lonSegs = 6, r = 1.0f, g = 0.56f, b = 0.08f, a = E)
-        m.addOrientedEllipsoid(0.225f * s, by + 0.34f * s, 0.032f * s, 0.020f * s, 0.015f * s, 0.015f * s, latSegs = 3, lonSegs = 6, r = 1.0f, g = 0.56f, b = 0.08f, a = E)
-
-        // Sweeping Scything Talons (2-segment curved scythe blades)
+        // 4 Wide-Spread Rending Claw Arms
         for (side in floatArrayOf(-1f, 1f)) {
             val sz = side * 0.105f * s
-            m.addOrientedCylinder(0.08f * s, by + 0.28f * s, sz, 0.16f * s, by + 0.23f * s, sz * 1.35f, 0.032f * s, 0.026f * s, 6, r = boneR, g = boneG, b = boneB)
-            m.addOrientedCylinder(0.16f * s, by + 0.23f * s, sz * 1.35f, 0.32f * s, by + 0.31f * s, sz * 1.05f, 0.026f * s, 0.005f * s, 6, r = talonR, g = talonG, b = talonB)
+            m.addOrientedCylinder(0.07f * s, by + 0.28f * s, sz, 0.18f * s, by + 0.34f * s, sz * 1.55f, 0.025f * s, 0.020f * s, 6, r = fleshBlueR, g = fleshBlueG, b = fleshBlueB)
+            m.addOrientedCylinder(0.18f * s, by + 0.34f * s, sz * 1.55f, 0.31f * s, by + 0.31f * s, sz * 1.25f, 0.020f * s, 0.005f * s, 6, r = TALON_TIP_R, g = TALON_TIP_G, b = TALON_TIP_B)
+            m.addOrientedCylinder(0.08f * s, by + 0.21f * s, sz * 0.9f, 0.20f * s, by + 0.18f * s, sz * 1.4f, 0.022f * s, 0.016f * s, 6, r = indigoR, g = indigoG, b = indigoB)
+            m.addOrientedCylinder(0.20f * s, by + 0.18f * s, sz * 1.4f, 0.32f * s, by + 0.21f * s, sz * 1.1f, 0.018f * s, 0.005f * s, 6, r = TALON_DK_R, g = TALON_DK_G, b = TALON_DK_B)
+        }
+    }
+
+    private fun buildCarnifex(m: MeshAccumulator) {
+        val s = 1.50f
+        // Wide Heavy Monster Base
+        m.addCylinder(0f, 0.002f, 0f, 0.26f * s, 0.245f * s, 0.028f, 14, 0.13f, 0.09f, 0.13f)
+        val by = 0.028f
+
+        // Squat Heavy Siege Pillars (thick legs)
+        for (side in floatArrayOf(-1f, 1f)) {
+            val z = side * 0.155f * s
+            m.addOrientedCylinder(-0.02f * s, by + 0.02f * s, z, -0.07f * s, by + 0.145f * s, z, 0.048f * s, 0.056f * s, 10, r = FLESH_SHADE_R, g = FLESH_SHADE_G, b = FLESH_SHADE_B)
+            m.addOrientedCylinder(-0.07f * s, by + 0.145f * s, z, 0.01f * s, by + 0.26f * s, z * 0.85f, 0.060f * s, 0.074f * s, 10, r = FLESH_R, g = FLESH_G, b = FLESH_B)
+            m.addOrientedBox(0.01f * s, by + 0.024f * s, z, 0.095f * s, 0.036f * s, 0.072f * s, r = TALON_DK_R, g = TALON_DK_G, b = TALON_DK_B)
         }
 
-        if (archetype == UnitArchetype.TERMAGANT) {
-            // Bio-Fleshborer symbiote weapon gripped beneath thorax
-            m.addOrientedEllipsoid(0.18f * s, by + 0.22f * s, 0f, 0.11f * s, 0.045f * s, 0.048f * s, latSegs = 4, lonSegs = 8, r = talonR, g = talonG, b = talonB)
-            m.addOrientedCylinder(0.24f * s, by + 0.22f * s, 0f, 0.36f * s, by + 0.22f * s, 0f, 0.024f * s, 0.018f * s, 6, r = boneR, g = boneG, b = boneB)
-        } else if (archetype == UnitArchetype.HIVE_TYRANT) {
-            // Swept Bio-Membrane Wings
-            for (side in floatArrayOf(-1f, 1f)) {
-                m.addOrientedCylinder(-0.02f * s, by + 0.34f * s, side * 0.08f * s, -0.14f * s, by + 0.56f * s, side * 0.32f * s, 0.028f * s, 0.014f * s, 6, r = chR, g = chG, b = chB)
-                m.addOrientedBox(-0.10f * s, by + 0.44f * s, side * 0.24f * s, 0.16f * s, 0.24f * s, 0.018f * s, rotXDeg = side * 24f, rotYDeg = side * 18f, r = 0.26f, g = 0.11f, b = 0.32f)
+        // Massive Domed Armored Carapace & Broad Siege Thorax
+        m.addOrientedEllipsoid(0.02f * s, by + 0.275f * s, 0f, 0.195f * s, 0.125f * s, 0.165f * s, rotZDeg = -10f, latSegs = 6, lonSegs = 12, r = FLESH_R, g = FLESH_G, b = FLESH_B)
+        m.addOrientedEllipsoid(0f, by + 0.340f * s, 0f, 0.220f * s, 0.115f * s, 0.195f * s, rotZDeg = -12f, phiEndDeg = 104f, latSegs = 6, lonSegs = 12, r = CHITIN_R, g = CHITIN_G, b = CHITIN_B)
+        // Stepped Magenta Dorsal Armor Ridges
+        for (i in 0 until 3) {
+            m.addOrientedBox((-0.09f + i * 0.07f) * s, by + (0.39f + i * 0.02f) * s, 0f, 0.085f * s, 0.028f * s, 0.22f * s - i * 0.03f * s, rotZDeg = -12f, r = CHITIN_HI_R, g = CHITIN_HI_G, b = CHITIN_HI_B)
+        }
+
+        // Dorsal Spine Banks Cluster (Bio-Weapon Pods)
+        for (side in floatArrayOf(-1f, 1f)) {
+            for (row in 0 until 2) {
+                m.addOrientedCylinder(-0.06f * s + row * 0.06f * s, by + 0.40f * s, side * 0.08f * s, -0.10f * s + row * 0.05f * s, by + 0.54f * s, side * 0.125f * s, 0.024f * s, 0.007f * s, 6, r = TALON_TIP_R, g = TALON_TIP_G, b = TALON_TIP_B)
             }
         }
+
+        // Heavy Clubbed Ram Tail
+        m.addOrientedCylinder(-0.14f * s, by + 0.22f * s, 0f, -0.32f * s, by + 0.16f * s, 0f, 0.062f * s, 0.036f * s, 8, r = CHITIN_R, g = CHITIN_G, b = CHITIN_B)
+        m.addOrientedEllipsoid(-0.34f * s, by + 0.17f * s, 0f, 0.068f * s, 0.048f * s, 0.062f * s, latSegs = 4, lonSegs = 8, r = TALON_DK_R, g = TALON_DK_G, b = TALON_DK_B)
+
+        // Armored Battering Ram Head + Twin Curved Lower Tusks
+        m.addOrientedEllipsoid(0.205f * s, by + 0.29f * s, 0f, 0.108f * s, 0.074f * s, 0.092f * s, latSegs = 4, lonSegs = 8, r = CHITIN_HI_R, g = CHITIN_HI_G, b = CHITIN_HI_B)
+        m.addOrientedEllipsoid(0.27f * s, by + 0.305f * s, -0.042f * s, 0.018f * s, 0.014f * s, 0.014f * s, latSegs = 3, lonSegs = 6, r = 1.0f, g = 0.50f, b = 0.08f, a = E)
+        m.addOrientedEllipsoid(0.27f * s, by + 0.305f * s, 0.042f * s, 0.018f * s, 0.014f * s, 0.014f * s, latSegs = 3, lonSegs = 6, r = 1.0f, g = 0.50f, b = 0.08f, a = E)
+        for (side in floatArrayOf(-1f, 1f)) {
+            m.addOrientedCylinder(0.23f * s, by + 0.24f * s, side * 0.056f * s, 0.35f * s, by + 0.32f * s, side * 0.078f * s, 0.022f * s, 0.005f * s, 6, r = TALON_TIP_R, g = TALON_TIP_G, b = TALON_TIP_B)
+        }
+
+        // Bulky Siege CRUSHING CLAWS
+        for (side in floatArrayOf(-1f, 1f)) {
+            val sz = side * 0.175f * s
+            m.addOrientedCylinder(0.08f * s, by + 0.28f * s, sz, 0.21f * s, by + 0.23f * s, sz * 1.18f, 0.046f * s, 0.052f * s, 8, r = FLESH_R, g = FLESH_G, b = FLESH_B)
+            m.addOrientedBox(0.28f * s, by + 0.22f * s, sz * 1.08f, 0.16f * s, 0.095f * s, 0.082f * s, rotYDeg = -side * 12f, r = CHITIN_HI_R, g = CHITIN_HI_G, b = CHITIN_HI_B)
+            // Twin Pincer Mandibles of Crushing Claw
+            m.addOrientedCylinder(0.34f * s, by + 0.25f * s, sz * 1.08f, 0.45f * s, by + 0.26f * s, sz * 0.92f, 0.024f * s, 0.005f * s, 6, r = TALON_DK_R, g = TALON_DK_G, b = TALON_DK_B)
+            m.addOrientedCylinder(0.34f * s, by + 0.19f * s, sz * 1.08f, 0.44f * s, by + 0.21f * s, sz * 0.96f, 0.020f * s, 0.005f * s, 6, r = TALON_TIP_R, g = TALON_TIP_G, b = TALON_TIP_B)
+        }
+    }
+
+    private fun buildHiveTyrant(m: MeshAccumulator) {
+        val s = 1.62f
+        m.addCylinder(0f, 0.002f, 0f, 0.25f * s, 0.23f * s, 0.028f, 14, 0.14f, 0.08f, 0.16f)
+        val by = 0.028f
+
+        // Towering Sovereign Legs
+        for (side in floatArrayOf(-1f, 1f)) {
+            val z = side * 0.125f * s
+            m.addOrientedCylinder(-0.02f * s, by + 0.02f * s, z, -0.075f * s, by + 0.17f * s, z, 0.036f * s, 0.046f * s, 8, r = FLESH_SHADE_R, g = FLESH_SHADE_G, b = FLESH_SHADE_B)
+            m.addOrientedCylinder(-0.075f * s, by + 0.17f * s, z, 0f, by + 0.31f * s, z * 0.82f, 0.048f * s, 0.060f * s, 8, r = FLESH_R, g = FLESH_G, b = FLESH_B)
+            m.addOrientedEllipsoid(0.015f * s, by + 0.018f * s, z, 0.070f * s, 0.024f * s, 0.045f * s, phiEndDeg = 90f, latSegs = 3, lonSegs = 6, r = TALON_DK_R, g = TALON_DK_G, b = TALON_DK_B)
+        }
+
+        // Upright Regnal Thorax & Chitin Ribcage
+        m.addOrientedEllipsoid(0f, by + 0.40f * s, 0f, 0.120f * s, 0.165f * s, 0.125f * s, rotZDeg = -6f, latSegs = 5, lonSegs = 10, r = FLESH_R, g = FLESH_G, b = FLESH_B)
+        m.addOrientedBox(-0.02f * s, by + 0.42f * s, 0f, 0.14f * s, 0.26f * s, 0.21f * s, rotZDeg = -8f, r = CHITIN_R, g = CHITIN_G, b = CHITIN_B)
+
+        // Towering Hive Tyrant Crown Crest + Psychic Glowing Horn Tips!
+        val hx = 0.08f * s
+        val hy = by + 0.56f * s
+        m.addOrientedEllipsoid(hx, hy, 0f, 0.088f * s, 0.064f * s, 0.068f * s, latSegs = 4, lonSegs = 8, r = FLESH_R, g = FLESH_G, b = FLESH_B)
+        m.addOrientedBox(hx - 0.01f * s, hy + 0.055f * s, 0f, 0.16f * s, 0.045f * s, 0.15f * s, rotZDeg = 20f, r = CHITIN_HI_R, g = CHITIN_HI_G, b = CHITIN_HI_B)
+        // Crown Horns with glowing psychic violet energy
+        m.addOrientedCylinder(hx + 0.08f * s, hy + 0.05f * s, 0f, hx + 0.18f * s, hy + 0.18f * s, 0f, 0.022f * s, 0.006f * s, 6, r = 0.85f, g = 0.35f, b = 1.0f, a = E)
+        m.addOrientedCylinder(hx + 0.04f * s, hy + 0.05f * s, -0.05f * s, hx + 0.08f * s, hy + 0.16f * s, -0.09f * s, 0.016f * s, 0.005f * s, 6, r = TALON_TIP_R, g = TALON_TIP_G, b = TALON_TIP_B)
+        m.addOrientedCylinder(hx + 0.04f * s, hy + 0.05f * s, 0.05f * s, hx + 0.08f * s, hy + 0.16f * s, 0.09f * s, 0.016f * s, 0.005f * s, 6, r = TALON_TIP_R, g = TALON_TIP_G, b = TALON_TIP_B)
+        m.addOrientedEllipsoid(hx + 0.068f * s, hy + 0.01f * s, -0.032f * s, 0.016f * s, 0.012f * s, 0.012f * s, latSegs = 3, lonSegs = 6, r = 0.85f, g = 0.35f, b = 1.0f, a = E)
+        m.addOrientedEllipsoid(hx + 0.068f * s, hy + 0.01f * s, 0.032f * s, 0.016f * s, 0.012f * s, 0.012f * s, latSegs = 3, lonSegs = 6, r = 0.85f, g = 0.35f, b = 1.0f, a = E)
+
+        // Sweeping Giant Winged Tyrant Bio-Wings
+        for (side in floatArrayOf(-1f, 1f)) {
+            m.addOrientedCylinder(-0.04f * s, by + 0.46f * s, side * 0.09f * s, -0.18f * s, by + 0.72f * s, side * 0.36f * s, 0.032f * s, 0.016f * s, 6, r = CHITIN_HI_R, g = CHITIN_HI_G, b = CHITIN_HI_B)
+            m.addOrientedBox(-0.14f * s, by + 0.56f * s, side * 0.28f * s, 0.22f * s, 0.34f * s, 0.018f * s, rotXDeg = side * 26f, rotYDeg = side * 18f, r = 0.32f, g = 0.12f, b = 0.38f)
+        }
+
+        // Right Arm (+Z): Monstrous Bonesword; Left Arm (-Z): Coiled Lash Whip
+        m.addOrientedCylinder(0.03f * s, by + 0.45f * s, 0.15f * s, 0.16f * s, by + 0.40f * s, 0.19f * s, 0.034f * s, 0.026f * s, 8, r = FLESH_R, g = FLESH_G, b = FLESH_B)
+        m.addOrientedBox(0.31f * s, by + 0.50f * s, 0.18f * s, 0.38f * s, 0.060f * s, 0.022f * s, rotZDeg = 32f, r = TALON_TIP_R, g = TALON_TIP_G, b = TALON_TIP_B)
+
+        m.addOrientedCylinder(0.03f * s, by + 0.45f * s, -0.15f * s, 0.15f * s, by + 0.38f * s, -0.19f * s, 0.032f * s, 0.024f * s, 8, r = FLESH_R, g = FLESH_G, b = FLESH_B)
+        m.addArcTube(0.24f * s, by + 0.35f * s, -0.22f * s, 0.11f * s, 0.09f * s, 0.014f * s, rotXDeg = 22f, startDeg = -130f, endDeg = 130f, arcSegs = 10, tubeSegs = 5, r = TENDRIL_R, g = TENDRIL_G, b = TENDRIL_B)
     }
 }

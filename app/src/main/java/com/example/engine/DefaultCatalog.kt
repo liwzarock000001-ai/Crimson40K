@@ -176,7 +176,7 @@ object DefaultCatalog {
             pistolDamage = 0
         ),
 
-        // --- ALIEN SWARM ---
+        // --- TYRANIDS ---
         UnitTemplate(
             id = "termagants",
             name = "Termagant Brood",
@@ -299,6 +299,35 @@ object DefaultCatalog {
             pistolArmorPen = 1,
             pistolRange = 3,
             pistolCooldown = 1
+        ),
+        UnitTemplate(
+            id = "von_ryans_leaper",
+            name = "Von Ryan's Leaper",
+            faction = Faction.XENOS,
+            archetype = UnitArchetype.VON_RYANS_LEAPER,
+            role = "Apex Ambush Stalker",
+            points = 210,
+            squadSize = 3,
+            woundsPerModel = 3,
+            toughness = 5,
+            save = 4,
+            invulnSave = 6,
+            armorPen = 1,
+            moveCm = 24,
+            strength = 5,
+            damage = 1,
+            attacksPerModel = 6,
+            range = 1,
+            ballisticSkill = 4,
+            weaponSkill = 3,
+            skillName = "Chameleonic Cloak",
+            skillDesc = "Turns invisible for 1 turn (cannot be shot or attacked in melee). Cooldown: 3 turns.",
+            skillCooldown = 3,
+            passiveName = "Stealth Stalker • Fight First",
+            passiveDesc = "Reduces enemy BS by 1 when shot at (+1 to Hit) & strikes first in melee (Fight First).",
+            mainWeaponName = "Leaper's Talons",
+            mainWeaponAssault = false,
+            pistolDamage = 0
         )
     )
 
@@ -314,7 +343,8 @@ object DefaultCatalog {
         RosterSlot("x1", "termagants"),
         RosterSlot("x2", "hormagaunts"),
         RosterSlot("x3", "warriors"),
-        RosterSlot("x4", "carnifex")
+        RosterSlot("x4", "carnifex"),
+        RosterSlot("x5", "von_ryans_leaper")
     )
 
     fun serializeTemplates(templates: Map<String, UnitTemplate>): String {
@@ -375,7 +405,7 @@ object DefaultCatalog {
                     armorPen = obj.optInt("armorPen", existing.armorPen).coerceIn(0, 5),
                     moveCm = obj.optInt("moveCm", existing.moveCm).coerceIn(3, 45),
                     strength = obj.optInt("strength", existing.strength).coerceIn(1, 20),
-                    damage = obj.optInt("damage", existing.damage).coerceIn(1, 20),
+                    damage = obj.optInt("damage", existing.damage).coerceIn(1, 500),
                     attacksPerModel = obj.optInt("attacksPerModel", existing.attacksPerModel).coerceIn(1, 10),
                     range = obj.optInt("range", existing.range).coerceIn(1, 12),
                     ballisticSkill = obj.optInt("ballisticSkill", existing.ballisticSkill).coerceIn(2, 6),
@@ -386,7 +416,7 @@ object DefaultCatalog {
                     mainWeaponAssault = if (obj.has("mainWeaponAssault")) obj.optBoolean("mainWeaponAssault", existing.mainWeaponAssault) else existing.mainWeaponAssault,
                     mainWeaponPistol = if (obj.has("mainWeaponPistol")) obj.optBoolean("mainWeaponPistol", existing.mainWeaponPistol) else existing.mainWeaponPistol,
                     pistolAttacks = obj.optInt("pistolAttacks", existing.pistolAttacks).coerceIn(1, 10),
-                    pistolDamage = obj.optInt("pistolDamage", existing.pistolDamage).coerceIn(0, 12),
+                    pistolDamage = obj.optInt("pistolDamage", existing.pistolDamage).coerceIn(0, 200),
                     pistolStrength = obj.optInt("pistolStrength", existing.pistolStrength).coerceIn(1, 20),
                     pistolArmorPen = obj.optInt("pistolArmorPen", existing.pistolArmorPen).coerceIn(0, 5),
                     pistolRange = obj.optInt("pistolRange", existing.pistolRange).coerceIn(1, 8),

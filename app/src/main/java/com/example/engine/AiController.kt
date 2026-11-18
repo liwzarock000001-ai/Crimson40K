@@ -46,7 +46,12 @@ object AiController {
             }
             if (unit.skillCooldownLeft == 0) {
                 val selfSkill = TacticalRules.activateSelfSkillIfApplicable(unit)
-                if (selfSkill != null && distToNearest > 2) {
+                val shouldTriggerSelf = if (unit.template.archetype == UnitArchetype.VON_RYANS_LEAPER) {
+                    distToNearest <= 7 && !unit.isCloaked
+                } else {
+                    distToNearest > 2
+                }
+                if (selfSkill != null && shouldTriggerSelf) {
                     return AiDecision.SelfSkill(unit.uid)
                 }
                 if (unit.template.archetype == UnitArchetype.TERMINATOR && distToNearest > 4) {

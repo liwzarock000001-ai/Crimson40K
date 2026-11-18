@@ -224,11 +224,12 @@ class GlesBattleRenderer(
                 drawVbo(cmRingVbo, 0.28f, 0.88f, 0.98f, 0.52f + pulse * 0.22f, unlit = true)
             }
 
-            // Charge 12" Ring & Preview Path OR Red Shooting/Melee Range Ring
+            // Charge 12 cm Ring & Preview Path OR Red Shooting/Melee Range Ring
             if (!isTeleportMode && state.chargeModeActive && state.canCommandUnit(selectedUnit)) {
+                val chargeRadiusTiles = (12.0f / TacticalRules.CM_PER_TILE) + 1.45f
                 Matrix.setIdentityM(modelMat, 0)
                 Matrix.translateM(modelMat, 0, sx, 0.020f, sz)
-                Matrix.scaleM(modelMat, 0, 12.45f, 1f, 12.45f)
+                Matrix.scaleM(modelMat, 0, chargeRadiusTiles, 1f, chargeRadiusTiles)
                 drawVbo(rangeRingVbo, 1.0f, 0.45f, 0.12f, 0.72f + pulse * 0.20f, unlit = true)
 
                 val cPreview = state.chargePreview
@@ -353,13 +354,14 @@ class GlesBattleRenderer(
                 isSelected -> { rr = 0.76f; rg = 0.56f; rb = 0.86f }
                 isChargeable -> { rr = 1.00f; rg = 0.52f; rb = 0.14f }
                 isAttackable -> { rr = 0.72f; rg = 0.16f; rb = 0.20f }
+                unit.isCloaked -> { rr = 0.35f; rg = 0.92f; rb = 0.98f }
                 unit.faction == Faction.MARINES -> { rr = 0.22f; rg = 0.38f; rb = 0.60f }
                 else -> { rr = 0.44f; rg = 0.21f; rb = 0.52f }
             }
 
             Matrix.setIdentityM(modelMat, 0)
             Matrix.translateM(modelMat, 0, ux, 0.01f, uz)
-            drawVbo(ringVbo, rr, rg, rb, if (isSelected || isAttackable || isChargeable) 0.78f + pulse * 0.20f else 0.58f, unlit = true)
+            drawVbo(ringVbo, rr, rg, rb, if (isSelected || isAttackable || isChargeable || unit.isCloaked) 0.78f + pulse * 0.20f else 0.58f, unlit = true)
 
             val yawDeg = unit.facingDeg
             Matrix.rotateM(modelMat, 0, yawDeg, 0f, 1f, 0f)
@@ -392,7 +394,11 @@ class GlesBattleRenderer(
                 if (isDread) {
                     Matrix.scaleM(modelMat, 0, 1.72f, 1.72f, 1.72f)
                 }
-                drawVbo(unitVbo, 1f, 1f, 1f, 1f, unlit = false, isUnit = true)
+                if (unit.isCloaked) {
+                    drawVbo(unitVbo, 0.55f, 0.85f, 0.96f, 0.35f, unlit = false, isUnit = true)
+                } else {
+                    drawVbo(unitVbo, 1f, 1f, 1f, 1f, unlit = false, isUnit = true)
+                }
             }
         }
 

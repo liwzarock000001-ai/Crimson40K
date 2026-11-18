@@ -121,6 +121,7 @@ import com.example.ui.theme.XenosViolet
 import com.example.ui.theme.factionPalette
 import com.example.ui.theme.grimdarkBevelShape
 import com.example.viewmodel.BattleUiState
+import kotlin.math.hypot
 
 @Composable
 fun BattleScreen(
@@ -138,6 +139,7 @@ fun BattleScreen(
     onConfirmStrike: () -> Unit,
     onSelectWeaponMode: (WeaponMode) -> Unit,
     onRotateUnit: (Boolean) -> Unit,
+    onFightFirst: () -> Unit = {},
     onEndTurn: () -> Unit,
     onToggleAutoFocus: () -> Unit,
     onCenterCamera: () -> Unit,
@@ -377,7 +379,7 @@ fun BattleScreen(
                     showRivets = false
                 ) {
                     Text(
-                        text = "CHARGE DECLARATION: TAP ENEMY WITHIN 12\" (ROLL 2D6)",
+                        text = "CHARGE DECLARATION: TAP ENEMY WITHIN 12 CM (ROLL 2D6)",
                         style = MaterialTheme.typography.labelMedium,
                         color = WarmAmber,
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
@@ -440,6 +442,7 @@ fun BattleScreen(
                     onAdvanceMove = onAdvanceMove,
                     onToggleChargeMode = onToggleChargeMode,
                     onRotateUnit = onRotateUnit,
+                    onFightFirst = onFightFirst,
                     onSelectWeaponMode = onSelectWeaponMode,
                     onEndTurn = onEndTurn,
                     onInspectSkill = { template -> viewingSkillInfoTemplate = template }
@@ -675,7 +678,7 @@ private fun TopHudOverlay(
                         )
                         Text("|", style = MaterialTheme.typography.labelSmall, color = pal.trimMuted)
                         Text(
-                            text = "SWARM: $xenosAliveModels",
+                            text = "TYRANIDS: $xenosAliveModels",
                             style = MaterialTheme.typography.labelSmall,
                             color = XenosText
                         )
@@ -797,6 +800,13 @@ private fun TargetPreviewBanner(
                     preview.usingInvuln -> "INV ${preview.saveRollNeeded}++"
                     else -> "SV ${preview.saveRollNeeded}+"
                 }
+                Text(
+                    text = "WEAPON: ${preview.weaponName.uppercase()} (${if (preview.isMelee) "MELEE" else "RANGED"})",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = ImperialGold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
                 Text(
                     text = "$hitSkillLabel ${preview.hitRollNeeded}+ (${preview.hitChance}%) • S${preview.weaponStrength} vs T${preview.targetToughness} (${preview.woundRollNeeded}+) • $apText • $saveText",
                     style = MaterialTheme.typography.labelSmall,
@@ -938,6 +948,9 @@ private fun UnitStatusCard(
                     }
                     if (unit.hasCharged) {
                         StatPill("CHRG", "ON", WarmAmber)
+                    }
+                    if (unit.isCloaked) {
+                        StatPill("STEALTH", "CLOAKED 1T", TacticalCyan)
                     }
                 }
 
@@ -1146,7 +1159,7 @@ private fun ChargePreviewBanner(
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    text = "DIST ${"%.1f".format(preview.distanceTiles)}\" (${preview.distanceCm.toInt()} cm) • NEED ${preview.requiredRoll}+ ON 2D6",
+                    text = "DIST ${"%.1f".format(preview.distanceCm)} cm • NEED ${preview.requiredRoll}+ ON 2D6",
                     style = MaterialTheme.typography.labelSmall,
                     color = TextPrimary,
                     maxLines = 1
@@ -1357,6 +1370,7 @@ private fun ActionDock(
     onAdvanceMove: () -> Unit,
     onToggleChargeMode: () -> Unit,
     onRotateUnit: (Boolean) -> Unit,
+    onFightFirst: () -> Unit,
     onSelectWeaponMode: (WeaponMode) -> Unit,
     onEndTurn: () -> Unit,
     onInspectSkill: (UnitTemplate) -> Unit
@@ -1503,19 +1517,45 @@ private fun ActionDock(
                 )
             }
 
+            if (selected != null && selected.template.archetype == UnitArchetype.VON_RYANS_LEAPER) {
+                val hasAdjEnemy = allUnits.any {
+                    it.isAlive && !it.isCloaked && it.faction != selected.faction &&
+                        hypot(it.worldX - selected.worldX, it.worldY - selected.worldY) <= 1.55f
+                }
+                ActionDockButton(
+                    title = "Fight 1st",
+                    subtitle = when {
+                        selected.hasFought -> "FOUGHT"
+                        !hasAdjEnemy -> "NO FOE"
+                        else -> "FIRST"
+                    },
+                    icon = null,
+                    containerTop = CrimsonDeep,
+                    containerBottom = PanelIronBottom,
+                    borderColor = ImperialGold,
+                    textColor = WarmAmber,
+                    enabled = enabled && !selected.hasFought && hasAdjEnemy,
+                    onClick = onFightFirst,
+                    testTag = "fight_first_button"
+                )
+            }
+
             if (selected != null) {
                 val isTerminator = selected.template.archetype == UnitArchetype.TERMINATOR
+                val isLeaper = selected.template.archetype == UnitArchetype.VON_RYANS_LEAPER
                 val isMeleeSkill = TacticalRules.modeUsesMelee(selected, WeaponMode.SKILL)
-                val isUtilitySkill = isTerminator || selected.template.archetype == UnitArchetype.HORMAGAUNT
+                val isUtilitySkill = isTerminator || selected.template.archetype == UnitArchetype.HORMAGAUNT || isLeaper
                 val skillReady = enabled && TacticalRules.canUseMode(selected, WeaponMode.SKILL, allUnits)
                 val isSkillOn = weaponMode == WeaponMode.SKILL
                 val skillSubtitle = when {
+                    selected.isCloaked -> "ACTIVE 1T"
                     selected.skillCooldownLeft > 0 -> "CD ${selected.skillCooldownLeft}"
                     selected.hasCharged && !isMeleeSkill -> "MELEE"
-                    isEngaged && !isMeleeSkill && (isTerminator || !selected.template.mainWeaponPistol) -> "IN MELEE"
+                    isEngaged && !isMeleeSkill && !isLeaper && (isTerminator || !selected.template.mainWeaponPistol) -> "IN MELEE"
                     selected.hasAdvanced && !selected.template.mainWeaponAssault && !isUtilitySkill && !isMeleeSkill -> "NO ADV"
                     selected.hasAdvanced && (isTerminator || isMeleeSkill) -> "NO ADV"
                     isTerminator -> "DEEP STRIKE"
+                    isLeaper -> "CLOAK 1T"
                     !skillReady && !isUtilitySkill -> if (isMeleeSkill) "FOUGHT" else "SHOT"
                     else -> "READY"
                 }
@@ -1523,10 +1563,10 @@ private fun ActionDock(
                     title = if (isTerminator) "Teleport" else "Skill",
                     subtitle = skillSubtitle,
                     icon = null,
-                    containerTop = if (isSkillOn) ColorTokens.CyanSurface else ColorTokens.SkillSurface,
+                    containerTop = if (isSkillOn || selected.isCloaked) ColorTokens.CyanSurface else ColorTokens.SkillSurface,
                     containerBottom = PanelIronBottom,
-                    borderColor = if (isSkillOn) TacticalCyan else ColorTokens.SkillBorder,
-                    textColor = WarmAmber,
+                    borderColor = if (isSkillOn || selected.isCloaked) TacticalCyan else ColorTokens.SkillBorder,
+                    textColor = if (selected.isCloaked) TacticalCyan else WarmAmber,
                     enabled = true,
                     onClick = {
                         if (skillReady) {
@@ -1649,7 +1689,7 @@ private fun TurnSplashCard(splash: TurnSplashData, onClick: () -> Unit) {
             Spacer(Modifier.height(2.dp))
             Text(
                 text = splash.commanderLabel.ifEmpty {
-                    if (splash.isPlayerTurn) "COMMANDER TURN" else "SWARM ACTIVATION"
+                    if (splash.isPlayerTurn) "COMMANDER TURN" else "TYRANIDS ACTIVATION"
                 },
                 style = MaterialTheme.typography.titleMedium,
                 color = pal.headerText
@@ -1660,7 +1700,7 @@ private fun TurnSplashCard(splash: TurnSplashData, onClick: () -> Unit) {
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 SplashStatBox("MARINES", "${splash.marineModelsAlive}", MarineText, Modifier.weight(1f))
-                SplashStatBox("SWARM", "${splash.xenosModelsAlive}", XenosText, Modifier.weight(1f))
+                SplashStatBox("TYRANIDS", "${splash.xenosModelsAlive}", XenosText, Modifier.weight(1f))
                 SplashStatBox("KILLS", "${splash.playerKills}", EmeraldBuff, Modifier.weight(1f))
                 SplashStatBox("LOSS", "${splash.playerLosses}", CrimsonSoft, Modifier.weight(1f))
             }

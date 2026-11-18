@@ -191,3 +191,118 @@ test("Active room members can submit Co-op actions while non-members are denied,
     })
   );
 });
+
+test("Host can sync customTemplates and non-hosts cannot alter them; FIGHT_FIRST action allowed", async () => {
+  const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
+  const bobDb = testEnv.authenticatedContext(BOB_UID).firestore();
+
+  const customTemplates = [
+    { id: "von_ryans_leaper", name: "Von Ryan's Leaper", points: 85, moveCm: 20, strength: 6 }
+  ];
+
+  // Host creates room with customTemplates
+  await assertSucceeds(
+    aliceDb.collection("coop_rooms").doc(ROOM_CODE).set({
+      ...validRoomPayload(),
+      customTemplates,
+    })
+  );
+
+  // Host updates customTemplates in LOBBY
+  await assertSucceeds(
+    aliceDb.collection("coop_rooms").doc(ROOM_CODE).update({
+      customTemplates: [
+        { id: "von_ryans_leaper", name: "Von Ryan's Leaper", points: 95, moveCm: 22, strength: 7 }
+      ],
+      updatedAt: new Date(Date.now() - 400),
+    })
+  );
+
+  // Bob joins, then tries to overwrite customTemplates -> must fail
+  await assertSucceeds(
+    bobDb.collection("coop_rooms").doc(ROOM_CODE).update({
+      memberUids: [ALICE_UID, BOB_UID],
+      players: [
+        { id: "p1", name: "Commander 1", faction: "MARINES", slotMode: "HOST", ready: true, connectedClient: true, uid: ALICE_UID },
+        { id: "p2", name: "Bob", faction: "XENOS", slotMode: "LAN_CLIENT", ready: true, connectedClient: true, uid: BOB_UID },
+      ],
+      updatedAt: new Date(Date.now() - 300),
+    })
+  );
+
+  await assertFails(
+    bobDb.collection("coop_rooms").doc(ROOM_CODE).update({
+      customTemplates: [{ id: "intercessors", strength: 99 }],
+      updatedAt: new Date(Date.now() - 200),
+    })
+  );
+
+  // Host starts battle -> Bob submits FIGHT_FIRST action
+  await assertSucceeds(
+    aliceDb.collection("coop_rooms").doc(ROOM_CODE).update({
+      status: "ACTIVE",
+      openForJoin: false,
+      updatedAt: new Date(Date.now() - 150),
+    })
+  );
+
+  await assertSucceeds(
+    bobDb.collection("coop_rooms").doc(ROOM_CODE).collection("actions").doc("act_ff").set({
+      userId: BOB_UID,
+      hostUid: ALICE_UID,
+      playerId: "p2",
+      actionType: "FIGHT_FIRST",
+      createdAt: new Date(Date.now() - 100),
+    })
+  );
+});
+
+test("Host can set and update pointLimit within 500..5000 while invalid bounds and non-host updates fail", async () => {
+  const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
+  const bobDb = testEnv.authenticatedContext(BOB_UID).firestore();
+
+  // Out-of-bounds pointLimit on create fails
+  await assertFails(
+    aliceDb.collection("coop_rooms").doc(ROOM_CODE).set({
+      ...validRoomPayload(),
+      pointLimit: 100,
+    })
+  );
+
+  // Valid pointLimit create succeeds
+  await assertSucceeds(
+    aliceDb.collection("coop_rooms").doc(ROOM_CODE).set({
+      ...validRoomPayload(),
+      pointLimit: 1500,
+    })
+  );
+
+  // Host can update pointLimit
+  await assertSucceeds(
+    aliceDb.collection("coop_rooms").doc(ROOM_CODE).update({
+      pointLimit: 2000,
+      updatedAt: new Date(Date.now() - 300),
+    })
+  );
+
+  // Bob joins, then cannot alter pointLimit
+  await assertSucceeds(
+    bobDb.collection("coop_rooms").doc(ROOM_CODE).update({
+      memberUids: [ALICE_UID, BOB_UID],
+      players: [
+        { id: "p1", name: "Commander 1", faction: "MARINES", slotMode: "HOST", ready: true, connectedClient: true, uid: ALICE_UID },
+        { id: "p2", name: "Bob", faction: "MARINES", slotMode: "LAN_CLIENT", ready: true, connectedClient: true, uid: BOB_UID },
+      ],
+      updatedAt: new Date(Date.now() - 200),
+    })
+  );
+
+  await assertFails(
+    bobDb.collection("coop_rooms").doc(ROOM_CODE).update({
+      pointLimit: 5000,
+      updatedAt: new Date(Date.now() - 100),
+    })
+  );
+});
+
+

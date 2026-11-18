@@ -1,7 +1,7 @@
 <resources>
     <string name="app_name">Crimson Sector</string>
     <string name="setup_title">Crimson Sector: 40K Skirmish</string>
-    <string name="btn_save">Save</string>
+    <string name="btn_save">Save Stat</string>
     <string name="btn_reset">Reset</string>
     <string name="btn_strike">STRIKE</string>
     <string name="confirm_setup_title">Return to Setup</string>
