@@ -32,6 +32,33 @@ class ExampleRobolectricTest {
   }
 
   @Test
+  fun `terminator weapon serialization and legacy migration work properly`() {
+    val termiBase = com.example.engine.DefaultCatalog.defaultTemplates.first { it.id == "terminators" }
+    val clawsCustom = termiBase.copy(
+      terminatorWeapon = com.example.model.TerminatorWeaponChoice.LIGHTNING_CLAWS,
+      mainWeaponName = "Twin Lightning Claws",
+      woundsPerModel = 3,
+      attacksPerModel = 5,
+      strength = 5,
+      damage = 1
+    )
+    val json = com.example.engine.DefaultCatalog.serializeTemplates(mapOf(clawsCustom.id to clawsCustom))
+    val restored = com.example.engine.DefaultCatalog.deserializeTemplates(json)["terminators"]
+    org.junit.Assert.assertNotNull(restored)
+    assertEquals(com.example.model.TerminatorWeaponChoice.LIGHTNING_CLAWS, restored!!.terminatorWeapon)
+    assertEquals("Twin Lightning Claws", restored.mainWeaponName)
+    assertEquals(5, restored.attacksPerModel)
+
+    // Pre-patch saved Terminator had range = 4 and old combined name without terminatorWeapon -> migrates to Hammer & Shield (range 1)
+    val legacyJson = """[{"id":"terminators","range":4,"woundsPerModel":4,"attacksPerModel":3,"strength":6,"damage":2,"mainWeaponName":"Lightning Claws & Thunder Hammer"}]"""
+    val migrated = com.example.engine.DefaultCatalog.deserializeTemplates(legacyJson)["terminators"]
+    org.junit.Assert.assertNotNull(migrated)
+    assertEquals(com.example.model.TerminatorWeaponChoice.THUNDER_HAMMER_SHIELD, migrated!!.terminatorWeapon)
+    assertEquals(1, migrated.range)
+    assertEquals("Thunder Hammer & Storm Shield", migrated.mainWeaponName)
+  }
+
+  @Test
   fun `serializer and coop snapshot preserve unit owners and turn order`() {
     val map = com.example.engine.MapGenerator.generateSectorMap(99L)
     val sectorMap = com.example.model.SectorMap(99L, map)

@@ -226,7 +226,7 @@ class GlesBattleRenderer(
 
             // Charge 12 cm Ring & Preview Path OR Red Shooting/Melee Range Ring
             if (!isTeleportMode && state.chargeModeActive && state.canCommandUnit(selectedUnit)) {
-                val chargeRadiusTiles = (12.0f / TacticalRules.CM_PER_TILE) + 1.45f
+                val chargeRadiusTiles = (12.0f / TacticalRules.CM_PER_TILE) + TacticalRules.MELEE_MAX_CENTER_TILES
                 Matrix.setIdentityM(modelMat, 0)
                 Matrix.translateM(modelMat, 0, sx, 0.020f, sz)
                 Matrix.scaleM(modelMat, 0, chargeRadiusTiles, 1f, chargeRadiusTiles)
@@ -267,7 +267,7 @@ class GlesBattleRenderer(
                 }
                 val isMeleeRange = atkRange <= 1
                 val attackReady = TacticalRules.canUseMode(selectedUnit, activeMode, state.units)
-                val rangeRadiusTiles = if (isMeleeRange) 1.55f else atkRange.toFloat() + 0.45f
+                val rangeRadiusTiles = if (isMeleeRange) TacticalRules.MELEE_MAX_CENTER_TILES else atkRange.toFloat() + 0.45f
                 val rangeAlpha = if (attackReady) 0.72f + pulse * 0.18f else 0.28f
                 Matrix.setIdentityM(modelMat, 0)
                 Matrix.translateM(modelMat, 0, sx, 0.020f, sz)
@@ -373,7 +373,14 @@ class GlesBattleRenderer(
             val count = unit.aliveModels.coerceIn(1, 5)
             val isDread = unit.template.archetype == UnitArchetype.DREADNOUGHT
             val shadowScale = if (isDread) 1.72f else if (count == 1) 1.08f else 0.58f
-            val unitVbo = getOrUploadVbo(MeshCatalog3D.getUnitMesh(unit.template.archetype))
+            val useClaws = unit.template.archetype == UnitArchetype.TERMINATOR && (
+                unit.template.terminatorWeapon == com.example.model.TerminatorWeaponChoice.LIGHTNING_CLAWS ||
+                    (unit.template.terminatorWeapon == null &&
+                        unit.template.mainWeaponName.contains("claw", ignoreCase = true) &&
+                        !unit.template.mainWeaponName.contains("hammer", ignoreCase = true))
+                )
+            val meshVariant = if (useClaws) "CLAWS" else ""
+            val unitVbo = getOrUploadVbo(MeshCatalog3D.getUnitMesh(unit.template.archetype, meshVariant))
 
             for (mIdx in 0 until count) {
                 val ox = subOffsetX(count, mIdx)

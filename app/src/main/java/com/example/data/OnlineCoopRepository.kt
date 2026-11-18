@@ -677,7 +677,8 @@ class OnlineCoopRepository(
                 "skillCooldown" to t.skillCooldown,
                 "passiveName" to t.passiveName,
                 "passiveDesc" to t.passiveDesc,
-                "weaponChoice" to (t.weaponChoice?.name ?: "")
+                "weaponChoice" to (t.weaponChoice?.name ?: ""),
+                "terminatorWeapon" to (t.terminatorWeapon?.name ?: "")
             )
         }
     }
@@ -694,6 +695,10 @@ class OnlineCoopRepository(
             val wwcRaw = (row["weaponChoice"] as? String).orEmpty()
             val parsedChoice = if (wwcRaw.isBlank()) base.weaponChoice else {
                 enumValues<WarriorWeaponChoice>().firstOrNull { it.name == wwcRaw } ?: base.weaponChoice
+            }
+            val twcRaw = (row["terminatorWeapon"] as? String).orEmpty()
+            val parsedTermWeapon = if (twcRaw.isBlank()) base.terminatorWeapon else {
+                com.example.model.TerminatorWeaponChoice.entries.firstOrNull { it.name == twcRaw } ?: base.terminatorWeapon
             }
             baseTemplates[id] = base.copy(
                 id = id,
@@ -730,7 +735,8 @@ class OnlineCoopRepository(
                 skillCooldown = (row["skillCooldown"] as? Number)?.toInt() ?: base.skillCooldown,
                 passiveName = (row["passiveName"] as? String) ?: base.passiveName,
                 passiveDesc = (row["passiveDesc"] as? String) ?: base.passiveDesc,
-                weaponChoice = parsedChoice
+                weaponChoice = parsedChoice,
+                terminatorWeapon = parsedTermWeapon
             )
         }
         return baseTemplates

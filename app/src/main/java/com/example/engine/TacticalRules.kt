@@ -53,6 +53,15 @@ object TacticalRules {
     private val DY = intArrayOf(-1, 0, 1, 0)
 
     const val CM_PER_TILE = 3.0f
+    const val BASE_SEPARATION_TILES = 0.78f
+    const val MELEE_RANGE_CM = 2.0f
+    const val MELEE_MAX_CENTER_TILES = BASE_SEPARATION_TILES + (MELEE_RANGE_CM / CM_PER_TILE)
+
+    fun isWithinMeleeReach(ax: Float, ay: Float, bx: Float, by: Float): Boolean =
+        hypot(ax - bx, ay - by) <= MELEE_MAX_CENTER_TILES
+
+    fun isWithinMeleeReach(a: BattleUnit, b: BattleUnit): Boolean =
+        isWithinMeleeReach(a.worldX, a.worldY, b.worldX, b.worldY)
 
     fun isWorldWalkable(
         wx: Float,
@@ -81,7 +90,7 @@ object TacticalRules {
         for (i in allUnits.indices) {
             val u = allUnits[i]
             if (u.isAlive && u.uid != movingUnitUid) {
-                if (hypot(wx - u.worldX, wy - u.worldY) < 0.78f) return false
+                if (hypot(wx - u.worldX, wy - u.worldY) < BASE_SEPARATION_TILES) return false
             }
         }
         return true
@@ -114,7 +123,7 @@ object TacticalRules {
         allUnits: List<BattleUnit>,
         map: Array<Array<TerrainType>>
     ): MovePreview? {
-        if (unit.moveCmLeft < 0.15f) return null
+        if (unit.moveCmLeft < 0.15f || isEngagedInMelee(unit, allUnits)) return null
         val tx = destX.coerceIn(0f, (W - 1).toFloat())
         val ty = destY.coerceIn(0f, (H - 1).toFloat())
         if (!isWorldWalkable(tx, ty, unit.uid, allUnits, map)) return null
@@ -164,6 +173,7 @@ object TacticalRules {
         allUnits: List<BattleUnit>,
         map: Array<Array<TerrainType>>
     ): MovePreview? {
+        if (isEngagedInMelee(unit, allUnits)) return null
         val targetCm = minOf(requestedCm, unit.moveCmLeft)
         if (targetCm < 0.15f) return null
         val rad = Math.toRadians(unit.facingDeg.toDouble())
@@ -200,6 +210,7 @@ object TacticalRules {
         allowExtraBuffer: Boolean = false,
         maxMpOverride: Int? = null
     ): MoveSearchResult {
+        if (isEngagedInMelee(unit, units)) return MoveSearchResult(emptyMap(), emptyMap())
         val maxMp = maxMpOverride ?: ((unit.moveCmLeft / CM_PER_TILE).toInt() + if (allowExtraBuffer) 2 else 0)
         if (maxMp <= 0) return MoveSearchResult(emptyMap(), emptyMap())
 
@@ -392,15 +403,15 @@ object TacticalRules {
 
     fun effectiveIsMelee(attacker: BattleUnit, mode: WeaponMode, distTiles: Float): Boolean =
         weaponRange(attacker, mode) <= 1 ||
-            (mode == WeaponMode.MAIN && attacker.hasCharged && distTiles <= 1.55f) ||
-            (mode == WeaponMode.MAIN && distTiles <= 1.55f && (!attacker.template.mainWeaponPistol || attacker.hasShot)) ||
+            (mode == WeaponMode.MAIN && attacker.hasCharged && distTiles <= MELEE_MAX_CENTER_TILES) ||
+            (mode == WeaponMode.MAIN && distTiles <= MELEE_MAX_CENTER_TILES && (!attacker.template.mainWeaponPistol || attacker.hasShot)) ||
             (mode == WeaponMode.SKILL && modeUsesMelee(attacker, mode))
 
     fun isEngagedInMelee(unit: BattleUnit, allUnits: List<BattleUnit>?): Boolean {
         if (!unit.isAlive || allUnits == null) return false
         return allUnits.any { other ->
             other.isAlive && other.faction != unit.faction &&
-                hypot(unit.worldX - other.worldX, unit.worldY - other.worldY) <= 1.55f
+                isWithinMeleeReach(unit.worldX, unit.worldY, other.worldX, other.worldY)
         }
     }
 
@@ -408,9 +419,12 @@ object TacticalRules {
         if (!unit.isAlive || allUnits == null) return false
         return allUnits.any { other ->
             other.isAlive && other.faction != unit.faction &&
-                hypot(atX - other.worldX, atY - other.worldY) <= 1.55f
+                isWithinMeleeReach(atX, atY, other.worldX, other.worldY)
         }
     }
+
+    fun canAdvance(unit: BattleUnit, allUnits: List<BattleUnit>?): Boolean =
+        unit.canAdvance && !isEngagedInMelee(unit, allUnits)
 
     fun canUseMode(
         attacker: BattleUnit,
@@ -488,10 +502,10 @@ object TacticalRules {
         allUnits: List<BattleUnit>,
         map: Array<Array<TerrainType>>
     ): ChargePreview? {
-        if (!charger.canCharge || !target.isAlive || target.isCloaked || charger.faction == target.faction) return null
+        if (!charger.canCharge || isEngagedInMelee(charger, allUnits) || !target.isAlive || target.isCloaked || charger.faction == target.faction) return null
         val curDist = hypot(charger.worldX - target.worldX, charger.worldY - target.worldY)
-        val maxChargeCenterDist = (12.0f / CM_PER_TILE) + 1.55f
-        if (curDist <= 1.55f || curDist > maxChargeCenterDist) return null
+        val maxChargeCenterDist = (12.0f / CM_PER_TILE) + MELEE_MAX_CENTER_TILES
+        if (curDist <= MELEE_MAX_CENTER_TILES || curDist > maxChargeCenterDist) return null
 
         // Check direct straight-line charge point at 1.05 tiles from target
         val dirX = (charger.worldX - target.worldX) / curDist
@@ -530,7 +544,10 @@ object TacticalRules {
                 val ty = target.y + dy
                 if (tx !in 0 until W || ty !in 0 until H) continue
                 val gp = GridPos(tx, ty)
-                if (gp in search.costs && isWorldWalkable(tx.toFloat(), ty.toFloat(), charger.uid, allUnits, map)) {
+                if (gp in search.costs &&
+                    isWithinMeleeReach(tx.toFloat(), ty.toFloat(), target.worldX, target.worldY) &&
+                    isWorldWalkable(tx.toFloat(), ty.toFloat(), charger.uid, allUnits, map)
+                ) {
                     val path = reconstructPath(gp, charger.pos, search.parents)
                     var pathLen = 0f
                     var px = charger.worldX
@@ -570,7 +587,7 @@ object TacticalRules {
         allUnits: List<BattleUnit>,
         map: Array<Array<TerrainType>>
     ): Set<String> {
-        if (!charger.canCharge) return emptySet()
+        if (!charger.canCharge || isEngagedInMelee(charger, allUnits)) return emptySet()
         val result = HashSet<String>(8)
         for (i in allUnits.indices) {
             val enemy = allUnits[i]
@@ -722,7 +739,7 @@ object TacticalRules {
         if (isAttackerEngaged && !isMelee && !hasPistolPrivilege) return null
 
         val range = if (isMelee) 1 else weaponRange(attacker, mode)
-        val maxReachTiles = if (isMelee) 1.55f else range.toFloat() + 0.45f
+        val maxReachTiles = if (isMelee) MELEE_MAX_CENTER_TILES else range.toFloat() + 0.45f
         val inRange = distTiles <= maxReachTiles
         val needsLos = range > 1 && attacker.template.archetype != UnitArchetype.HIVE_TYRANT
         val los = if (!inRange) false else if (!needsLos) true else hasLineOfSight(
@@ -916,7 +933,7 @@ object TacticalRules {
                 UnitArchetype.ASSAULT_MARINE -> {
                     allUnits.filterTo(targetsToHit) {
                         it.isAlive && it.faction != attacker.faction &&
-                            it.uid != primaryTarget.uid && maxOf(abs(attacker.x - it.x), abs(attacker.y - it.y)) <= 1
+                            it.uid != primaryTarget.uid && isWithinMeleeReach(attacker, it)
                     }
                 }
                 UnitArchetype.DREADNOUGHT, UnitArchetype.CARNIFEX, UnitArchetype.HIVE_TYRANT -> {
@@ -1065,8 +1082,7 @@ object TacticalRules {
     ): CounterAttackOutcome? {
         if (!counterAttacker.isAlive || counterAttacker.aliveModels <= 0) return null
         if (!target.isAlive || target.aliveModels <= 0 || target.isCloaked) return null
-        val dist = hypot(counterAttacker.worldX - target.worldX, counterAttacker.worldY - target.worldY)
-        if (dist > 1.55f) return null
+        if (!isWithinMeleeReach(counterAttacker, target)) return null
 
         val isNativeMelee = counterAttacker.template.range <= 1
         val ws = counterAttacker.effectiveWeaponSkill
@@ -1186,7 +1202,7 @@ object TacticalRules {
         maxDist: Int = 9,
         minEnemyDist: Int = 5
     ): Set<GridPos> {
-        if (!unit.isAlive || unit.skillCooldownLeft > 0) return emptySet()
+        if (!unit.isAlive || unit.skillCooldownLeft > 0 || isEngagedInMelee(unit, allUnits)) return emptySet()
         val valid = mutableSetOf<GridPos>()
         val enemies = allUnits.filter { it.isAlive && it.faction != unit.faction }
         val occupied = allUnits.filter { it.isAlive }.map { it.pos }.toSet()

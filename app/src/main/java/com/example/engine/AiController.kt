@@ -54,7 +54,7 @@ object AiController {
                 if (selfSkill != null && shouldTriggerSelf) {
                     return AiDecision.SelfSkill(unit.uid)
                 }
-                if (unit.template.archetype == UnitArchetype.TERMINATOR && distToNearest > 4) {
+                if (!isEngaged && unit.template.archetype == UnitArchetype.TERMINATOR && distToNearest > 4) {
                     val tTiles = TacticalRules.computeTeleportTiles(unit, map, units)
                     if (tTiles.isNotEmpty()) {
                         val bestTile = tTiles.minByOrNull { tPos ->
@@ -72,6 +72,9 @@ object AiController {
             if (bestAttack != null) {
                 return AiDecision.Attack(unit.uid, bestAttack.first.uid, bestAttack.second)
             }
+
+            // Forced Melee Duel Lock: if engaged with living enemy, cannot Charge elsewhere, Advance, or Move away
+            if (isEngaged) continue
 
             // 3. Melee / Charger unit within Charge range -> Charge!
             if (unit.canCharge && (unit.template.range <= 1 || unit.hasShot || unit.moveCmLeft < 3.0f)) {
@@ -180,7 +183,7 @@ object AiController {
             for (eIdx in enemies.indices) {
                 val enemy = enemies[eIdx]
                 // Fast distance early-exit before LOS/cover math
-                if (maxOf(abs(atkX - enemy.x), abs(atkY - enemy.y)) > range) continue
+                if (maxOf(abs(atkX - enemy.x), abs(atkY - enemy.y)) > range + 1) continue
                 val preview = TacticalRules.canTargetFrom(unit, atkX, atkY, enemy, mode, map, allUnits) ?: continue
                 if (!preview.inRange || !preview.hasLos) continue
 

@@ -36,8 +36,13 @@ enum class Facing(val dx: Int, val dy: Int, val label: String) {
 }
 
 enum class WarriorWeaponChoice(val label: String) {
-    BONESWORDS("Dual Boneswords (Melee Rng 1)"),
+    BONESWORDS("Dual Boneswords (Melee 2cm)"),
     FLESHBORER("Fleshborer (Ranged Rng 4)")
+}
+
+enum class TerminatorWeaponChoice(val label: String) {
+    THUNDER_HAMMER_SHIELD("Thunder Hammer & Storm Shield (Melee 2cm)"),
+    LIGHTNING_CLAWS("Twin Lightning Claws (Melee 2cm)")
 }
 
 enum class UnitArchetype {
@@ -83,6 +88,7 @@ data class UnitTemplate(
     val passiveName: String,
     val passiveDesc: String,
     val weaponChoice: WarriorWeaponChoice? = null,
+    val terminatorWeapon: TerminatorWeaponChoice? = null,
     val mainWeaponName: String = "Primary Weapon",
     val mainWeaponAssault: Boolean = false,
     val mainWeaponPistol: Boolean = false,

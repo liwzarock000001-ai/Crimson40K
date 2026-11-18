@@ -400,7 +400,28 @@ fun BattleScreen(
                 }
             }
 
-            AnimatedVisibility(visible = canMoveControls && state.moveModeActive) {
+            val isSelectedEngaged = selectedUnit != null &&
+                TacticalRules.isEngagedInMelee(selectedUnit, state.units)
+
+            AnimatedVisibility(visible = canMoveControls && isSelectedEngaged) {
+                GrimdarkBevelPanel(
+                    cut = 6.dp,
+                    borderColor = CrimsonBright,
+                    topColor = Color(0xF0250D12),
+                    bottomColor = Color(0xF014070A),
+                    accentBarColor = CrimsonBright,
+                    showRivets = false
+                ) {
+                    Text(
+                        text = "MELEE DUEL LOCK • ELIMINATE ENGAGED ENEMY TO MOVE",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = CrimsonSoft,
+                        modifier = Modifier.padding(horizontal = 11.dp, vertical = 5.dp)
+                    )
+                }
+            }
+
+            AnimatedVisibility(visible = canMoveControls && state.moveModeActive && !isSelectedEngaged) {
                 selectedUnit?.let { unit ->
                     CmMovementControlBar(
                         unit = unit,
@@ -419,6 +440,7 @@ fun BattleScreen(
                 selectedUnit?.let { unit ->
                     UnitStatusCard(
                         unit = unit,
+                        isEngagedInMelee = isSelectedEngaged,
                         collapsed = state.unitCardCollapsed,
                         onToggleCollapse = onToggleUnitCard,
                         modifier = Modifier
@@ -842,6 +864,7 @@ private fun TargetPreviewBanner(
 @Composable
 private fun UnitStatusCard(
     unit: BattleUnit,
+    isEngagedInMelee: Boolean,
     collapsed: Boolean,
     onToggleCollapse: () -> Unit,
     modifier: Modifier = Modifier
@@ -949,6 +972,9 @@ private fun UnitStatusCard(
                     if (unit.hasCharged) {
                         StatPill("CHRG", "ON", WarmAmber)
                     }
+                    if (isEngagedInMelee) {
+                        StatPill("DUEL", "MELEE LOCK", CrimsonBright)
+                    }
                     if (unit.isCloaked) {
                         StatPill("STEALTH", "CLOAKED 1T", TacticalCyan)
                     }
@@ -1002,7 +1028,7 @@ private fun UnitStatusCard(
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    StatPill("RNG", if (unit.template.isRangedMain) "${unit.template.range}" else "Melee", TextPrimary)
+                    StatPill("RNG", if (unit.template.isRangedMain) "${unit.template.range}" else "2 cm", TextPrimary)
                     StatPill("A", "${unit.template.attacksPerModel}", TextPrimary)
                     if (unit.template.isRangedMain) {
                         StatPill("BS", "${unit.effectiveBallisticSkill}+", TextPrimary)
@@ -1376,6 +1402,7 @@ private fun ActionDock(
     onInspectSkill: (UnitTemplate) -> Unit
 ) {
     val enabled = isPlayerTurn && canCommandSelected && selected != null
+    val isEngaged = selected != null && TacticalRules.isEngagedInMelee(selected, allUnits)
     val pal = factionPalette(selected?.faction ?: activeFaction)
 
     Column(
@@ -1433,21 +1460,22 @@ private fun ActionDock(
             )
 
             if (selected != null) {
-                val canMove = enabled && selected.moveCmLeft >= 0.25f
+                val canMove = enabled && !isEngaged && selected.moveCmLeft >= 0.25f
                 ActionDockButton(
                     title = "Move",
-                    subtitle = "${"%.1f".format(selected.moveCmLeft)}cm",
+                    subtitle = if (isEngaged) "DUEL LOCK" else "${"%.1f".format(selected.moveCmLeft)}cm",
                     icon = Icons.Default.OpenWith,
-                    containerTop = if (moveModeActive) ColorTokens.CyanSurface else PanelIronTop,
+                    containerTop = if (moveModeActive && !isEngaged) ColorTokens.CyanSurface else PanelIronTop,
                     containerBottom = PanelIronBottom,
-                    borderColor = if (moveModeActive) TacticalCyan else BorderSteel,
-                    textColor = if (moveModeActive) TacticalCyan else TextPrimary,
+                    borderColor = if (isEngaged) CrimsonDeep else if (moveModeActive) TacticalCyan else BorderSteel,
+                    textColor = if (isEngaged) CrimsonSoft else if (moveModeActive) TacticalCyan else TextPrimary,
                     enabled = canMove,
                     onClick = onToggleMoveMode,
                     testTag = "move_mode_button"
                 )
 
                 val advanceSub = when {
+                    isEngaged -> "DUEL LOCK"
                     selected.hasAdvanced -> "DONE"
                     !selected.canAdvance -> "LOCKED"
                     else -> "1D6 CM"
@@ -1458,14 +1486,15 @@ private fun ActionDock(
                     icon = Icons.AutoMirrored.Filled.DirectionsRun,
                     containerTop = if (selected.hasAdvanced) EmeraldSurface else PanelIronTop,
                     containerBottom = PanelIronBottom,
-                    borderColor = if (selected.hasAdvanced) EmeraldBorder else BorderSteel,
-                    textColor = if (selected.hasAdvanced) EmeraldBuff else TextPrimary,
-                    enabled = enabled && selected.canAdvance,
+                    borderColor = if (isEngaged) CrimsonDeep else if (selected.hasAdvanced) EmeraldBorder else BorderSteel,
+                    textColor = if (isEngaged) CrimsonSoft else if (selected.hasAdvanced) EmeraldBuff else TextPrimary,
+                    enabled = enabled && !isEngaged && selected.canAdvance,
                     onClick = onAdvanceMove,
                     testTag = "advance_button"
                 )
 
                 val chargeSub = when {
+                    isEngaged -> "IN DUEL"
                     selected.hasAdvanced -> "NO ADV"
                     selected.hasCharged -> "CHARGED"
                     selected.hasFought -> "FOUGHT"
@@ -1476,11 +1505,11 @@ private fun ActionDock(
                     title = "Charge",
                     subtitle = chargeSub,
                     icon = Icons.Default.DoubleArrow,
-                    containerTop = if (chargeModeActive) CrimsonDeep else PanelIronTop,
+                    containerTop = if (chargeModeActive && !isEngaged) CrimsonDeep else PanelIronTop,
                     containerBottom = PanelIronBottom,
-                    borderColor = if (chargeModeActive) WarmAmber else BorderSteel,
-                    textColor = if (chargeModeActive) WarmAmber else TextPrimary,
-                    enabled = enabled && selected.canCharge,
+                    borderColor = if (isEngaged) CrimsonDeep else if (chargeModeActive) WarmAmber else BorderSteel,
+                    textColor = if (isEngaged) CrimsonSoft else if (chargeModeActive) WarmAmber else TextPrimary,
+                    enabled = enabled && !isEngaged && selected.canCharge,
                     onClick = onToggleChargeMode,
                     testTag = "charge_button"
                 )
@@ -1492,7 +1521,6 @@ private fun ActionDock(
             horizontalArrangement = Arrangement.spacedBy(5.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            val isEngaged = selected != null && TacticalRules.isEngagedInMelee(selected, allUnits)
             if (selected != null && selected.template.hasPistol) {
                 val pistolReady = enabled && TacticalRules.canUseMode(selected, WeaponMode.PISTOL, allUnits)
                 val isOn = weaponMode == WeaponMode.PISTOL
@@ -1520,7 +1548,7 @@ private fun ActionDock(
             if (selected != null && selected.template.archetype == UnitArchetype.VON_RYANS_LEAPER) {
                 val hasAdjEnemy = allUnits.any {
                     it.isAlive && !it.isCloaked && it.faction != selected.faction &&
-                        hypot(it.worldX - selected.worldX, it.worldY - selected.worldY) <= 1.55f
+                        TacticalRules.isWithinMeleeReach(selected, it)
                 }
                 ActionDockButton(
                     title = "Fight 1st",

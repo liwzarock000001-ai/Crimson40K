@@ -472,6 +472,108 @@ class TacticalEngineTest {
         val farPreview = TacticalRules.findChargeEngagementSpot(chargerFar, enemy, listOf(chargerFar, enemy), map)
         assertEquals(null, farPreview)
     }
+
+    @Test
+    fun allMeleeAttacksEnforce2CmReach() {
+        val map = MapGenerator.generateSectorMap(1L)
+        val assaultTpl = DefaultCatalog.defaultTemplates.first { it.id == "assault_intercessors" }
+        val termiTpl = DefaultCatalog.defaultTemplates.first { it.id == "terminators" }
+        val warriorTpl = DefaultCatalog.defaultTemplates.first { it.id == "warriors" }
+
+        // Edge gap = 1.0 - 0.78 = 0.22 tiles (~0.66cm) <= 2.0cm -> WITHIN melee reach
+        val closeMarine = BattleUnit("m1", assaultTpl, Faction.MARINES, 2, 6, Facing.EAST, assaultTpl.maxTotalWounds, assaultTpl.maxTotalWounds, 18f)
+        val closeTermi = BattleUnit("m2", termiTpl, Faction.MARINES, 2, 5, Facing.EAST, termiTpl.maxTotalWounds, termiTpl.maxTotalWounds, 12f)
+        val enemy = BattleUnit("x1", warriorTpl, Faction.XENOS, 3, 6, Facing.WEST, warriorTpl.maxTotalWounds, warriorTpl.maxTotalWounds, 15f)
+
+        val closeMain = TacticalRules.canTarget(closeMarine, enemy, WeaponMode.MAIN, map, listOf(closeMarine, enemy))
+        assertNotNull(closeMain)
+        assertTrue(closeMain!!.inRange)
+        assertTrue(closeMain.isMelee)
+
+        val closeSkill = TacticalRules.canTarget(closeMarine, enemy, WeaponMode.SKILL, map, listOf(closeMarine, enemy))
+        assertNotNull(closeSkill)
+        assertTrue(closeSkill!!.inRange)
+        assertTrue(closeSkill.isMelee)
+
+        val closeTermiHammer = TacticalRules.canTarget(closeTermi, enemy, WeaponMode.MAIN, map, listOf(closeTermi, enemy))
+        assertNotNull(closeTermiHammer)
+        assertTrue(closeTermiHammer!!.inRange)
+        assertTrue(closeTermiHammer.isMelee)
+
+        // 1.48 tiles center-to-center => 1.48 - 0.78 = 0.70 tiles (~2.1cm > 2.0cm) -> OUT OF 2CM MELEE REACH
+        val outOf2CmEnemy = enemy.copy(x = 3, y = 6, worldX = 3.48f, worldY = 6.0f)
+        val tooFarMain = TacticalRules.canTarget(closeMarine, outOf2CmEnemy, WeaponMode.MAIN, map, listOf(closeMarine, outOf2CmEnemy))
+        assertEquals(false, tooFarMain?.inRange ?: false)
+
+        val tooFarSkill = TacticalRules.canTarget(closeMarine, outOf2CmEnemy, WeaponMode.SKILL, map, listOf(closeMarine, outOf2CmEnemy))
+        assertEquals(false, tooFarSkill?.inRange ?: false)
+
+        val tooFarTermi = TacticalRules.canTarget(closeTermi, outOf2CmEnemy, WeaponMode.MAIN, map, listOf(closeTermi, outOf2CmEnemy))
+        assertEquals(false, tooFarTermi?.inRange ?: false)
+    }
+
+    @Test
+    fun assaultTerminatorDefaultsToHammerAndShieldAndSwitchesModelWithLightningClaws() {
+        val termiTpl = DefaultCatalog.defaultTemplates.first { it.id == "terminators" }
+        assertEquals(com.example.model.TerminatorWeaponChoice.THUNDER_HAMMER_SHIELD, termiTpl.terminatorWeapon)
+        assertEquals(1, termiTpl.range)
+        assertEquals("Thunder Hammer & Storm Shield", termiTpl.mainWeaponName)
+        assertEquals(4, termiTpl.woundsPerModel)
+        assertEquals(8, termiTpl.strength)
+        assertEquals(2, termiTpl.damage)
+
+        val clawsTpl = termiTpl.copy(
+            terminatorWeapon = com.example.model.TerminatorWeaponChoice.LIGHTNING_CLAWS,
+            mainWeaponName = "Twin Lightning Claws",
+            woundsPerModel = 3,
+            attacksPerModel = 5,
+            strength = 5,
+            armorPen = 2,
+            damage = 1,
+            range = 1
+        )
+        assertEquals(com.example.model.TerminatorWeaponChoice.LIGHTNING_CLAWS, clawsTpl.terminatorWeapon)
+        assertEquals(1, clawsTpl.range)
+
+        val hammerMesh = com.example.ui.battle.MeshCatalog3D.getUnitMesh(com.example.model.UnitArchetype.TERMINATOR, "")
+        val clawsMesh = com.example.ui.battle.MeshCatalog3D.getUnitMesh(com.example.model.UnitArchetype.TERMINATOR, "CLAWS")
+        assertTrue(hammerMesh.vertexCount > 50)
+        assertTrue(clawsMesh.vertexCount > 50)
+        assertTrue("Expected distinct geometry between Hammer+Shield and Twin Lightning Claws", hammerMesh.vertexCount != clawsMesh.vertexCount || !hammerMesh.data.contentEquals(clawsMesh.data))
+        for (v in clawsMesh.data) assertTrue(v.isFinite())
+    }
+
+    @Test
+    fun meleeEngagementLocksMovementAdvanceChargeTeleportAndAiUntilEnemyDies() {
+        val map = MapGenerator.generateSectorMap(1L)
+        val termiTpl = DefaultCatalog.defaultTemplates.first { it.id == "terminators" }
+        val warriorTpl = DefaultCatalog.defaultTemplates.first { it.id == "warriors" }
+
+        val engagedTermi = BattleUnit("m1", termiTpl, Faction.MARINES, 2, 6, Facing.EAST, termiTpl.maxTotalWounds, termiTpl.maxTotalWounds, 12f)
+        val engagedFoe = BattleUnit("x1", warriorTpl, Faction.XENOS, 3, 6, Facing.WEST, warriorTpl.maxTotalWounds, warriorTpl.maxTotalWounds, 15f)
+        val distantFoe = BattleUnit("x2", warriorTpl, Faction.XENOS, 7, 6, Facing.WEST, warriorTpl.maxTotalWounds, warriorTpl.maxTotalWounds, 15f)
+        val engagedUnits = listOf(engagedTermi, engagedFoe, distantFoe)
+
+        assertTrue(TacticalRules.isEngagedInMelee(engagedTermi, engagedUnits))
+        assertTrue(TacticalRules.computeReachableTiles(engagedTermi, map, engagedUnits).costs.isEmpty())
+        assertEquals(null, TacticalRules.computeCmMovePreview(engagedTermi, 1.0f, 6.0f, engagedUnits, map))
+        assertEquals(null, TacticalRules.computeForwardCmPreview(engagedTermi, 3.0f, engagedUnits, map))
+        assertFalse(TacticalRules.canAdvance(engagedTermi, engagedUnits))
+        assertEquals(null, TacticalRules.findChargeEngagementSpot(engagedTermi, distantFoe, engagedUnits, map))
+        assertTrue(TacticalRules.computeTeleportTiles(engagedTermi, map, engagedUnits).isEmpty())
+
+        // AI in melee duel must NEVER Move/Advance/Charge away while engaged foe is alive
+        val aiDecision = AiController.decideNextAction(Faction.XENOS, engagedUnits, map)
+        assertTrue(aiDecision is AiDecision.Attack || aiDecision is AiDecision.TurnComplete)
+
+        // Once the engaged enemy is eliminated (totalWounds = 0), movement & teleport unlock immediately!
+        val deadFoe = engagedFoe.copy(totalWounds = 0)
+        val freedUnits = listOf(engagedTermi, deadFoe, distantFoe)
+        assertFalse(TacticalRules.isEngagedInMelee(engagedTermi, freedUnits))
+        assertTrue(TacticalRules.computeReachableTiles(engagedTermi, map, freedUnits).costs.isNotEmpty())
+        assertTrue(TacticalRules.canAdvance(engagedTermi, freedUnits))
+        assertNotNull(TacticalRules.computeCmMovePreview(engagedTermi, 1.0f, 6.0f, freedUnits, map))
+    }
 }
 
 

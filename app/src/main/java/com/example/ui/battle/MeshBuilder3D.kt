@@ -618,10 +618,10 @@ object MeshCatalog3D {
         }.build()
     }
 
-    private val archetypeMeshes = mutableMapOf<UnitArchetype, MeshGeometry>()
+    private val archetypeMeshes = mutableMapOf<Pair<UnitArchetype, String>, MeshGeometry>()
 
-    fun getUnitMesh(archetype: UnitArchetype): MeshGeometry =
-        archetypeMeshes.getOrPut(archetype) { UnitMeshSculptor3D.build(archetype) }
+    fun getUnitMesh(archetype: UnitArchetype, variant: String = ""): MeshGeometry =
+        archetypeMeshes.getOrPut(archetype to variant) { UnitMeshSculptor3D.build(archetype, variant) }
 
     fun buildStaticMapBatches(map: SectorMap): Pair<MeshGeometry, MeshGeometry> {
         val floor = MeshAccumulator()

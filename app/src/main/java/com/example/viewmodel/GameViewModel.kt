@@ -1218,7 +1218,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     val msg = when {
                         unitHit.isCloaked -> "CHAMELEONIC CLOAK: UNTARGETABLE"
                         !sel.canCharge -> if (sel.hasAdvanced) "NO CHARGE AFTER ADVANCE" else "ALREADY CHARGED"
-                        curDist <= 1.55f -> "ALREADY IN MELEE"
+                        curDist <= TacticalRules.MELEE_MAX_CENTER_TILES -> "ALREADY IN MELEE"
                         curDist > 12.45f -> "OUT OF 12 CM CHARGE"
                         else -> "NO CHARGE PATH"
                     }
@@ -1272,6 +1272,11 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
 
+        if (TacticalRules.isEngagedInMelee(sel, state.units)) {
+            spawnFloatingText(pos, "MELEE DUEL LOCK: KILL FOE FIRST!", 0xFFFF4D58L)
+            return
+        }
+
         if (sel.moveCmLeft < 0.25f) {
             spawnFloatingText(pos, "0.0 CM LEFT", 0xFF9AA3B2L)
             return
@@ -1309,6 +1314,10 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         if (!state.isPlayerTurn || state.isAnimating) return
         val selected = state.selectedUnit ?: return
         if (!state.canCommandUnit(selected)) return
+        if (TacticalRules.isEngagedInMelee(selected, state.units)) {
+            spawnFloatingText(selected.pos, "LOCKED IN MELEE: KILL ENEMY FIRST!", 0xFFFF4D58L)
+            return
+        }
         sound.play(SoundType.CLICK)
         _battleState.update { st ->
             val next = !st.moveModeActive
@@ -1333,8 +1342,13 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         val state = _battleState.value
         if (!state.isPlayerTurn || state.isAnimating) return
         val selected = state.selectedUnit ?: return
-        if (!state.canCommandUnit(selected) || !selected.canAdvance) {
-            spawnFloatingText(selected.pos, "CANNOT ADVANCE", 0xFFFF4D58L)
+        if (!state.canCommandUnit(selected) || !TacticalRules.canAdvance(selected, state.units)) {
+            val msg = if (TacticalRules.isEngagedInMelee(selected, state.units)) {
+                "LOCKED IN MELEE: CANNOT ADVANCE!"
+            } else {
+                "CANNOT ADVANCE"
+            }
+            spawnFloatingText(selected.pos, msg, 0xFFFF4D58L)
             return
         }
         sound.play(SoundType.CLICK)
@@ -1375,8 +1389,10 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         if (!state.isPlayerTurn || state.isAnimating) return
         val selected = state.selectedUnit ?: return
         if (!state.canCommandUnit(selected)) return
-        if (!selected.canCharge) {
+        val inMelee = TacticalRules.isEngagedInMelee(selected, state.units)
+        if (inMelee || !selected.canCharge) {
             val msg = when {
+                inMelee -> "LOCKED IN MELEE: DUEL ACTIVE!"
                 selected.hasAdvanced -> "NO CHARGE AFTER ADVANCE"
                 selected.hasCharged -> "ALREADY CHARGED"
                 else -> "ALREADY FOUGHT"
@@ -1590,6 +1606,10 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         if (!state.isPlayerTurn || state.isAnimating) return
         val selected = state.selectedUnit ?: return
         if (!state.canCommandUnit(selected)) return
+        if (TacticalRules.isEngagedInMelee(selected, state.units)) {
+            spawnFloatingText(selected.pos, "LOCKED IN MELEE: CANNOT MOVE!", 0xFFFF4D58L)
+            return
+        }
         val requested = if (state.cmStepChoice <= 0f) selected.moveCmLeft else state.cmStepChoice
         val preview = TacticalRules.computeForwardCmPreview(selected, requested, state.units, state.map.rows)
         if (preview == null) {
@@ -1615,6 +1635,11 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         if (!state.isPlayerTurn || state.isAnimating) return
         val selected = state.selectedUnit ?: return
         if (!state.canCommandUnit(selected)) return
+        if (TacticalRules.isEngagedInMelee(selected, state.units)) {
+            _battleState.update { it.copy(movePreview = null, moveModeActive = false) }
+            spawnFloatingText(selected.pos, "LOCKED IN MELEE!", 0xFFFF4D58L)
+            return
+        }
         val preview = state.movePreview ?: return
         actionJob?.cancel()
         actionJob = viewModelScope.launch {
@@ -1915,7 +1940,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         val adjEnemy = state.units
             .filter { it.isAlive && !it.isCloaked && it.faction != selected.faction }
             .minByOrNull { hypot(it.worldX - selected.worldX, it.worldY - selected.worldY) }
-            ?.takeIf { hypot(it.worldX - selected.worldX, it.worldY - selected.worldY) <= 1.55f }
+            ?.takeIf { TacticalRules.isWithinMeleeReach(selected, it) }
         if (adjEnemy == null) {
             spawnFloatingText(selected.pos, "NO ADJACENT ENEMY", 0xFFFF4D58L)
             return
@@ -2070,7 +2095,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         val counterDefenders = if (isMelee && !skipCounterAttack && !leaperPreStruck && survivingAttacker != null && survivingAttacker.isAlive) {
             outcome.updatedTargets.mapNotNull { t ->
                 newUnits.firstOrNull { it.uid == t.uid && it.isAlive && it.aliveModels > 0 && !it.isCloaked }?.takeIf { def ->
-                    hypot(def.worldX - survivingAttacker.worldX, def.worldY - survivingAttacker.worldY) <= 1.55f
+                    TacticalRules.isWithinMeleeReach(def, survivingAttacker)
                 }
             }
         } else emptyList()
@@ -2647,12 +2672,16 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
 
+        val inMelee = TacticalRules.isEngagedInMelee(selected, state.units)
+
         if (selected.template.archetype == UnitArchetype.TERMINATOR && state.weaponMode == WeaponMode.SKILL) {
-            val canTeleport = selected.skillCooldownLeft == 0 && !selected.hasAdvanced && !selected.hasCharged
+            val canTeleport = !inMelee && selected.skillCooldownLeft == 0 && !selected.hasAdvanced && !selected.hasCharged
             val teleportTiles = if (canTeleport) {
                 TacticalRules.computeTeleportTiles(selected, state.map.rows, state.units, maxDist = 9, minEnemyDist = 5)
             } else emptySet()
             return state.copy(
+                moveModeActive = false,
+                chargeModeActive = false,
                 reachableTiles = teleportTiles.associateWith { 0 },
                 moveParents = emptyMap(),
                 attackableUids = emptySet(),
@@ -2660,15 +2689,18 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
 
-        val moveResult = if (selected.moveCmLeft >= 1.5f && !state.chargeModeActive) {
+        val effectiveMoveMode = if (inMelee) false else state.moveModeActive
+        val effectiveChargeMode = if (inMelee) false else state.chargeModeActive
+
+        val moveResult = if (!inMelee && selected.moveCmLeft >= 1.5f && !effectiveChargeMode) {
             TacticalRules.computeReachableTiles(selected, state.map.rows, state.units)
         } else null
 
-        val chargeable = if (state.chargeModeActive) {
+        val chargeable = if (effectiveChargeMode) {
             TacticalRules.computeChargeableTargets(selected, state.units, state.map.rows)
         } else emptySet()
 
-        val attackable = if (state.chargeModeActive) {
+        val attackable = if (effectiveChargeMode) {
             emptySet()
         } else {
             state.units
@@ -2682,6 +2714,10 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         return state.copy(
+            moveModeActive = effectiveMoveMode,
+            chargeModeActive = effectiveChargeMode,
+            movePreview = if (inMelee) null else state.movePreview,
+            chargePreview = if (inMelee) null else state.chargePreview,
             reachableTiles = moveResult?.costs ?: emptyMap(),
             moveParents = moveResult?.parents ?: emptyMap(),
             attackableUids = attackable,

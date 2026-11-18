@@ -27,11 +27,11 @@ object UnitMeshSculptor3D {
     private const val PARCH_R = 0.84f; private const val PARCH_G = 0.75f; private const val PARCH_B = 0.56f
     private const val CAPE_R = 0.56f; private const val CAPE_G = 0.09f; private const val CAPE_B = 0.12f
 
-    fun build(archetype: UnitArchetype): MeshGeometry {
+    fun build(archetype: UnitArchetype, variant: String = ""): MeshGeometry {
         val m = MeshAccumulator()
         when (archetype) {
             UnitArchetype.DREADNOUGHT -> buildUltramarineDreadnought(m)
-            UnitArchetype.TERMINATOR -> buildAssaultTerminator(m)
+            UnitArchetype.TERMINATOR -> buildAssaultTerminator(m, useLightningClaws = variant == "CLAWS")
             UnitArchetype.INTERCESSOR,
             UnitArchetype.HELLBLASTER,
             UnitArchetype.ASSAULT_MARINE,
@@ -48,7 +48,7 @@ object UnitMeshSculptor3D {
         return m.build()
     }
 
-    private fun buildAssaultTerminator(m: MeshAccumulator) {
+    private fun buildAssaultTerminator(m: MeshAccumulator, useLightningClaws: Boolean = false) {
         val s = 1.18f
         val helmW_R = 0.90f; val helmW_G = 0.91f; val helmW_B = 0.94f
         val shieldFieldR = 0.88f; val shieldFieldG = 0.85f; val shieldFieldB = 0.78f
@@ -184,75 +184,162 @@ object UnitMeshSculptor3D {
         m.addOrientedBox(0f, rpy + 0.008f * s, rpz, 0.086f * s, 0.024f * s, 0.018f * s, r = helmW_R * 0.85f, g = helmW_G * 0.85f, b = helmW_B * 0.85f)
         m.addOrientedEllipsoid(0f, rpy + 0.008f * s, rpz + 0.010f * s, 0.020f * s, 0.022f * s, 0.018f * s, latSegs = 3, lonSegs = 6, r = helmW_R, g = helmW_G, b = helmW_B)
 
-        // 8. Left Arm (-Z) + Authentic Faceted Hexagonal STORM SHIELD (Gold Frame + White Field + Steel Cross & Skull)
-        buildMarineArm(
-            m, s,
-            shX = 0f, shY = by + 0.525f * s, shZ = -0.195f * s,
-            elX = 0.025f * s, elY = by + 0.415f * s, elZ = -0.225f * s,
-            hdX = 0.115f * s, hdY = by + 0.405f * s, hdZ = -0.230f * s
-        )
-        val scx = 0.135f * s
-        val scy = by + 0.415f * s
-        val scz = -0.268f * s
-        val shRotY = 38f // +38° around Y rotates shield face (+X) toward forward-left (+X, -Z)
-        val shRad = Math.toRadians(shRotY.toDouble())
-        val shCos = kotlin.math.cos(shRad).toFloat()
-        val shSin = kotlin.math.sin(shRad).toFloat()
-        fun shieldBox(lx: Float, ly: Float, lz: Float, sx: Float, sy: Float, sz: Float, rotXDeg: Float = 0f, r: Float, g: Float, b: Float) {
-            val wx = scx + lx * shCos + lz * shSin
-            val wy = scy + ly
-            val wz = scz - lx * shSin + lz * shCos
-            m.addOrientedBox(wx, wy, wz, sx, sy, sz, rotXDeg = rotXDeg, rotYDeg = shRotY, r = r, g = g, b = b)
-        }
-        // Hexagonal / Kite Shield White Field
-        shieldBox(0f, 0f, 0f, 0.042f * s, 0.230f * s, 0.210f * s, r = shieldFieldR, g = shieldFieldG, b = shieldFieldB)
-        shieldBox(0f, 0.112f * s, 0f, 0.042f * s, 0.145f * s, 0.145f * s, rotXDeg = 45f, r = shieldFieldR, g = shieldFieldG, b = shieldFieldB)
-        shieldBox(0f, -0.112f * s, 0f, 0.042f * s, 0.145f * s, 0.145f * s, rotXDeg = 45f, r = shieldFieldR, g = shieldFieldG, b = shieldFieldB)
-        // Thick Gold 6-Sided Kite Outer Perimeter Frame
-        shieldBox(0.004f * s, 0f, -0.102f * s, 0.050f * s, 0.238f * s, 0.026f * s, r = GOLD_R, g = GOLD_G, b = GOLD_B)
-        shieldBox(0.004f * s, 0f, 0.102f * s, 0.050f * s, 0.238f * s, 0.026f * s, r = GOLD_R, g = GOLD_G, b = GOLD_B)
-        shieldBox(0.004f * s, 0.162f * s, -0.052f * s, 0.050f * s, 0.026f * s, 0.140f * s, rotXDeg = -45f, r = GOLD_R, g = GOLD_G, b = GOLD_B)
-        shieldBox(0.004f * s, 0.162f * s, 0.052f * s, 0.050f * s, 0.026f * s, 0.140f * s, rotXDeg = 45f, r = GOLD_R, g = GOLD_G, b = GOLD_B)
-        shieldBox(0.004f * s, -0.162f * s, -0.052f * s, 0.050f * s, 0.026f * s, 0.140f * s, rotXDeg = 45f, r = GOLD_R, g = GOLD_G, b = GOLD_B)
-        shieldBox(0.004f * s, -0.162f * s, 0.052f * s, 0.050f * s, 0.026f * s, 0.140f * s, rotXDeg = -45f, r = GOLD_R, g = GOLD_G, b = GOLD_B)
-        // Dark Steel/Silver Imperial Cross + Center Skull Boss flush on White Shield Face
-        shieldBox(0.024f * s, 0f, 0f, 0.022f * s, 0.295f * s, 0.036f * s, r = STEEL_R * 0.72f, g = STEEL_G * 0.72f, b = STEEL_B * 0.72f)
-        shieldBox(0.024f * s, 0.024f * s, 0f, 0.022f * s, 0.036f * s, 0.180f * s, r = STEEL_R * 0.72f, g = STEEL_G * 0.72f, b = STEEL_B * 0.72f)
-        m.addOrientedEllipsoid(
-            scx + 0.034f * s * shCos,
-            scy + 0.024f * s,
-            scz - 0.034f * s * shSin,
-            0.024f * s, 0.028f * s, 0.024f * s,
-            rotYDeg = shRotY, latSegs = 3, lonSegs = 6,
-            r = STEEL_R * 1.25f, g = STEEL_G * 1.25f, b = STEEL_B * 1.25f
-        )
+        if (useLightningClaws) {
+            // 8 & 9 (ALT): TWIN LIGHTNING CLAWS (Left & Right Armored Power Claw Gauntlets + Quad Razor Talons)
+            val clawEnergyR = 0.34f; val clawEnergyG = 0.90f; val clawEnergyB = 1.00f
+            for (side in floatArrayOf(-1f, 1f)) {
+                val isLeft = side < 0f
+                val elX = if (isLeft) 0.045f * s else 0.055f * s
+                val elY = by + (if (isLeft) 0.420f else 0.435f) * s
+                val elZ = side * 0.225f * s
+                val hdX = if (isLeft) 0.165f * s else 0.185f * s
+                val hdY = by + (if (isLeft) 0.460f else 0.480f) * s
+                val hdZ = side * 0.212f * s
 
-        // 9. Right Arm (+Z) + Heavy FOREST-GREEN THUNDER HAMMER (matching photo!)
-        buildMarineArm(
-            m, s,
-            shX = 0f, shY = by + 0.525f * s, shZ = 0.195f * s,
-            elX = 0.035f * s, elY = by + 0.425f * s, elZ = 0.235f * s,
-            hdX = 0.150f * s, hdY = by + 0.435f * s, hdZ = 0.220f * s
-        )
-        // Hammer Haft angled heroically upward-forward (+32° pitch)
-        val hBaseX = 0.105f * s; val hBaseY = by + 0.340f * s; val hBaseZ = 0.225f * s
-        val hTopX = 0.255f * s; val hTopY = by + 0.625f * s; val hTopZ = 0.215f * s
-        m.addOrientedCylinder(hBaseX, hBaseY, hBaseZ, hTopX, hTopY, hTopZ, 0.017f * s, 0.018f * s, 8, r = IRON_R, g = IRON_G, b = IRON_B)
-        // Gold pommel cap at bottom of haft
-        m.addOrientedEllipsoid(hBaseX, hBaseY, hBaseZ, 0.024f * s, 0.024f * s, 0.024f * s, latSegs = 3, lonSegs = 6, r = GOLD_R, g = GOLD_G, b = GOLD_B)
-        // Forest-Green Double-Faced Thunder Hammer Head + Dark Iron Collar + Steel Striking Faces
-        val hHeadX = 0.240f * s; val hHeadY = by + 0.595f * s; val hHeadZ = 0.215f * s
-        val hHeadRotZ = -28f
-        val hRad = Math.toRadians(hHeadRotZ.toDouble())
-        val hCos = kotlin.math.cos(hRad).toFloat()
-        val hSin = kotlin.math.sin(hRad).toFloat()
-        m.addOrientedBox(hHeadX, hHeadY, hHeadZ, 0.175f * s, 0.098f * s, 0.098f * s, rotZDeg = hHeadRotZ, r = hammerGrnR, g = hammerGrnG, b = hammerGrnB)
-        m.addOrientedBox(hHeadX, hHeadY, hHeadZ, 0.068f * s, 0.108f * s, 0.106f * s, rotZDeg = hHeadRotZ, r = hammerGrnDkR, g = hammerGrnDkG, b = hammerGrnDkB)
-        m.addOrientedBox(hHeadX + 0.092f * s * hCos, hHeadY + 0.092f * s * hSin, hHeadZ, 0.026f * s, 0.090f * s, 0.090f * s, rotZDeg = hHeadRotZ, r = STEEL_R, g = STEEL_G, b = STEEL_B)
-        m.addOrientedBox(hHeadX - 0.092f * s * hCos, hHeadY - 0.092f * s * hSin, hHeadZ, 0.026f * s, 0.090f * s, 0.090f * s, rotZDeg = hHeadRotZ, r = STEEL_R, g = STEEL_G, b = STEEL_B)
-        // Crimson Purity Seal + Parchment ribbon fluttering off hammer collar
-        m.addOrientedCylinder(hHeadX - 0.01f * s, hHeadY - 0.055f * s, hHeadZ + 0.045f * s, hHeadX - 0.01f * s, hHeadY - 0.055f * s, hHeadZ + 0.058f * s, 0.015f * s, 0.013f * s, 8, r = WAX_R, g = WAX_G, b = WAX_B)
-        m.addOrientedBox(hHeadX - 0.015f * s, hHeadY - 0.105f * s, hHeadZ + 0.054f * s, 0.018f * s, 0.068f * s, 0.006f * s, rotZDeg = -10f, r = PARCH_R, g = PARCH_G, b = PARCH_B)
+                buildMarineArm(
+                    m, s,
+                    shX = 0f, shY = by + 0.525f * s, shZ = side * 0.195f * s,
+                    elX = elX, elY = elY, elZ = elZ,
+                    hdX = hdX, hdY = hdY, hdZ = hdZ
+                )
+
+                val yawSplay = side * -12f
+                val pitchUp = if (isLeft) 14f else 18f
+
+                // Heavy Indomitus Power-Claw Forearm Casing + Knuckle Guard Collar
+                m.addOrientedBox(
+                    hdX - 0.015f * s, hdY, hdZ,
+                    0.115f * s, 0.072f * s, 0.088f * s,
+                    rotYDeg = yawSplay, rotZDeg = pitchUp,
+                    r = BLUE_HI_R, g = BLUE_HI_G, b = BLUE_HI_B
+                )
+                m.addOrientedBox(
+                    hdX + 0.036f * s, hdY + 0.008f * s, hdZ,
+                    0.042f * s, 0.068f * s, 0.094f * s,
+                    rotYDeg = yawSplay, rotZDeg = pitchUp,
+                    r = IRON_R, g = IRON_G, b = IRON_B
+                )
+                m.addOrientedBox(
+                    hdX - 0.042f * s, hdY + 0.004f * s, hdZ,
+                    0.022f * s, 0.076f * s, 0.092f * s,
+                    rotYDeg = yawSplay, rotZDeg = pitchUp,
+                    r = GOLD_R, g = GOLD_G, b = GOLD_B
+                )
+                // Dorsal Glowing Plasma-Arc Power Cell Conduit on top of Gauntlet
+                m.addOrientedBox(
+                    hdX + 0.004f * s, hdY + 0.040f * s, hdZ,
+                    0.068f * s, 0.022f * s, 0.058f * s,
+                    rotYDeg = yawSplay, rotZDeg = pitchUp,
+                    r = clawEnergyR, g = clawEnergyG, b = clawEnergyB, a = E
+                )
+
+                // 4 Parallel Curved Terminator Lightning Claw Blades extending forward
+                val bladeZOffsets = floatArrayOf(-0.032f, -0.011f, 0.011f, 0.032f)
+                val bladeLengths = floatArrayOf(0.185f, 0.215f, 0.215f, 0.185f)
+                for (bIdx in bladeZOffsets.indices) {
+                    val bz = hdZ + bladeZOffsets[bIdx] * s
+                    val bLen = bladeLengths[bIdx] * s
+                    val rootX = hdX + 0.048f * s
+                    val rootY = hdY + 0.012f * s
+                    val midX = rootX + bLen * 0.56f
+                    val midY = rootY + 0.020f * s
+                    val tipX = rootX + bLen
+                    val tipY = rootY - 0.024f * s
+
+                    // Steel metallic blade spine
+                    m.addOrientedCylinder(
+                        rootX, rootY, bz,
+                        midX, midY, bz + side * 0.006f * s,
+                        0.011f * s, 0.0085f * s, 6,
+                        r = STEEL_R * 1.2f, g = STEEL_G * 1.2f, b = STEEL_B * 1.25f
+                    )
+                    // Razor tapered glowing electric-cyan talon tip
+                    m.addOrientedCylinder(
+                        midX, midY, bz + side * 0.006f * s,
+                        tipX, tipY, bz + side * 0.014f * s,
+                        0.0085f * s, 0.0018f * s, 6,
+                        r = clawEnergyR, g = clawEnergyG, b = clawEnergyB, a = E
+                    )
+                    // Under-edge energy corona fin
+                    m.addOrientedBox(
+                        rootX + bLen * 0.44f, rootY + 0.004f * s, bz + side * 0.004f * s,
+                        bLen * 0.72f, 0.014f * s, 0.005f * s,
+                        rotYDeg = yawSplay, rotZDeg = 6f,
+                        r = clawEnergyR, g = clawEnergyG, b = clawEnergyB, a = E
+                    )
+                }
+            }
+        } else {
+            // 8. Left Arm (-Z) + Authentic Faceted Hexagonal STORM SHIELD (Gold Frame + White Field + Steel Cross & Skull)
+            buildMarineArm(
+                m, s,
+                shX = 0f, shY = by + 0.525f * s, shZ = -0.195f * s,
+                elX = 0.025f * s, elY = by + 0.415f * s, elZ = -0.225f * s,
+                hdX = 0.115f * s, hdY = by + 0.405f * s, hdZ = -0.230f * s
+            )
+            val scx = 0.135f * s
+            val scy = by + 0.415f * s
+            val scz = -0.268f * s
+            val shRotY = 38f // +38° around Y rotates shield face (+X) toward forward-left (+X, -Z)
+            val shRad = Math.toRadians(shRotY.toDouble())
+            val shCos = kotlin.math.cos(shRad).toFloat()
+            val shSin = kotlin.math.sin(shRad).toFloat()
+            fun shieldBox(lx: Float, ly: Float, lz: Float, sx: Float, sy: Float, sz: Float, rotXDeg: Float = 0f, r: Float, g: Float, b: Float) {
+                val wx = scx + lx * shCos + lz * shSin
+                val wy = scy + ly
+                val wz = scz - lx * shSin + lz * shCos
+                m.addOrientedBox(wx, wy, wz, sx, sy, sz, rotXDeg = rotXDeg, rotYDeg = shRotY, r = r, g = g, b = b)
+            }
+            // Hexagonal / Kite Shield White Field
+            shieldBox(0f, 0f, 0f, 0.042f * s, 0.230f * s, 0.210f * s, r = shieldFieldR, g = shieldFieldG, b = shieldFieldB)
+            shieldBox(0f, 0.112f * s, 0f, 0.042f * s, 0.145f * s, 0.145f * s, rotXDeg = 45f, r = shieldFieldR, g = shieldFieldG, b = shieldFieldB)
+            shieldBox(0f, -0.112f * s, 0f, 0.042f * s, 0.145f * s, 0.145f * s, rotXDeg = 45f, r = shieldFieldR, g = shieldFieldG, b = shieldFieldB)
+            // Thick Gold 6-Sided Kite Outer Perimeter Frame
+            shieldBox(0.004f * s, 0f, -0.102f * s, 0.050f * s, 0.238f * s, 0.026f * s, r = GOLD_R, g = GOLD_G, b = GOLD_B)
+            shieldBox(0.004f * s, 0f, 0.102f * s, 0.050f * s, 0.238f * s, 0.026f * s, r = GOLD_R, g = GOLD_G, b = GOLD_B)
+            shieldBox(0.004f * s, 0.162f * s, -0.052f * s, 0.050f * s, 0.026f * s, 0.140f * s, rotXDeg = -45f, r = GOLD_R, g = GOLD_G, b = GOLD_B)
+            shieldBox(0.004f * s, 0.162f * s, 0.052f * s, 0.050f * s, 0.026f * s, 0.140f * s, rotXDeg = 45f, r = GOLD_R, g = GOLD_G, b = GOLD_B)
+            shieldBox(0.004f * s, -0.162f * s, -0.052f * s, 0.050f * s, 0.026f * s, 0.140f * s, rotXDeg = 45f, r = GOLD_R, g = GOLD_G, b = GOLD_B)
+            shieldBox(0.004f * s, -0.162f * s, 0.052f * s, 0.050f * s, 0.026f * s, 0.140f * s, rotXDeg = -45f, r = GOLD_R, g = GOLD_G, b = GOLD_B)
+            // Dark Steel/Silver Imperial Cross + Center Skull Boss flush on White Shield Face
+            shieldBox(0.024f * s, 0f, 0f, 0.022f * s, 0.295f * s, 0.036f * s, r = STEEL_R * 0.72f, g = STEEL_G * 0.72f, b = STEEL_B * 0.72f)
+            shieldBox(0.024f * s, 0.024f * s, 0f, 0.022f * s, 0.036f * s, 0.180f * s, r = STEEL_R * 0.72f, g = STEEL_G * 0.72f, b = STEEL_B * 0.72f)
+            m.addOrientedEllipsoid(
+                scx + 0.034f * s * shCos,
+                scy + 0.024f * s,
+                scz - 0.034f * s * shSin,
+                0.024f * s, 0.028f * s, 0.024f * s,
+                rotYDeg = shRotY, latSegs = 3, lonSegs = 6,
+                r = STEEL_R * 1.25f, g = STEEL_G * 1.25f, b = STEEL_B * 1.25f
+            )
+
+            // 9. Right Arm (+Z) + Heavy FOREST-GREEN THUNDER HAMMER (matching photo!)
+            buildMarineArm(
+                m, s,
+                shX = 0f, shY = by + 0.525f * s, shZ = 0.195f * s,
+                elX = 0.035f * s, elY = by + 0.425f * s, elZ = 0.235f * s,
+                hdX = 0.150f * s, hdY = by + 0.435f * s, hdZ = 0.220f * s
+            )
+            // Hammer Haft angled heroically upward-forward (+32° pitch)
+            val hBaseX = 0.105f * s; val hBaseY = by + 0.340f * s; val hBaseZ = 0.225f * s
+            val hTopX = 0.255f * s; val hTopY = by + 0.625f * s; val hTopZ = 0.215f * s
+            m.addOrientedCylinder(hBaseX, hBaseY, hBaseZ, hTopX, hTopY, hTopZ, 0.017f * s, 0.018f * s, 8, r = IRON_R, g = IRON_G, b = IRON_B)
+            // Gold pommel cap at bottom of haft
+            m.addOrientedEllipsoid(hBaseX, hBaseY, hBaseZ, 0.024f * s, 0.024f * s, 0.024f * s, latSegs = 3, lonSegs = 6, r = GOLD_R, g = GOLD_G, b = GOLD_B)
+            // Forest-Green Double-Faced Thunder Hammer Head + Dark Iron Collar + Steel Striking Faces
+            val hHeadX = 0.240f * s; val hHeadY = by + 0.595f * s; val hHeadZ = 0.215f * s
+            val hHeadRotZ = -28f
+            val hRad = Math.toRadians(hHeadRotZ.toDouble())
+            val hCos = kotlin.math.cos(hRad).toFloat()
+            val hSin = kotlin.math.sin(hRad).toFloat()
+            m.addOrientedBox(hHeadX, hHeadY, hHeadZ, 0.175f * s, 0.098f * s, 0.098f * s, rotZDeg = hHeadRotZ, r = hammerGrnR, g = hammerGrnG, b = hammerGrnB)
+            m.addOrientedBox(hHeadX, hHeadY, hHeadZ, 0.068f * s, 0.108f * s, 0.106f * s, rotZDeg = hHeadRotZ, r = hammerGrnDkR, g = hammerGrnDkG, b = hammerGrnDkB)
+            m.addOrientedBox(hHeadX + 0.092f * s * hCos, hHeadY + 0.092f * s * hSin, hHeadZ, 0.026f * s, 0.090f * s, 0.090f * s, rotZDeg = hHeadRotZ, r = STEEL_R, g = STEEL_G, b = STEEL_B)
+            m.addOrientedBox(hHeadX - 0.092f * s * hCos, hHeadY - 0.092f * s * hSin, hHeadZ, 0.026f * s, 0.090f * s, 0.090f * s, rotZDeg = hHeadRotZ, r = STEEL_R, g = STEEL_G, b = STEEL_B)
+            // Crimson Purity Seal + Parchment ribbon fluttering off hammer collar
+            m.addOrientedCylinder(hHeadX - 0.01f * s, hHeadY - 0.055f * s, hHeadZ + 0.045f * s, hHeadX - 0.01f * s, hHeadY - 0.055f * s, hHeadZ + 0.058f * s, 0.015f * s, 0.013f * s, 8, r = WAX_R, g = WAX_G, b = WAX_B)
+            m.addOrientedBox(hHeadX - 0.015f * s, hHeadY - 0.105f * s, hHeadZ + 0.054f * s, 0.018f * s, 0.068f * s, 0.006f * s, rotZDeg = -10f, r = PARCH_R, g = PARCH_G, b = PARCH_B)
+        }
     }
 
     private fun buildPrimarisUltramarine(m: MeshAccumulator, archetype: UnitArchetype) {

@@ -2,6 +2,7 @@ package com.example.engine
 
 import com.example.model.Faction
 import com.example.model.RosterSlot
+import com.example.model.TerminatorWeaponChoice
 import com.example.model.UnitArchetype
 import com.example.model.UnitTemplate
 import com.example.model.WarriorWeaponChoice
@@ -131,18 +132,19 @@ object DefaultCatalog {
             invulnSave = 4,
             armorPen = 2,
             moveCm = 12,
-            strength = 6,
+            strength = 8,
             damage = 2,
-            attacksPerModel = 2,
-            range = 4,
+            attacksPerModel = 3,
+            range = 1,
             ballisticSkill = 3,
             weaponSkill = 3,
             skillName = "Teleport Strike",
             skillDesc = "Teleports up to 9 tiles away (must be > 4 tiles from enemies). Grants 50% damage reduction for 1 turn.",
             skillCooldown = 4,
-            passiveName = "Crux Terminatus",
-            passiveDesc = "4W each, T5, 2+ Armor Save, 4++ Storm Shield Invulnerable Save & Lightning Claws / Thunder Hammer.",
-            mainWeaponName = "Lightning Claws & Thunder Hammer",
+            passiveName = "Crux Terminatus & Storm Shield",
+            passiveDesc = "4W (Storm Shield), T5, 2+/4++ Save. Switchable to Twin Lightning Claws (3W, 5A S5 AP-2 D1).",
+            terminatorWeapon = TerminatorWeaponChoice.THUNDER_HAMMER_SHIELD,
+            mainWeaponName = "Thunder Hammer & Storm Shield",
             mainWeaponAssault = false,
             pistolDamage = 0
         ),
@@ -368,6 +370,7 @@ object DefaultCatalog {
                 put("weaponSkill", t.weaponSkill)
                 put("skillCooldown", t.skillCooldown)
                 put("weaponChoice", t.weaponChoice?.name ?: "")
+                put("terminatorWeapon", t.terminatorWeapon?.name ?: "")
                 put("mainWeaponName", t.mainWeaponName)
                 put("mainWeaponAssault", t.mainWeaponAssault)
                 put("mainWeaponPistol", t.mainWeaponPistol)
@@ -393,28 +396,34 @@ object DefaultCatalog {
                 val existing = base[id] ?: continue
                 val wcStr = obj.optString("weaponChoice")
                 val wc = if (wcStr.isNotBlank()) runCatching { WarriorWeaponChoice.valueOf(wcStr) }.getOrNull() else existing.weaponChoice
+                val twStr = obj.optString("terminatorWeapon")
+                val tw = if (twStr.isNotBlank()) runCatching { TerminatorWeaponChoice.valueOf(twStr) }.getOrNull() else existing.terminatorWeapon
+                val isLegacyTerminator = id == "terminators" &&
+                    !obj.has("terminatorWeapon") &&
+                    (obj.optString("mainWeaponName") == "Lightning Claws & Thunder Hammer" || obj.optInt("range", 1) == 4)
                 val rawInv = if (obj.has("invulnSave")) obj.optInt("invulnSave", 0) else (existing.invulnSave ?: 0)
                 val parsedInv = if (rawInv in 2..6) rawInv else null
                 base[id] = existing.copy(
                     points = obj.optInt("points", existing.points),
                     squadSize = obj.optInt("squadSize", existing.squadSize).coerceIn(1, 5),
-                    woundsPerModel = obj.optInt("woundsPerModel", existing.woundsPerModel).coerceIn(1, 30),
+                    woundsPerModel = if (isLegacyTerminator) existing.woundsPerModel else obj.optInt("woundsPerModel", existing.woundsPerModel).coerceIn(1, 30),
                     toughness = obj.optInt("toughness", existing.toughness).coerceIn(1, 14),
                     save = obj.optInt("save", existing.save).coerceIn(2, 6),
                     invulnSave = parsedInv,
-                    armorPen = obj.optInt("armorPen", existing.armorPen).coerceIn(0, 5),
+                    armorPen = if (isLegacyTerminator) existing.armorPen else obj.optInt("armorPen", existing.armorPen).coerceIn(0, 5),
                     moveCm = obj.optInt("moveCm", existing.moveCm).coerceIn(3, 45),
-                    strength = obj.optInt("strength", existing.strength).coerceIn(1, 20),
-                    damage = obj.optInt("damage", existing.damage).coerceIn(1, 500),
-                    attacksPerModel = obj.optInt("attacksPerModel", existing.attacksPerModel).coerceIn(1, 10),
-                    range = obj.optInt("range", existing.range).coerceIn(1, 12),
+                    strength = if (isLegacyTerminator) existing.strength else obj.optInt("strength", existing.strength).coerceIn(1, 20),
+                    damage = if (isLegacyTerminator) existing.damage else obj.optInt("damage", existing.damage).coerceIn(1, 500),
+                    attacksPerModel = if (isLegacyTerminator) existing.attacksPerModel else obj.optInt("attacksPerModel", existing.attacksPerModel).coerceIn(1, 10),
+                    range = if (isLegacyTerminator) existing.range else obj.optInt("range", existing.range).coerceIn(1, 12),
                     ballisticSkill = obj.optInt("ballisticSkill", existing.ballisticSkill).coerceIn(2, 6),
                     weaponSkill = obj.optInt("weaponSkill", existing.weaponSkill).coerceIn(2, 6),
                     skillCooldown = if (id == "terminators") existing.skillCooldown else obj.optInt("skillCooldown", existing.skillCooldown).coerceIn(1, 8),
                     weaponChoice = wc,
-                    mainWeaponName = obj.optString("mainWeaponName", existing.mainWeaponName).ifBlank { existing.mainWeaponName },
-                    mainWeaponAssault = if (obj.has("mainWeaponAssault")) obj.optBoolean("mainWeaponAssault", existing.mainWeaponAssault) else existing.mainWeaponAssault,
-                    mainWeaponPistol = if (obj.has("mainWeaponPistol")) obj.optBoolean("mainWeaponPistol", existing.mainWeaponPistol) else existing.mainWeaponPistol,
+                    terminatorWeapon = tw,
+                    mainWeaponName = if (isLegacyTerminator) existing.mainWeaponName else obj.optString("mainWeaponName", existing.mainWeaponName).ifBlank { existing.mainWeaponName },
+                    mainWeaponAssault = if (isLegacyTerminator) existing.mainWeaponAssault else if (obj.has("mainWeaponAssault")) obj.optBoolean("mainWeaponAssault", existing.mainWeaponAssault) else existing.mainWeaponAssault,
+                    mainWeaponPistol = if (isLegacyTerminator) existing.mainWeaponPistol else if (obj.has("mainWeaponPistol")) obj.optBoolean("mainWeaponPistol", existing.mainWeaponPistol) else existing.mainWeaponPistol,
                     pistolAttacks = obj.optInt("pistolAttacks", existing.pistolAttacks).coerceIn(1, 10),
                     pistolDamage = obj.optInt("pistolDamage", existing.pistolDamage).coerceIn(0, 200),
                     pistolStrength = obj.optInt("pistolStrength", existing.pistolStrength).coerceIn(1, 20),

@@ -46,6 +46,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.example.model.TerminatorWeaponChoice
 import com.example.model.UnitArchetype
 import com.example.model.UnitTemplate
 import com.example.model.WarriorWeaponChoice
@@ -91,10 +92,14 @@ fun StatEditDialog(
     var weaponChoice by remember(template.id) {
         mutableStateOf(template.weaponChoice ?: WarriorWeaponChoice.BONESWORDS)
     }
+    var terminatorWeapon by remember(template.id) {
+        mutableStateOf(template.terminatorWeapon ?: TerminatorWeaponChoice.THUNDER_HAMMER_SHIELD)
+    }
     var mainWeaponAssault by remember(template.id) { mutableStateOf(template.mainWeaponAssault) }
     var mainWeaponPistol by remember(template.id) { mutableStateOf(template.mainWeaponPistol) }
     var mainWeaponName by remember(template.id) { mutableStateOf(template.mainWeaponName) }
     var weaponMenuExpanded by remember { mutableStateOf(false) }
+    var termWeaponMenuExpanded by remember { mutableStateOf(false) }
 
     var pistolAttacks by remember(template.id) { mutableStateOf(template.pistolAttacks.toString()) }
     var pistolDamage by remember(template.id) { mutableStateOf(template.pistolDamage.toString()) }
@@ -227,7 +232,77 @@ fun StatEditDialog(
                         }
                     }
 
-                    TwoFieldRow("Attack Range", range, { range = it }, "Attacks / Model (A)", attacksPerModel, { attacksPerModel = it })
+                    if (template.archetype == UnitArchetype.TERMINATOR) {
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("ASSAULT TERMINATOR WEAPON (3D MODEL CHANGES)", style = MaterialTheme.typography.labelSmall, color = TextMuted)
+                            ExposedDropdownMenuBox(
+                                expanded = termWeaponMenuExpanded,
+                                onExpandedChange = { termWeaponMenuExpanded = it }
+                            ) {
+                                OutlinedTextField(
+                                    value = terminatorWeapon.label,
+                                    onValueChange = {},
+                                    readOnly = true,
+                                    shape = grimdarkBevelShape(4.dp),
+                                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = termWeaponMenuExpanded) },
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedContainerColor = InputDark,
+                                        unfocusedContainerColor = InputDark,
+                                        focusedBorderColor = pal.trimBorder,
+                                        unfocusedBorderColor = BorderSteel,
+                                        focusedTextColor = TextPrimary,
+                                        unfocusedTextColor = TextPrimary
+                                    ),
+                                    modifier = Modifier
+                                        .menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                                        .fillMaxWidth()
+                                        .testTag("terminator_weapon_dropdown")
+                                )
+                                ExposedDropdownMenu(
+                                    expanded = termWeaponMenuExpanded,
+                                    onDismissRequest = { termWeaponMenuExpanded = false },
+                                    modifier = Modifier.background(CardSlate)
+                                ) {
+                                    TerminatorWeaponChoice.entries.forEach { choice ->
+                                        DropdownMenuItem(
+                                            text = { Text(choice.label, color = TextPrimary) },
+                                            onClick = {
+                                                terminatorWeapon = choice
+                                                range = "1"
+                                                mainWeaponAssault = false
+                                                mainWeaponPistol = false
+                                                if (choice == TerminatorWeaponChoice.THUNDER_HAMMER_SHIELD) {
+                                                    mainWeaponName = "Thunder Hammer & Storm Shield"
+                                                    woundsPerModel = "4"
+                                                    attacksPerModel = "3"
+                                                    strength = "8"
+                                                    armorPen = "2"
+                                                    damage = "2"
+                                                } else {
+                                                    mainWeaponName = "Twin Lightning Claws"
+                                                    woundsPerModel = "3"
+                                                    attacksPerModel = "5"
+                                                    strength = "5"
+                                                    armorPen = "2"
+                                                    damage = "1"
+                                                }
+                                                termWeaponMenuExpanded = false
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    TwoFieldRow(
+                        if (isRangedNow) "Attack Range (Tiles)" else "Range (1 = Melee 2cm)",
+                        range,
+                        { range = it },
+                        "Attacks / Model (A)",
+                        attacksPerModel,
+                        { attacksPerModel = it }
+                    )
                     if (showBsField) {
                         TwoFieldRow("Ballistic BS (2-6+)", ballisticSkill, { ballisticSkill = it }, "Weapon WS (2-6+)", weaponSkill, { weaponSkill = it })
                     } else {
@@ -338,6 +413,7 @@ fun StatEditDialog(
                                     weaponSkill = weaponSkill.toIntOrNull()?.coerceIn(2, 6) ?: template.weaponSkill,
                                     skillCooldown = skillCooldown.toIntOrNull()?.coerceIn(1, 8) ?: template.skillCooldown,
                                     weaponChoice = if (template.archetype == UnitArchetype.WARRIOR) weaponChoice else template.weaponChoice,
+                                    terminatorWeapon = if (template.archetype == UnitArchetype.TERMINATOR) terminatorWeapon else template.terminatorWeapon,
                                     mainWeaponName = mainWeaponName,
                                     mainWeaponAssault = if (finalRange > 1) mainWeaponAssault else false,
                                     mainWeaponPistol = if (finalRange > 1) mainWeaponPistol else false,

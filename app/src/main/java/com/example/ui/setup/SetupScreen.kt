@@ -739,7 +739,7 @@ private fun DeployedUnitRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-            val skillPart = if (template.isRangedMain) "R${template.range} BS${template.ballisticSkill}+" else "MELEE"
+            val skillPart = if (template.isRangedMain) "R${template.range} BS${template.ballisticSkill}+" else "MELEE 2cm"
             val apPart = if (template.armorPen == 0) "AP0" else "AP-${template.armorPen}"
             val weaponTags = buildString {
                 if (template.mainWeaponAssault) append(" [ASSAULT]")
