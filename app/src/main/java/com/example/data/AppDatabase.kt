@@ -19,14 +19,21 @@ abstract class AppDatabase : RoomDatabase() {
 
         fun getInstance(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
-                INSTANCE ?: Room.databaseBuilder(
-                    context.applicationContext,
-                    AppDatabase::class.java,
-                    "crimson_sector.db"
-                )
-                    .fallbackToDestructiveMigration(dropAllTables = true)
-                    .build()
-                    .also { INSTANCE = it }
+                INSTANCE ?: runCatching {
+                    Room.databaseBuilder(
+                        context.applicationContext,
+                        AppDatabase::class.java,
+                        "crimson_sector.db"
+                    )
+                        .fallbackToDestructiveMigration(dropAllTables = true)
+                        .build()
+                }.getOrElse {
+                    Room.inMemoryDatabaseBuilder(
+                        context.applicationContext,
+                        AppDatabase::class.java
+                    )
+                        .build()
+                }.also { INSTANCE = it }
             }
         }
     }

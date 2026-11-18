@@ -50,11 +50,12 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
-import org.json.JSONObject
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
+import org.json.JSONObject
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.abs
@@ -193,8 +194,10 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         val dao = AppDatabase.getInstance(application).gameDao()
         repository = GameRepository(dao)
         savedConfig = repository.savedConfig
+            .catch { emit(null) }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
         savedSkirmishBattle = repository.savedSkirmishBattle
+            .catch { emit(null) }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
         val initialSettings = _settingsState.value
@@ -774,19 +777,21 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun loadSavedSetup() {
         viewModelScope.launch {
-            val saved = repository.getSavedConfigOnce() ?: return@launch
-            val faction = runCatching { Faction.valueOf(saved.playerFaction) }.getOrDefault(Faction.MARINES)
-            val templates = DefaultCatalog.deserializeTemplates(saved.customTemplatesJson)
-            val marines = DefaultCatalog.deserializeRoster(saved.marineRosterJson, DefaultCatalog.defaultMarineRoster())
-            val xenos = DefaultCatalog.deserializeRoster(saved.xenosRosterJson, DefaultCatalog.defaultXenosRoster())
-            _setupState.update {
-                it.copy(
-                    playerFaction = faction,
-                    pointLimit = saved.pointLimit.coerceIn(1000, 5000),
-                    templates = templates,
-                    marineRoster = marines,
-                    xenosRoster = xenos
-                )
+            runCatching {
+                val saved = repository.getSavedConfigOnce() ?: return@launch
+                val faction = runCatching { Faction.valueOf(saved.playerFaction) }.getOrDefault(Faction.MARINES)
+                val templates = DefaultCatalog.deserializeTemplates(saved.customTemplatesJson)
+                val marines = DefaultCatalog.deserializeRoster(saved.marineRosterJson, DefaultCatalog.defaultMarineRoster())
+                val xenos = DefaultCatalog.deserializeRoster(saved.xenosRosterJson, DefaultCatalog.defaultXenosRoster())
+                _setupState.update {
+                    it.copy(
+                        playerFaction = faction,
+                        pointLimit = saved.pointLimit.coerceIn(1000, 5000),
+                        templates = templates,
+                        marineRoster = marines,
+                        xenosRoster = xenos
+                    )
+                }
             }
         }
     }
