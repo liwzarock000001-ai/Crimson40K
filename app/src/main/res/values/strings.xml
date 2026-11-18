@@ -6,5 +6,5 @@
     <string name="btn_strike">STRIKE</string>
     <string name="confirm_setup_title">Return to Setup</string>
     <string name="confirm_setup_msg">End the current skirmish and return to army configuration?</string>
-    
+    <string name="default_web_client_id" translatable="false">847769521135-uh193qc4ub0gs91v2h48p86ufgtk0lsa.apps.googleusercontent.com</string>
 </resources>

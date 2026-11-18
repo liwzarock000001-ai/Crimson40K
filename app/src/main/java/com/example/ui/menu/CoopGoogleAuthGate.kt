@@ -19,13 +19,16 @@ import androidx.compose.foundation.layout.displayCutoutPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CutCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CloudQueue
@@ -94,6 +97,7 @@ import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.auth.auth
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.channels.awaitClose
@@ -152,12 +156,18 @@ fun attemptAutoGoogleSignIn(
             if (cred is CustomCredential && cred.type == TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
                 val token = GoogleIdTokenCredential.createFrom(cred.data).idToken
                 Firebase.auth.signInWithCredential(GoogleAuthProvider.getCredential(token, null)).await()
-                onAuthSuccess()
+                withContext(Dispatchers.Main) {
+                    onAuthSuccess()
+                }
             } else {
-                onUnauthenticated()
+                withContext(Dispatchers.Main) {
+                    onUnauthenticated()
+                }
             }
         } catch (_: Exception) {
-            onUnauthenticated()
+            withContext(Dispatchers.Main) {
+                onUnauthenticated()
+            }
         }
     }
 }
@@ -193,25 +203,39 @@ fun onGoogleSignInClicked(
             if (cred is CustomCredential && cred.type == TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
                 val token = GoogleIdTokenCredential.createFrom(cred.data).idToken
                 Firebase.auth.signInWithCredential(GoogleAuthProvider.getCredential(token, null)).await()
-                onAuthSuccess()
+                withContext(Dispatchers.Main) {
+                    onAuthSuccess()
+                }
             } else {
-                onAuthError("Unexpected credential type returned.")
+                withContext(Dispatchers.Main) {
+                    onAuthError("Unexpected credential type returned.")
+                }
             }
         } catch (e: TimeoutCancellationException) {
             Log.w("Auth", "Google Sign-In timed out or Play Services unresponsive: ${e.message}", e)
-            onAuthError("Google Play Services is not responding. Please update Google Play Services or try again.")
+            withContext(Dispatchers.Main) {
+                onAuthError("Google Play Services is not responding. Please update Google Play Services or try again.")
+            }
         } catch (e: GetCredentialCancellationException) {
             Log.w("Auth", "Google Sign-In flow cancelled or dismissed: ${e.message}", e)
-            onAuthCancelled()
+            withContext(Dispatchers.Main) {
+                onAuthCancelled()
+            }
         } catch (e: NoCredentialException) {
             Log.w("Auth", "No Google credentials found on device: ${e.message}", e)
-            onAuthError("No Google account available on this device. Please sign into a Google account in device Settings.")
+            withContext(Dispatchers.Main) {
+                onAuthError("No Google account available on this device. Please sign into a Google account in device Settings.")
+            }
         } catch (e: GetCredentialException) {
             Log.e("Auth", "Google Sign-In credential error", e)
-            onAuthError(e.localizedMessage ?: "Google Sign-In failed (Play Services unresponsive)")
+            withContext(Dispatchers.Main) {
+                onAuthError(e.localizedMessage ?: "Google Sign-In failed (Play Services unresponsive)")
+            }
         } catch (e: Exception) {
             Log.e("Auth", "Google Sign-In failed", e)
-            onAuthError(e.localizedMessage ?: "Google Sign-In failed")
+            withContext(Dispatchers.Main) {
+                onAuthError(e.localizedMessage ?: "Google Sign-In failed")
+            }
         }
     }
 }
@@ -329,7 +353,10 @@ fun CoopGoogleAuthScreen(
                 modifier = Modifier.widthIn(max = 520.dp)
             ) {
                 Column(
-                    modifier = Modifier.padding(20.dp),
+                    modifier = Modifier
+                        .heightIn(max = 580.dp)
+                        .verticalScroll(rememberScrollState())
+                        .padding(20.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
