@@ -190,6 +190,8 @@ fun BattleScreen(
             modifier = Modifier.fillMaxSize()
         )
 
+
+
         // Subtle atmospheric vignette along screen perimeter
         Box(
             modifier = Modifier
