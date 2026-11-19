@@ -32,6 +32,7 @@ object UnitMeshSculptor3D {
         when (archetype) {
             UnitArchetype.DREADNOUGHT -> buildUltramarineDreadnought(m)
             UnitArchetype.TERMINATOR -> buildAssaultTerminator(m, useLightningClaws = variant == "CLAWS")
+            UnitArchetype.INCURSOR -> buildUltramarineIncursor(m)
             UnitArchetype.INTERCESSOR,
             UnitArchetype.HELLBLASTER,
             UnitArchetype.ASSAULT_MARINE,
@@ -566,6 +567,160 @@ object UnitMeshSculptor3D {
             }
             else -> Unit
         }
+    }
+
+    private fun buildUltramarineIncursor(m: MeshAccumulator) {
+        val s = 1.0f
+        val skinR = 0.78f; val skinG = 0.56f; val skinB = 0.45f
+        val skinShR = 0.64f; val skinShG = 0.44f; val skinShB = 0.36f
+        val gunmetalR = 0.42f; val gunmetalG = 0.45f; val gunmetalB = 0.50f
+
+        // 1. Dark Ash-Grey Tactical Base Plinth
+        m.addCylinder(0f, 0.002f, 0f, 0.175f, 0.165f, 0.028f, 12, 0.13f, 0.13f, 0.14f)
+        m.addOrientedEllipsoid(0.04f, 0.025f, -0.04f, 0.075f, 0.022f, 0.065f, latSegs = 3, lonSegs = 6, phiEndDeg = 90f, r = 0.22f, g = 0.22f, b = 0.24f)
+        val by = 0.030f
+
+        // 2. Sleek Phobos Mk X Stance Legs + Right Thigh Combat Knife Scabbard + Left Thigh Holster
+        for (side in floatArrayOf(-1f, 1f)) {
+            val isLeft = side < 0f
+            val footX = if (isLeft) 0.045f * s else -0.025f * s
+            val footZ = side * 0.092f * s
+            val yawDeg = if (isLeft) -10f else 14f
+
+            // Sabaton Boot
+            m.addOrientedBox(footX, by + 0.015f * s, footZ, 0.122f * s, 0.030f * s, 0.078f * s, rotYDeg = yawDeg, r = IRON_R, g = IRON_G, b = IRON_B)
+            m.addOrientedEllipsoid(footX + 0.016f * s, by + 0.026f * s, footZ, 0.064f * s, 0.038f * s, 0.044f * s, rotYDeg = yawDeg, phiEndDeg = 90f, latSegs = 4, lonSegs = 8, r = BLUE_R, g = BLUE_G, b = BLUE_B)
+
+            // Slimmer Phobos Greave
+            val kneeX = footX * 0.55f + 0.01f * s
+            val kneeY = by + 0.195f * s
+            val kneeZ = footZ * 0.92f
+            m.addOrientedCylinder(footX, by + 0.040f * s, footZ, kneeX, kneeY, kneeZ, 0.052f * s, 0.043f * s, 10, r = BLUE_R, g = BLUE_G, b = BLUE_B)
+            // Sleek Trimless Blue Phobos Kneepad (matching photo)
+            m.addOrientedEllipsoid(kneeX + 0.032f * s, kneeY, kneeZ, 0.028f * s, 0.036f * s, 0.035f * s, rotYDeg = yawDeg, latSegs = 4, lonSegs = 8, r = BLUE_HI_R, g = BLUE_HI_G, b = BLUE_HI_B)
+            // Thigh Plate + Dark Undersuit Strap Bands
+            val hipY = by + 0.305f * s
+            val hipZ = side * 0.068f * s
+            m.addOrientedCylinder(kneeX, kneeY + 0.01f * s, kneeZ, 0f, hipY, hipZ, 0.042f * s, 0.048f * s, 10, r = BLUE_R, g = BLUE_G, b = BLUE_B)
+            m.addOrientedCylinder(kneeX * 0.45f, kneeY + 0.065f * s, (kneeZ + hipZ) * 0.5f, kneeX * 0.45f, kneeY + 0.082f * s, (kneeZ + hipZ) * 0.5f, 0.047f * s, 0.048f * s, 10, r = IRON_R, g = IRON_G, b = IRON_B)
+        }
+        // Right Hip/Thigh (+Z): Vertical Combat Knife in Scabbard (brass hilt/guard + dark sheath, matching photo!)
+        m.addOrientedBox(-0.005f, by + 0.255f, 0.118f, 0.034f, 0.125f, 0.022f, rotZDeg = 6f, r = IRON_R, g = IRON_G, b = IRON_B)
+        m.addOrientedBox(-0.005f, by + 0.210f, 0.122f, 0.028f, 0.045f, 0.016f, rotZDeg = 6f, r = GOLD_R, g = GOLD_G, b = GOLD_B)
+        m.addOrientedBox(-0.005f, by + 0.322f, 0.122f, 0.046f, 0.016f, 0.024f, rotZDeg = 6f, r = GOLD_R, g = GOLD_G, b = GOLD_B)
+        m.addOrientedCylinder(-0.005f, by + 0.330f, 0.122f, -0.012f, by + 0.382f, 0.122f, 0.012f, 0.011f, 6, r = IRON_R, g = IRON_G, b = IRON_B)
+        m.addOrientedEllipsoid(-0.013f, by + 0.386f, 0.122f, 0.015f, 0.014f, 0.015f, latSegs = 3, lonSegs = 6, r = GOLD_R, g = GOLD_G, b = GOLD_B)
+        // Left Thigh (-Z): Dark Tactical Holster/Pouch
+        m.addOrientedBox(0.012f, by + 0.270f, -0.116f, 0.056f, 0.110f, 0.030f, rotZDeg = -6f, r = IRON_R, g = IRON_G, b = IRON_B)
+
+        // 3. Ribbed Waist, Tactical Belt & Sleek Phobos Cuirass (clean blue armor, no chest aquila)
+        m.addOrientedEllipsoid(0f, by + 0.305f, 0f, 0.072f, 0.056f, 0.094f, latSegs = 4, lonSegs = 8, r = IRON_R, g = IRON_G, b = IRON_B)
+        m.addOrientedCylinder(0f, by + 0.310f, 0f, 0f, by + 0.400f, 0f, 0.068f, 0.080f, 10, r = IRON_R, g = IRON_G, b = IRON_B)
+        m.addCylinder(0f, by + 0.335f, 0f, 0.078f, 0.080f, 0.032f, 10, IRON_R, IRON_G, IRON_B)
+        m.addOrientedBox(0.078f, by + 0.351f, 0f, 0.020f, 0.028f, 0.036f, r = STEEL_R, g = STEEL_G, b = STEEL_B)
+        // Phobos Cuirass
+        m.addOrientedEllipsoid(0.010f, by + 0.455f, 0f, 0.096f, 0.102f, 0.124f, latSegs = 6, lonSegs = 10, r = BLUE_R, g = BLUE_G, b = BLUE_B)
+        // Raised Phobos Collar Gorget + Left Collar Targeting Optic Pod (-Z beside head!)
+        m.addArcTube(0.012f, by + 0.542f, 0f, 0.074f, 0.084f, 0.018f, startDeg = -85f, endDeg = 85f, arcSegs = 8, tubeSegs = 5, r = BLUE_HI_R, g = BLUE_HI_G, b = BLUE_HI_B)
+        m.addOrientedCylinder(0.018f, by + 0.562f, -0.090f, 0.062f, by + 0.568f, -0.096f, 0.022f, 0.020f, 8, r = IRON_R, g = IRON_G, b = IRON_B)
+        m.addOrientedEllipsoid(0.064f, by + 0.568f, -0.096f, 0.010f, 0.014f, 0.014f, latSegs = 3, lonSegs = 6, r = STEEL_R, g = STEEL_G, b = STEEL_B)
+
+        // 4. Bare Bald Head + Service Studs + Crimson Visor Goggles + Dark Half-Face Respirator Mask
+        val hx = 0.015f
+        val hy = by + 0.602f
+        m.addCylinder(hx, hy - 0.050f, 0f, 0.040f, 0.038f, 0.042f, 8, IRON_R, IRON_G, IRON_B)
+        // Exposed Weathered Bald Cranium
+        m.addOrientedEllipsoid(hx, hy + 0.008f, 0f, 0.066f, 0.068f, 0.058f, latSegs = 5, lonSegs = 10, r = skinR, g = skinG, b = skinB)
+        // Slight brow ridge shading + 2 Silver Forehead Service Studs
+        m.addOrientedBox(hx + 0.050f, hy + 0.022f, 0f, 0.022f, 0.012f, 0.058f, r = skinShR, g = skinShG, b = skinShB)
+        m.addOrientedEllipsoid(hx + 0.055f, hy + 0.042f, 0.018f, 0.006f, 0.006f, 0.006f, latSegs = 2, lonSegs = 5, r = WHITE_R, g = WHITE_G, b = WHITE_B)
+        m.addOrientedEllipsoid(hx + 0.051f, hy + 0.043f, 0.030f, 0.006f, 0.006f, 0.006f, latSegs = 2, lonSegs = 5, r = WHITE_R, g = WHITE_G, b = WHITE_B)
+        // Dark Goggle Frame Band + Continuous Glowing Crimson Visor Slit
+        m.addOrientedBox(hx + 0.042f, hy + 0.008f, 0f, 0.038f, 0.022f, 0.072f, r = IRON_R, g = IRON_G, b = IRON_B)
+        m.addOrientedBox(hx + 0.058f, hy + 0.008f, 0f, 0.014f, 0.010f, 0.058f, r = 0.96f, g = 0.16f, b = 0.14f, a = E)
+        // Dark Iron Half-Face Respirator Mask + Twin Cheek Filter Canisters
+        m.addOrientedBox(hx + 0.046f, hy - 0.026f, 0f, 0.048f, 0.042f, 0.056f, rotZDeg = -14f, r = IRON_R, g = IRON_G, b = IRON_B)
+        m.addOrientedBox(hx + 0.068f, hy - 0.026f, 0f, 0.012f, 0.028f, 0.018f, rotZDeg = -14f, r = STEEL_R, g = STEEL_G, b = STEEL_B)
+        m.addOrientedCylinder(hx + 0.034f, hy - 0.028f, -0.028f, hx + 0.034f, hy - 0.028f, -0.046f, 0.016f, 0.014f, 8, r = STEEL_R * 0.85f, g = STEEL_G * 0.85f, b = STEEL_B * 0.85f)
+        m.addOrientedCylinder(hx + 0.034f, hy - 0.028f, 0.028f, hx + 0.034f, hy - 0.028f, 0.046f, 0.016f, 0.014f, 8, r = STEEL_R * 0.85f, g = STEEL_G * 0.85f, b = STEEL_B * 0.85f)
+
+        // 5. Asymmetrical Incursor Pauldrons:
+        // Left Pauldron (-Z): Full Rounded Blue Shell + Gold Bottom Rim + White Omega (Ω)
+        buildPauldron(m, s, cy = by + 0.500f, cz = -0.146f, isLeft = true, hasOmega = true)
+        // Right Pauldron (+Z): Trimless Blue Phobos Shell + White Tactical Squad Chevron Arrow
+        val rcy = by + 0.500f
+        val rcz = 0.146f
+        m.addOrientedEllipsoid(0f, rcy, rcz, 0.104f, 0.094f, 0.092f, rotXDeg = 14f, phiEndDeg = 104f, latSegs = 5, lonSegs = 12, r = BLUE_HI_R, g = BLUE_HI_G, b = BLUE_HI_B)
+        val racZ = rcz + 0.082f
+        val racY = rcy + 0.012f
+        m.addOrientedBox(-0.014f, racY + 0.008f, racZ, 0.012f, 0.038f, 0.012f, rotZDeg = -32f, r = WHITE_R, g = WHITE_G, b = WHITE_B)
+        m.addOrientedBox(0.014f, racY + 0.008f, racZ, 0.012f, 0.038f, 0.012f, rotZDeg = 32f, r = WHITE_R, g = WHITE_G, b = WHITE_B)
+        m.addOrientedBox(0f, racY - 0.018f, racZ, 0.038f, 0.010f, 0.012f, r = WHITE_R, g = WHITE_G, b = WHITE_B)
+
+        // 6. Phobos Power Pack + Towering Right-Shoulder MULTI-SPECTRUM ARRAY (Green Circle + Red Slit!)
+        m.addOrientedBox(-0.102f, by + 0.460f, 0f, 0.090f, 0.158f, 0.138f, r = BLUE_DK_R, g = BLUE_DK_G, b = BLUE_DK_B)
+        m.addOrientedEllipsoid(-0.112f, by + 0.550f, 0f, 0.042f, 0.042f, 0.042f, latSegs = 4, lonSegs = 8, r = BLUE_R, g = BLUE_G, b = BLUE_B)
+        for (side in floatArrayOf(-1f, 1f)) {
+            m.addOrientedCylinder(-0.110f, by + 0.505f, side * 0.045f, -0.122f, by + 0.578f, side * 0.114f, 0.024f, 0.030f, 8, r = BLUE_R, g = BLUE_G, b = BLUE_B)
+            m.addOrientedEllipsoid(-0.124f, by + 0.588f, side * 0.122f, 0.042f, 0.042f, 0.042f, latSegs = 4, lonSegs = 8, r = BLUE_HI_R, g = BLUE_HI_G, b = BLUE_HI_B)
+            m.addOrientedCylinder(-0.124f, by + 0.588f, side * 0.122f, -0.140f, by + 0.618f, side * 0.150f, 0.022f, 0.026f, 8, r = IRON_R, g = IRON_G, b = IRON_B)
+        }
+        // Multi-Spectrum Array Articulated Stalk & Sensor Box over Right Shoulder (+Z)
+        m.addOrientedCylinder(-0.085f, by + 0.565f, 0.056f, -0.052f, by + 0.720f, 0.072f, 0.014f, 0.012f, 6, r = IRON_R, g = IRON_G, b = IRON_B)
+        val arrX = -0.032f; val arrY = by + 0.755f; val arrZ = 0.078f
+        m.addOrientedBox(arrX, arrY, arrZ, 0.086f, 0.062f, 0.104f, rotZDeg = 6f, r = BLUE_HI_R, g = BLUE_HI_G, b = BLUE_HI_B)
+        // Bright Emerald-Green Circular Optic Lens on Right-Front outer corner (+Z, +X)
+        m.addOrientedCylinder(arrX + 0.015f, arrY - 0.008f, arrZ + 0.042f, arrX + 0.056f, arrY - 0.008f, arrZ + 0.042f, 0.026f, 0.024f, 10, r = IRON_R, g = IRON_G, b = IRON_B)
+        m.addOrientedEllipsoid(arrX + 0.058f, arrY - 0.008f, arrZ + 0.042f, 0.010f, 0.021f, 0.021f, latSegs = 4, lonSegs = 8, r = 0.12f, g = 0.94f, b = 0.36f, a = E)
+        // Glowing Crimson-Red Rectangular Scanner Window beside the green lens
+        m.addOrientedBox(arrX + 0.046f, arrY - 0.004f, arrZ - 0.018f, 0.012f, 0.026f, 0.046f, r = IRON_R, g = IRON_G, b = IRON_B)
+        m.addOrientedBox(arrX + 0.051f, arrY - 0.004f, arrZ - 0.018f, 0.008f, 0.018f, 0.038f, r = 0.98f, g = 0.16f, b = 0.14f, a = E)
+
+        // 7. Two-Handed Arms Holding Occulus Bolt Carbine Horizontally Across Chest (exact Brother Remus pose!)
+        // Right Arm (+Z): holding grip
+        buildMarineArm(
+            m, s,
+            shX = 0f, shY = by + 0.485f, shZ = 0.148f,
+            elX = 0.010f, elY = by + 0.370f, elZ = 0.178f,
+            hdX = 0.145f, hdY = by + 0.352f, hdZ = 0.088f
+        )
+        // Left Arm (-Z): supporting forward under-barrel
+        buildMarineArm(
+            m, s,
+            shX = 0f, shY = by + 0.485f, shZ = -0.148f,
+            elX = 0.035f, elY = by + 0.365f, elZ = -0.162f,
+            hdX = 0.172f, hdY = by + 0.342f, hdZ = -0.068f
+        )
+
+        // 8. Occulus Bolt Carbine (pointing left -Z and slightly forward +X, rotYDeg = 72°)
+        val gx = 0.180f; val gy = by + 0.392f; val gz = 0.004f
+        val gunYaw = 72f
+        val gRad = Math.toRadians(gunYaw.toDouble())
+        val gCos = kotlin.math.cos(gRad).toFloat()
+        val gSin = kotlin.math.sin(gRad).toFloat()
+        fun gunBox(lx: Float, ly: Float, lz: Float, sx: Float, sy: Float, sz: Float, rotZDeg: Float = 0f, r: Float, g: Float, b: Float, a: Float = 1f) {
+            val wx = gx + lx * gCos + lz * gSin
+            val wy = gy + ly
+            val wz = gz - lx * gSin + lz * gCos
+            m.addOrientedBox(wx, wy, wz, sx, sy, sz, rotYDeg = gunYaw, rotZDeg = rotZDeg, r = r, g = g, b = b, a = a)
+        }
+        // Heavy Weathered Gunmetal-Silver Carbine Receiver Body
+        gunBox(0f, 0f, 0f, 0.235f, 0.072f, 0.044f, r = gunmetalR, g = gunmetalG, b = gunmetalB)
+        // Dark ribbed forend + pistol grip
+        gunBox(0.065f, -0.028f, 0f, 0.085f, 0.026f, 0.042f, r = IRON_R, g = IRON_G, b = IRON_B)
+        gunBox(-0.085f, -0.048f, 0f, 0.038f, 0.056f, 0.032f, rotZDeg = 18f, r = IRON_R, g = IRON_G, b = IRON_B)
+        // Curved Sickle Box Magazine underneath
+        gunBox(-0.005f, -0.062f, 0f, 0.044f, 0.076f, 0.032f, rotZDeg = -14f, r = gunmetalR * 0.85f, g = gunmetalG * 0.85f, b = gunmetalB * 0.85f)
+        // Large Boxy Occulus Targeter Optic Housing mounted on top of receiver (iconic Incursor silhouette!)
+        gunBox(-0.012f, 0.064f, 0f, 0.115f, 0.056f, 0.052f, r = gunmetalR * 0.92f, g = gunmetalG * 0.92f, b = gunmetalB * 0.92f)
+        gunBox(-0.012f, 0.036f, 0f, 0.135f, 0.018f, 0.038f, r = IRON_R, g = IRON_G, b = IRON_B)
+        gunBox(0.046f, 0.066f, 0f, 0.012f, 0.034f, 0.034f, r = 0.95f, g = 0.18f, b = 0.16f, a = E)
+        // Heavy Cylindrical Muzzle Brake extending along carbine forward (+lx -> -Z/+X in world)
+        val mStartX = gx + 0.115f * gCos
+        val mStartZ = gz - 0.115f * gSin
+        val mEndX = gx + 0.185f * gCos
+        val mEndZ = gz - 0.185f * gSin
+        m.addOrientedCylinder(mStartX, gy + 0.006f, mStartZ, mEndX, gy + 0.006f, mEndZ, 0.022f, 0.020f, 8, r = STEEL_R, g = STEEL_G, b = STEEL_B)
     }
 
     private fun buildMarineLeg(

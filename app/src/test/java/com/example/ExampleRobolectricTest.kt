@@ -150,4 +150,47 @@ class ExampleRobolectricTest {
     assertEquals(lobbyState.assignedUnits.size, clientApplied.assignedUnits.size)
     org.junit.Assert.assertFalse(clientApplied.spawnAiEnemyIfSameFaction)
   }
+
+  @Test
+  fun `shared screen removed and host cannot control p2 p3 p4 or AI turns`() {
+    val modeNames = com.example.model.CoopSlotMode.entries.map { it.name }
+    org.junit.Assert.assertFalse(modeNames.contains("LOCAL_PLAYER"))
+    org.junit.Assert.assertTrue(modeNames.contains("AI_BOT"))
+
+    val map = com.example.model.SectorMap(99L, com.example.engine.MapGenerator.generateSectorMap(99L))
+    val marineTpl = com.example.engine.DefaultCatalog.defaultTemplates.first { it.id == "intercessors" }
+    val u1 = com.example.model.BattleUnit("u_p1", marineTpl, com.example.model.Faction.MARINES, 1, 5, com.example.model.Facing.EAST, marineTpl.maxTotalWounds, marineTpl.maxTotalWounds, 15f, ownerPlayerId = "p1")
+    val u2 = u1.copy(uid = "u_p2", x = 2, ownerPlayerId = "p2")
+    val u3 = u1.copy(uid = "u_p3", x = 22, facing = com.example.model.Facing.WEST, ownerPlayerId = "p3")
+
+    val p1 = com.example.model.CoopPlayer("p1", "Host", com.example.model.Faction.MARINES, com.example.model.CoopSlotMode.HOST, connectedClient = true)
+    val p2 = com.example.model.CoopPlayer("p2", "AI Ally", com.example.model.Faction.MARINES, com.example.model.CoopSlotMode.AI_BOT)
+    val p3 = com.example.model.CoopPlayer("p3", "Friend", com.example.model.Faction.XENOS, com.example.model.CoopSlotMode.LAN_CLIENT, connectedClient = true)
+
+    val hostOnP1Turn = com.example.viewmodel.BattleUiState(
+      active = true,
+      map = map,
+      units = listOf(u1, u2, u3),
+      isCoopMode = true,
+      coopTurnOrder = listOf(p1, p2, p3),
+      activeCoopPlayerId = "p1",
+      localControlledPlayerId = "p1"
+    )
+    org.junit.Assert.assertTrue(hostOnP1Turn.isPlayerTurn)
+    org.junit.Assert.assertTrue(hostOnP1Turn.canCommandUnit(u1))
+    org.junit.Assert.assertFalse(hostOnP1Turn.canCommandUnit(u2))
+
+    // Host must NOT be able to control P2 (AI_BOT) or P3 (LAN_CLIENT)
+    val hostDuringP2Turn = hostOnP1Turn.copy(activeCoopPlayerId = "p2")
+    org.junit.Assert.assertFalse(hostDuringP2Turn.isPlayerTurn)
+    org.junit.Assert.assertFalse(hostDuringP2Turn.canCommandUnit(u2))
+
+    val hostDuringP3Turn = hostOnP1Turn.copy(activeCoopPlayerId = "p3")
+    org.junit.Assert.assertFalse(hostDuringP3Turn.isPlayerTurn)
+    org.junit.Assert.assertFalse(hostDuringP3Turn.canCommandUnit(u3))
+
+    // Deployment phase also locks Host out when it is P3's deployment turn
+    val hostDuringP3Deploy = hostOnP1Turn.copy(isDeploymentPhase = true, deploymentTurnPlayerId = "p3")
+    org.junit.Assert.assertFalse(hostDuringP3Deploy.isPlayerTurn)
+  }
 }

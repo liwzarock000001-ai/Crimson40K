@@ -48,6 +48,8 @@ object BattleStateSerializer {
                 put("damageDealt", u.damageDealt)
                 put("ownerPlayerId", u.ownerPlayerId)
                 put("ownerPlayerName", u.ownerPlayerName)
+                put("markedByTeam", u.markedByTeam ?: -1)
+                put("meleeChargeBuffActive", u.meleeChargeBuffActive)
             })
         }
         return arr.toString()
@@ -95,7 +97,9 @@ object BattleStateSerializer {
                         kills = o.optInt("kills", 0),
                         damageDealt = o.optInt("damageDealt", 0),
                         ownerPlayerId = o.optString("ownerPlayerId", "PLAYER"),
-                        ownerPlayerName = o.optString("ownerPlayerName", "")
+                        ownerPlayerName = o.optString("ownerPlayerName", ""),
+                        markedByTeam = o.optInt("markedByTeam", -1).let { if (it >= 0) it else null },
+                        meleeChargeBuffActive = o.optBoolean("meleeChargeBuffActive", false)
                     )
                 )
             }
@@ -170,7 +174,7 @@ object BattleStateSerializer {
                         id = po.getString("id"),
                         name = po.getString("name"),
                         faction = runCatching { Faction.valueOf(po.getString("faction")) }.getOrDefault(Faction.MARINES),
-                        slotMode = runCatching { CoopSlotMode.valueOf(po.getString("slotMode")) }.getOrDefault(CoopSlotMode.LOCAL_PLAYER)
+                        slotMode = runCatching { CoopSlotMode.valueOf(po.getString("slotMode")) }.getOrDefault(CoopSlotMode.LAN_CLIENT)
                     )
                 )
             }
@@ -263,7 +267,7 @@ object BattleStateSerializer {
                         id = po.getString("id"),
                         name = po.getString("name"),
                         faction = runCatching { Faction.valueOf(po.getString("faction")) }.getOrDefault(Faction.MARINES),
-                        slotMode = runCatching { CoopSlotMode.valueOf(po.getString("slotMode")) }.getOrDefault(CoopSlotMode.LOCAL_PLAYER),
+                        slotMode = runCatching { CoopSlotMode.valueOf(po.getString("slotMode")) }.getOrDefault(CoopSlotMode.LAN_CLIENT),
                         ready = po.optBoolean("ready", true),
                         connectedClient = po.optBoolean("connectedClient", false)
                     )

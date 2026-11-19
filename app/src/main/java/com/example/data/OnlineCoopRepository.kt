@@ -12,6 +12,7 @@ import com.example.model.CoopSlotMode
 import com.example.model.CoopState
 import com.example.model.Facing
 import com.example.model.Faction
+import com.example.model.GridPos
 import com.example.model.SectorMap
 import com.example.model.UnitArchetype
 import com.example.model.UnitTemplate
@@ -242,23 +243,20 @@ class OnlineCoopRepository(
                     throw IllegalStateException("Room #$cleanCode is full (4/4 players).")
                 }
 
-                // Pick preferred slot if open, else first open non-host slot
+                // Pick preferred ONLINE slot if open, else first open non-host ONLINE slot
                 val parsedMaps = rawPlayers.map { row ->
                     row.entries.associate { (k, v) -> k.toString() to v }.toMutableMap()
                 }
                 val candidate = parsedMaps.firstOrNull {
                     (it["id"] as? String) == preferredSlotId &&
                         ((it["uid"] as? String).isNullOrBlank()) &&
-                        ((it["slotMode"] as? String) != CoopSlotMode.OFF.name)
+                        ((it["slotMode"] as? String) == CoopSlotMode.LAN_CLIENT.name)
                 } ?: parsedMaps.firstOrNull {
                     val pid = it["id"] as? String
                     pid != "p1" &&
                         ((it["uid"] as? String).isNullOrBlank()) &&
-                        ((it["slotMode"] as? String) != CoopSlotMode.OFF.name)
-                } ?: parsedMaps.firstOrNull {
-                    val pid = it["id"] as? String
-                    pid != "p1" && ((it["uid"] as? String).isNullOrBlank())
-                } ?: throw IllegalStateException("No open player slots left in Room #$cleanCode.")
+                        ((it["slotMode"] as? String) == CoopSlotMode.LAN_CLIENT.name)
+                } ?: throw IllegalStateException("No open ONLINE slots left in Room #$cleanCode.")
 
                 val claimedSlotId = (candidate["id"] as? String) ?: "p2"
                 candidate["uid"] = uid
@@ -382,6 +380,65 @@ class OnlineCoopRepository(
         }
     }
 
+    suspend fun updateMemberLobby(
+        roomCode: String,
+        coopState: CoopState
+    ): Result<Unit> {
+        val docPath = "coop_rooms/$roomCode"
+        return try {
+            val uid = requireUserId()
+            require(roomCode.isNotBlank()) { "Room code missing." }
+            val docRef = db.collection("coop_rooms").document(roomCode)
+            val localPid = coopState.localPlayerId
+            val localPlayer = coopState.players.firstOrNull { it.id == localPid }
+            val localUnits = coopState.assignedUnits.filter { it.ownerPlayerId == localPid }.map { rosterUnitToMap(it) }
+
+            db.runTransaction { tx ->
+                val snap = tx.get(docRef)
+                val data = snap.data ?: throw IllegalStateException("Room #$roomCode not found.")
+                val rawPlayers = (data["players"] as? List<*>)?.mapNotNull { it as? Map<*, *> } ?: emptyList()
+                val rawUnits = (data["assignedUnits"] as? List<*>)?.mapNotNull { it as? Map<*, *> } ?: emptyList()
+
+                var resolvedPid = localPid
+                val mergedPlayers = rawPlayers.map { row ->
+                    val m = row.entries.associate { (k, v) -> k.toString() to v }.toMutableMap()
+                    val rowUid = (m["uid"] as? String).orEmpty()
+                    val rowId = (m["id"] as? String).orEmpty()
+                    if (rowUid == uid || (rowUid.isBlank() && rowId == localPid)) {
+                        resolvedPid = rowId.ifBlank { localPid }
+                        if (localPlayer != null) {
+                            m["faction"] = localPlayer.faction.name
+                            m["name"] = localPlayer.name.take(24)
+                            m["ready"] = localPlayer.ready
+                        }
+                    }
+                    m
+                }
+
+                val otherUnits = rawUnits
+                    .filter { (it["ownerPlayerId"] as? String) != resolvedPid }
+                    .map { row -> row.entries.associate { (k, v) -> k.toString() to v } }
+                val mergedUnits = (otherUnits + localUnits).take(40)
+
+                tx.update(
+                    docRef,
+                    mapOf(
+                        "players" to mergedPlayers,
+                        "assignedUnits" to mergedUnits,
+                        "updatedAt" to FieldValue.serverTimestamp()
+                    )
+                )
+                null
+            }.await()
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.UPDATE, docPath)
+            Result.failure(e)
+        }
+    }
+
     suspend fun publishBattleSnapshot(
         roomCode: String,
         battleState: BattleUiState,
@@ -490,8 +547,8 @@ class OnlineCoopRepository(
             val name = (row["name"] as? String) ?: "Commander"
             val factionRaw = (row["faction"] as? String) ?: Faction.MARINES.name
             val faction = enumValues<Faction>().firstOrNull { it.name == factionRaw } ?: Faction.MARINES
-            val modeRaw = (row["slotMode"] as? String) ?: CoopSlotMode.LOCAL_PLAYER.name
-            val slotMode = enumValues<CoopSlotMode>().firstOrNull { it.name == modeRaw } ?: CoopSlotMode.LOCAL_PLAYER
+            val modeRaw = (row["slotMode"] as? String) ?: CoopSlotMode.LAN_CLIENT.name
+            val slotMode = enumValues<CoopSlotMode>().firstOrNull { it.name == modeRaw } ?: CoopSlotMode.LAN_CLIENT
             val ready = (row["ready"] as? Boolean) ?: true
             val connected = (row["connectedClient"] as? Boolean) ?: false
             val pUid = (row["uid"] as? String) ?: ""
@@ -565,53 +622,58 @@ class OnlineCoopRepository(
         "templateId" to u.templateId
     )
 
+    private fun unitToMap(u: BattleUnit): Map<String, Any> = mapOf(
+        "uid" to u.uid,
+        "templateId" to u.template.id,
+        "faction" to u.faction.name,
+        "x" to u.x,
+        "y" to u.y,
+        "facing" to u.facing.name,
+        "totalWounds" to u.totalWounds,
+        "maxTotalWounds" to u.maxTotalWounds,
+        "moveCmLeft" to u.moveCmLeft.toDouble(),
+        "hasAdvanced" to u.hasAdvanced,
+        "hasCharged" to u.hasCharged,
+        "hasShot" to u.hasShot,
+        "hasFought" to u.hasFought,
+        "worldX" to u.worldX.toDouble(),
+        "worldY" to u.worldY.toDouble(),
+        "facingDeg" to u.facingDeg.toDouble(),
+        "skillCooldownLeft" to u.skillCooldownLeft,
+        "pistolCooldownLeft" to u.pistolCooldownLeft,
+        "buffTurnsLeft" to u.buffTurnsLeft,
+        "activeBuffLabel" to (u.activeBuffLabel ?: ""),
+        "damageReductionTurns" to u.damageReductionTurns,
+        "stealthTurnsLeft" to u.stealthTurnsLeft,
+        "auraBuffed" to u.auraBuffed,
+        "kills" to u.kills,
+        "damageDealt" to u.damageDealt,
+        "ownerPlayerId" to u.ownerPlayerId,
+        "ownerPlayerName" to u.ownerPlayerName,
+        "markedByTeam" to (u.markedByTeam ?: -1),
+        "meleeChargeBuffActive" to u.meleeChargeBuffActive
+    )
+
     private fun serializeBattleToNativeMap(
         state: BattleUiState,
         templates: Map<String, UnitTemplate>
     ): Map<String, Any> {
-        val unitsList = state.units.map { u ->
-            mapOf(
-                "uid" to u.uid,
-                "templateId" to u.template.id,
-                "faction" to u.faction.name,
-                "x" to u.x,
-                "y" to u.y,
-                "facing" to u.facing.name,
-                "totalWounds" to u.totalWounds,
-                "maxTotalWounds" to u.maxTotalWounds,
-                "moveCmLeft" to u.moveCmLeft.toDouble(),
-                "hasAdvanced" to u.hasAdvanced,
-                "hasCharged" to u.hasCharged,
-                "hasShot" to u.hasShot,
-                "hasFought" to u.hasFought,
-                "worldX" to u.worldX.toDouble(),
-                "worldY" to u.worldY.toDouble(),
-                "facingDeg" to u.facingDeg.toDouble(),
-                "skillCooldownLeft" to u.skillCooldownLeft,
-                "pistolCooldownLeft" to u.pistolCooldownLeft,
-                "buffTurnsLeft" to u.buffTurnsLeft,
-                "activeBuffLabel" to (u.activeBuffLabel ?: ""),
-                "damageReductionTurns" to u.damageReductionTurns,
-                "stealthTurnsLeft" to u.stealthTurnsLeft,
-                "auraBuffed" to u.auraBuffed,
-                "kills" to u.kills,
-                "damageDealt" to u.damageDealt,
-                "ownerPlayerId" to u.ownerPlayerId,
-                "ownerPlayerName" to u.ownerPlayerName
-            )
-        }
+        val unitsList = state.units.map { u -> unitToMap(u) }
+        val reserveList = state.reserveUnits.map { u -> unitToMap(u) }
         val orderList = state.coopTurnOrder.map { p ->
             mapOf(
                 "id" to p.id,
                 "name" to p.name,
                 "faction" to p.faction.name,
-                "slotMode" to p.slotMode.name
+                "slotMode" to p.slotMode.name,
+                "connectedClient" to p.connectedClient
             )
         }
         val tplList = templatesToMapList(templates)
         val summaryMap = state.summary?.let { sum ->
             mapOf(
                 "winner" to sum.winner.name,
+                "winnerLabel" to sum.winnerLabel,
                 "playerWon" to sum.playerWon,
                 "rounds" to sum.rounds,
                 "playerKills" to sum.playerKills,
@@ -634,6 +696,11 @@ class OnlineCoopRepository(
             put("playerKills", state.playerKills)
             put("enemyKills", state.enemyKills)
             put("units", unitsList)
+            put("reserveUnits", reserveList)
+            put("isDeploymentPhase", state.isDeploymentPhase)
+            put("deploymentTurnPlayerId", state.deploymentTurnPlayerId ?: "")
+            put("deploymentTurnPlayerName", state.deploymentTurnPlayerName)
+            put("deploymentTeamIndex", state.deploymentTeamIndex)
             put("coopTurnOrder", orderList)
             put("templates", tplList)
             summaryMap?.let { put("summary", it) }
@@ -665,6 +732,14 @@ class OnlineCoopRepository(
                 "mainWeaponName" to t.mainWeaponName,
                 "mainWeaponAssault" to t.mainWeaponAssault,
                 "mainWeaponPistol" to t.mainWeaponPistol,
+                "mainSustainedHits" to t.mainSustainedHits,
+                "meleeWeaponName" to t.meleeWeaponName,
+                "meleeAttacks" to t.meleeAttacks,
+                "meleeWeaponSkill" to t.meleeWeaponSkill,
+                "meleeStrength" to t.meleeStrength,
+                "meleeArmorPen" to t.meleeArmorPen,
+                "meleeDamage" to t.meleeDamage,
+                "meleeSustainedHits" to t.meleeSustainedHits,
                 "pistolWeaponName" to t.pistolWeaponName,
                 "pistolAttacks" to t.pistolAttacks,
                 "pistolDamage" to t.pistolDamage,
@@ -672,15 +747,53 @@ class OnlineCoopRepository(
                 "pistolArmorPen" to t.pistolArmorPen,
                 "pistolRange" to t.pistolRange,
                 "pistolCooldown" to t.pistolCooldown,
+                "pistolSustainedHits" to t.pistolSustainedHits,
                 "skillName" to t.skillName,
                 "skillDesc" to t.skillDesc,
                 "skillCooldown" to t.skillCooldown,
                 "passiveName" to t.passiveName,
                 "passiveDesc" to t.passiveDesc,
                 "weaponChoice" to (t.weaponChoice?.name ?: ""),
-                "terminatorWeapon" to (t.terminatorWeapon?.name ?: "")
+                "terminatorWeapon" to (t.terminatorWeapon?.name ?: ""),
+                "warriorMeleeProfile" to weaponProfileToMap(t.warriorMeleeProfile),
+                "warriorRangedProfile" to weaponProfileToMap(t.warriorRangedProfile),
+                "terminatorHammerProfile" to weaponProfileToMap(t.terminatorHammerProfile),
+                "terminatorClawsProfile" to weaponProfileToMap(t.terminatorClawsProfile)
             )
         }
+    }
+
+    private fun weaponProfileToMap(p: com.example.model.WeaponProfile?): Map<String, Any> {
+        if (p == null) return emptyMap()
+        return mapOf(
+            "name" to p.name,
+            "range" to p.range,
+            "attacksPerModel" to p.attacksPerModel,
+            "skill" to p.skill,
+            "strength" to p.strength,
+            "armorPen" to p.armorPen,
+            "damage" to p.damage,
+            "sustainedHits" to p.sustainedHits,
+            "assault" to p.assault,
+            "pistol" to p.pistol
+        )
+    }
+
+    private fun parseWeaponProfile(raw: Any?): com.example.model.WeaponProfile? {
+        val m = raw as? Map<*, *> ?: return null
+        val name = (m["name"] as? String)?.takeIf { it.isNotBlank() } ?: return null
+        return com.example.model.WeaponProfile(
+            name = name,
+            range = (m["range"] as? Number)?.toInt() ?: 1,
+            attacksPerModel = (m["attacksPerModel"] as? Number)?.toInt() ?: 1,
+            skill = (m["skill"] as? Number)?.toInt() ?: 3,
+            strength = (m["strength"] as? Number)?.toInt() ?: 4,
+            armorPen = (m["armorPen"] as? Number)?.toInt() ?: 0,
+            damage = (m["damage"] as? Number)?.toInt() ?: 1,
+            sustainedHits = (m["sustainedHits"] as? Number)?.toInt() ?: 0,
+            assault = (m["assault"] as? Boolean) ?: false,
+            pistol = (m["pistol"] as? Boolean) ?: false
+        )
     }
 
     private fun parseTemplatesMapList(rawList: List<*>): Map<String, UnitTemplate> {
@@ -723,6 +836,14 @@ class OnlineCoopRepository(
                 mainWeaponName = (row["mainWeaponName"] as? String) ?: base.mainWeaponName,
                 mainWeaponAssault = (row["mainWeaponAssault"] as? Boolean) ?: base.mainWeaponAssault,
                 mainWeaponPistol = (row["mainWeaponPistol"] as? Boolean) ?: base.mainWeaponPistol,
+                mainSustainedHits = (row["mainSustainedHits"] as? Number)?.toInt() ?: base.mainSustainedHits,
+                meleeWeaponName = (row["meleeWeaponName"] as? String) ?: base.meleeWeaponName,
+                meleeAttacks = (row["meleeAttacks"] as? Number)?.toInt() ?: base.meleeAttacks,
+                meleeWeaponSkill = (row["meleeWeaponSkill"] as? Number)?.toInt() ?: base.meleeWeaponSkill,
+                meleeStrength = (row["meleeStrength"] as? Number)?.toInt() ?: base.meleeStrength,
+                meleeArmorPen = (row["meleeArmorPen"] as? Number)?.toInt() ?: base.meleeArmorPen,
+                meleeDamage = (row["meleeDamage"] as? Number)?.toInt() ?: base.meleeDamage,
+                meleeSustainedHits = (row["meleeSustainedHits"] as? Number)?.toInt() ?: base.meleeSustainedHits,
                 pistolWeaponName = (row["pistolWeaponName"] as? String) ?: base.pistolWeaponName,
                 pistolAttacks = (row["pistolAttacks"] as? Number)?.toInt() ?: base.pistolAttacks,
                 pistolDamage = (row["pistolDamage"] as? Number)?.toInt() ?: base.pistolDamage,
@@ -730,16 +851,65 @@ class OnlineCoopRepository(
                 pistolArmorPen = (row["pistolArmorPen"] as? Number)?.toInt() ?: base.pistolArmorPen,
                 pistolRange = (row["pistolRange"] as? Number)?.toInt() ?: base.pistolRange,
                 pistolCooldown = (row["pistolCooldown"] as? Number)?.toInt() ?: base.pistolCooldown,
+                pistolSustainedHits = (row["pistolSustainedHits"] as? Number)?.toInt() ?: base.pistolSustainedHits,
                 skillName = (row["skillName"] as? String) ?: base.skillName,
                 skillDesc = (row["skillDesc"] as? String) ?: base.skillDesc,
                 skillCooldown = (row["skillCooldown"] as? Number)?.toInt() ?: base.skillCooldown,
                 passiveName = (row["passiveName"] as? String) ?: base.passiveName,
                 passiveDesc = (row["passiveDesc"] as? String) ?: base.passiveDesc,
                 weaponChoice = parsedChoice,
-                terminatorWeapon = parsedTermWeapon
+                terminatorWeapon = parsedTermWeapon,
+                warriorMeleeProfile = parseWeaponProfile(row["warriorMeleeProfile"]) ?: base.warriorMeleeProfile,
+                warriorRangedProfile = parseWeaponProfile(row["warriorRangedProfile"]) ?: base.warriorRangedProfile,
+                terminatorHammerProfile = parseWeaponProfile(row["terminatorHammerProfile"]) ?: base.terminatorHammerProfile,
+                terminatorClawsProfile = parseWeaponProfile(row["terminatorClawsProfile"]) ?: base.terminatorClawsProfile
             )
         }
         return baseTemplates
+    }
+
+    private fun parseBattleUnit(row: Map<*, *>, baseTemplates: Map<String, UnitTemplate>): BattleUnit? {
+        val uid = row["uid"] as? String ?: return null
+        val tplId = row["templateId"] as? String ?: return null
+        val tpl = baseTemplates[tplId] ?: DefaultCatalog.defaultTemplates.first()
+        val fRaw = (row["faction"] as? String) ?: tpl.faction.name
+        val fac = enumValues<Faction>().firstOrNull { it.name == fRaw } ?: tpl.faction
+        val faceRaw = (row["facing"] as? String) ?: Facing.EAST.name
+        val facing = enumValues<Facing>().firstOrNull { it.name == faceRaw } ?: Facing.EAST
+        val x = (row["x"] as? Number)?.toInt() ?: 1
+        val y = (row["y"] as? Number)?.toInt() ?: 1
+        val buffLabel = (row["activeBuffLabel"] as? String).orEmpty()
+        return BattleUnit(
+            uid = uid,
+            template = tpl,
+            faction = fac,
+            x = x,
+            y = y,
+            facing = facing,
+            totalWounds = (row["totalWounds"] as? Number)?.toInt() ?: tpl.maxTotalWounds,
+            maxTotalWounds = (row["maxTotalWounds"] as? Number)?.toInt() ?: tpl.maxTotalWounds,
+            moveCmLeft = (row["moveCmLeft"] as? Number)?.toFloat() ?: tpl.moveCm.toFloat(),
+            hasAdvanced = (row["hasAdvanced"] as? Boolean) ?: false,
+            hasCharged = (row["hasCharged"] as? Boolean) ?: false,
+            hasShot = (row["hasShot"] as? Boolean) ?: false,
+            hasFought = (row["hasFought"] as? Boolean) ?: false,
+            worldX = (row["worldX"] as? Number)?.toFloat() ?: x.toFloat(),
+            worldY = (row["worldY"] as? Number)?.toFloat() ?: y.toFloat(),
+            facingDeg = (row["facingDeg"] as? Number)?.toFloat() ?: facing.yawDegrees(),
+            skillCooldownLeft = (row["skillCooldownLeft"] as? Number)?.toInt() ?: 0,
+            pistolCooldownLeft = (row["pistolCooldownLeft"] as? Number)?.toInt() ?: 0,
+            buffTurnsLeft = (row["buffTurnsLeft"] as? Number)?.toInt() ?: 0,
+            activeBuffLabel = buffLabel.ifBlank { null },
+            damageReductionTurns = (row["damageReductionTurns"] as? Number)?.toInt() ?: 0,
+            stealthTurnsLeft = (row["stealthTurnsLeft"] as? Number)?.toInt() ?: 0,
+            auraBuffed = (row["auraBuffed"] as? Boolean) ?: false,
+            kills = (row["kills"] as? Number)?.toInt() ?: 0,
+            damageDealt = (row["damageDealt"] as? Number)?.toInt() ?: 0,
+            ownerPlayerId = (row["ownerPlayerId"] as? String) ?: "PLAYER",
+            ownerPlayerName = (row["ownerPlayerName"] as? String) ?: "",
+            markedByTeam = (row["markedByTeam"] as? Number)?.toInt()?.let { if (it >= 0) it else null },
+            meleeChargeBuffActive = (row["meleeChargeBuffActive"] as? Boolean) ?: false
+        )
     }
 
     fun applyBattleMapToState(battleMap: Map<String, Any?>, current: BattleUiState): BattleUiState? {
@@ -751,58 +921,22 @@ class OnlineCoopRepository(
             val sectorMap = if (current.map.id == mapId) current.map else SectorMap(mapId, MapGenerator.generateSectorMap(mapId))
 
             val unitRows = (battleMap["units"] as? List<*>)?.mapNotNull { it as? Map<*, *> } ?: emptyList()
-            val units = unitRows.mapNotNull { row ->
-                val uid = row["uid"] as? String ?: return@mapNotNull null
-                val tplId = row["templateId"] as? String ?: return@mapNotNull null
-                val tpl = baseTemplates[tplId] ?: DefaultCatalog.defaultTemplates.first()
-                val fRaw = (row["faction"] as? String) ?: tpl.faction.name
-                val fac = enumValues<Faction>().firstOrNull { it.name == fRaw } ?: tpl.faction
-                val faceRaw = (row["facing"] as? String) ?: Facing.EAST.name
-                val facing = enumValues<Facing>().firstOrNull { it.name == faceRaw } ?: Facing.EAST
-                val x = (row["x"] as? Number)?.toInt() ?: 1
-                val y = (row["y"] as? Number)?.toInt() ?: 1
-                val buffLabel = (row["activeBuffLabel"] as? String).orEmpty()
-                BattleUnit(
-                    uid = uid,
-                    template = tpl,
-                    faction = fac,
-                    x = x,
-                    y = y,
-                    facing = facing,
-                    totalWounds = (row["totalWounds"] as? Number)?.toInt() ?: tpl.maxTotalWounds,
-                    maxTotalWounds = (row["maxTotalWounds"] as? Number)?.toInt() ?: tpl.maxTotalWounds,
-                    moveCmLeft = (row["moveCmLeft"] as? Number)?.toFloat() ?: tpl.moveCm.toFloat(),
-                    hasAdvanced = (row["hasAdvanced"] as? Boolean) ?: false,
-                    hasCharged = (row["hasCharged"] as? Boolean) ?: false,
-                    hasShot = (row["hasShot"] as? Boolean) ?: false,
-                    hasFought = (row["hasFought"] as? Boolean) ?: false,
-                    worldX = (row["worldX"] as? Number)?.toFloat() ?: x.toFloat(),
-                    worldY = (row["worldY"] as? Number)?.toFloat() ?: y.toFloat(),
-                    facingDeg = (row["facingDeg"] as? Number)?.toFloat() ?: facing.yawDegrees(),
-                    skillCooldownLeft = (row["skillCooldownLeft"] as? Number)?.toInt() ?: 0,
-                    pistolCooldownLeft = (row["pistolCooldownLeft"] as? Number)?.toInt() ?: 0,
-                    buffTurnsLeft = (row["buffTurnsLeft"] as? Number)?.toInt() ?: 0,
-                    activeBuffLabel = buffLabel.ifBlank { null },
-                    damageReductionTurns = (row["damageReductionTurns"] as? Number)?.toInt() ?: 0,
-                    stealthTurnsLeft = (row["stealthTurnsLeft"] as? Number)?.toInt() ?: 0,
-                    auraBuffed = (row["auraBuffed"] as? Boolean) ?: false,
-                    kills = (row["kills"] as? Number)?.toInt() ?: 0,
-                    damageDealt = (row["damageDealt"] as? Number)?.toInt() ?: 0,
-                    ownerPlayerId = (row["ownerPlayerId"] as? String) ?: "PLAYER",
-                    ownerPlayerName = (row["ownerPlayerName"] as? String) ?: ""
-                )
-            }
+            val units = unitRows.mapNotNull { parseBattleUnit(it, baseTemplates) }
+
+            val resRows = (battleMap["reserveUnits"] as? List<*>)?.mapNotNull { it as? Map<*, *> } ?: emptyList()
+            val reserveUnits = resRows.mapNotNull { parseBattleUnit(it, baseTemplates) }
 
             val orderRows = (battleMap["coopTurnOrder"] as? List<*>)?.mapNotNull { it as? Map<*, *> } ?: emptyList()
             val turnOrder = orderRows.mapNotNull { row ->
                 val id = row["id"] as? String ?: return@mapNotNull null
                 val fRaw = (row["faction"] as? String) ?: Faction.MARINES.name
-                val mRaw = (row["slotMode"] as? String) ?: CoopSlotMode.LOCAL_PLAYER.name
+                val mRaw = (row["slotMode"] as? String) ?: CoopSlotMode.LAN_CLIENT.name
                 CoopPlayer(
                     id = id,
                     name = (row["name"] as? String) ?: "Commander",
                     faction = enumValues<Faction>().firstOrNull { it.name == fRaw } ?: Faction.MARINES,
-                    slotMode = enumValues<CoopSlotMode>().firstOrNull { it.name == mRaw } ?: CoopSlotMode.LOCAL_PLAYER
+                    slotMode = enumValues<CoopSlotMode>().firstOrNull { it.name == mRaw } ?: CoopSlotMode.LAN_CLIENT,
+                    connectedClient = (row["connectedClient"] as? Boolean) ?: false
                 )
             }
 
@@ -815,7 +949,8 @@ class OnlineCoopRepository(
                     rounds = (sumRaw["rounds"] as? Number)?.toInt() ?: 1,
                     playerKills = (sumRaw["playerKills"] as? Number)?.toInt() ?: 0,
                     enemyKills = (sumRaw["enemyKills"] as? Number)?.toInt() ?: 0,
-                    totalDamageDealt = (sumRaw["totalDamageDealt"] as? Number)?.toInt() ?: 0
+                    totalDamageDealt = (sumRaw["totalDamageDealt"] as? Number)?.toInt() ?: 0,
+                    winnerLabel = (sumRaw["winnerLabel"] as? String).orEmpty()
                 )
             } else null
 
@@ -825,6 +960,19 @@ class OnlineCoopRepository(
             val activePid = (battleMap["activeCoopPlayerId"] as? String)?.ifBlank { null }
             val selPos = units.firstOrNull { it.uid == selUid }?.pos
 
+            val isDeploy = (battleMap["isDeploymentPhase"] as? Boolean) ?: false
+            val deployPid = (battleMap["deploymentTurnPlayerId"] as? String)?.ifBlank { null }
+            val deployPName = (battleMap["deploymentTurnPlayerName"] as? String).orEmpty()
+            val deployTeam = (battleMap["deploymentTeamIndex"] as? Number)?.toInt() ?: 0
+            val preservedReserveUid = if (isDeploy) {
+                current.selectedReserveUnitUid?.takeIf { uid ->
+                    reserveUnits.any { it.uid == uid && (deployPid == null || it.ownerPlayerId == deployPid) }
+                } ?: reserveUnits.firstOrNull { deployPid == null || it.ownerPlayerId == deployPid }?.uid
+            } else null
+            val deployFocus = if (isDeploy) {
+                GridPos(if (deployTeam == 0) 1 else MapGenerator.GRID_W - 2, MapGenerator.GRID_H / 2)
+            } else null
+
             current.copy(
                 active = (battleMap["active"] as? Boolean) ?: true,
                 round = (battleMap["round"] as? Number)?.toInt() ?: 1,
@@ -832,6 +980,12 @@ class OnlineCoopRepository(
                 playerFaction = enumValues<Faction>().firstOrNull { it.name == playerFacRaw } ?: Faction.MARINES,
                 map = sectorMap,
                 units = units,
+                reserveUnits = reserveUnits,
+                isDeploymentPhase = isDeploy,
+                deploymentTurnPlayerId = deployPid,
+                deploymentTurnPlayerName = deployPName,
+                deploymentTeamIndex = deployTeam,
+                selectedReserveUnitUid = preservedReserveUid,
                 selectedUnitUid = selUid,
                 isAiThinking = (battleMap["aiThinking"] as? Boolean) ?: false,
                 isCoopMode = (battleMap["coopMode"] as? Boolean) ?: true,
@@ -842,7 +996,11 @@ class OnlineCoopRepository(
                 enemyKills = (battleMap["enemyKills"] as? Number)?.toInt() ?: 0,
                 coopTurnOrder = turnOrder,
                 summary = parsedSummary,
-                focusGridPos = if (current.autoFocusCamera && selPos != null) selPos else current.focusGridPos,
+                focusGridPos = when {
+                    isDeploy && (!current.isDeploymentPhase || current.deploymentTeamIndex != deployTeam) -> deployFocus
+                    current.autoFocusCamera && selPos != null -> selPos
+                    else -> current.focusGridPos
+                },
                 moveModeActive = false,
                 movePreview = null,
                 chargeModeActive = false,

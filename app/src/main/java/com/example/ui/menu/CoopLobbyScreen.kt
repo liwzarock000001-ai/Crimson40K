@@ -211,20 +211,36 @@ fun CoopLobbyScreen(
 
         val isClient = state.networkRole == CoopNetworkRole.CLIENT
         val activePlayers = state.players.filter { it.isActive }
+        val battleReadyPlayers = state.players.filter {
+            it.slotMode == CoopSlotMode.HOST ||
+                it.slotMode == CoopSlotMode.AI_BOT ||
+                (it.slotMode == CoopSlotMode.LAN_CLIENT && it.connectedClient)
+        }
         val selectedPlayer = state.players.firstOrNull { it.id == state.selectedConfigPlayerId } ?: state.players.first()
+        val canEditSelectedPlayer = if (isClient) {
+            selectedPlayer.id == state.localPlayerId
+        } else {
+            selectedPlayer.id == "p1" || selectedPlayer.isAi
+        }
         val assignedForSelected = state.assignedUnits.filter { it.ownerPlayerId == selectedPlayer.id }
         val selectedUsedPts = assignedForSelected.sumOf { templates[it.templateId]?.points ?: 0 }
         val availableTemplatesForSelected = templates.values.filter { it.faction == selectedPlayer.faction }
-        val sameFactionCheck = activePlayers.isNotEmpty() && activePlayers.map { it.faction }.distinct().size <= 1
-        val overLimitPlayer = activePlayers.firstOrNull { p ->
+        val team1HasUnits = battleReadyPlayers
+            .filter { it.id in listOf("p1", "p2") }
+            .any { p -> state.assignedUnits.any { it.ownerPlayerId == p.id } }
+        val team2HasUnits = battleReadyPlayers
+            .filter { it.id in listOf("p3", "p4") }
+            .any { p -> state.assignedUnits.any { it.ownerPlayerId == p.id } }
+        val overLimitPlayer = battleReadyPlayers.firstOrNull { p ->
             val pPts = state.assignedUnits
                 .filter { it.ownerPlayerId == p.id }
                 .sumOf { templates[it.templateId]?.points ?: 0 }
             pPts > state.pointLimit
         }
-        val canStart = !isClient && overLimitPlayer == null && activePlayers.isNotEmpty() && activePlayers.any { p ->
-            state.assignedUnits.any { it.ownerPlayerId == p.id }
-        }
+        val canStart = !isClient &&
+            overLimitPlayer == null &&
+            team1HasUnits &&
+            (team2HasUnits || state.spawnAiEnemyIfSameFaction)
 
         Column(
             modifier = Modifier
@@ -320,9 +336,13 @@ fun CoopLobbyScreen(
                             state = state,
                             templates = templates,
                             isReadOnly = isClient,
-                            sameFactionCheck = sameFactionCheck,
+                            team2HasUnits = team2HasUnits,
                             onSelectPlayer = onSelectConfigPlayer,
-                            onToggleFaction = { pid, next -> if (!isClient) onUpdatePlayerFaction(pid, next) },
+                            onToggleFaction = { pid, next ->
+                                val target = state.players.firstOrNull { it.id == pid }
+                                val allowed = if (isClient) pid == state.localPlayerId else (pid == "p1" || target?.isAi == true)
+                                if (allowed) onUpdatePlayerFaction(pid, next)
+                            },
                             onCycleSlotMode = { pid -> if (!isClient) onCycleSlotMode(pid) },
                             onToggleAiOpposition = { if (!isClient) onToggleAiOpposition() },
                             modifier = Modifier
@@ -333,12 +353,13 @@ fun CoopLobbyScreen(
                         CommanderLoadoutPane(
                             player = selectedPlayer,
                             pointLimit = state.pointLimit,
-                            isReadOnly = isClient,
+                            isReadOnly = !canEditSelectedPlayer,
+                            canEditStats = !isClient,
                             assignedUnits = assignedForSelected,
                             availableTemplates = availableTemplatesForSelected,
                             templates = templates,
-                            onAddUnit = { tplId -> if (!isClient) onAddUnitForPlayer(selectedPlayer.id, tplId) },
-                            onRemoveUnit = { entryId -> if (!isClient) onRemoveCoopUnit(entryId) },
+                            onAddUnit = { tplId -> if (canEditSelectedPlayer) onAddUnitForPlayer(selectedPlayer.id, tplId) },
+                            onRemoveUnit = { entryId -> if (canEditSelectedPlayer) onRemoveCoopUnit(entryId) },
                             onEditTemplate = { tplId -> if (!isClient) onOpenStatEditor(tplId) },
                             modifier = Modifier
                                 .weight(0.48f)
@@ -354,9 +375,13 @@ fun CoopLobbyScreen(
                             state = state,
                             templates = templates,
                             isReadOnly = isClient,
-                            sameFactionCheck = sameFactionCheck,
+                            team2HasUnits = team2HasUnits,
                             onSelectPlayer = onSelectConfigPlayer,
-                            onToggleFaction = { pid, next -> if (!isClient) onUpdatePlayerFaction(pid, next) },
+                            onToggleFaction = { pid, next ->
+                                val target = state.players.firstOrNull { it.id == pid }
+                                val allowed = if (isClient) pid == state.localPlayerId else (pid == "p1" || target?.isAi == true)
+                                if (allowed) onUpdatePlayerFaction(pid, next)
+                            },
                             onCycleSlotMode = { pid -> if (!isClient) onCycleSlotMode(pid) },
                             onToggleAiOpposition = { if (!isClient) onToggleAiOpposition() },
                             modifier = Modifier
@@ -366,12 +391,13 @@ fun CoopLobbyScreen(
                         CommanderLoadoutPane(
                             player = selectedPlayer,
                             pointLimit = state.pointLimit,
-                            isReadOnly = isClient,
+                            isReadOnly = !canEditSelectedPlayer,
+                            canEditStats = !isClient,
                             assignedUnits = assignedForSelected,
                             availableTemplates = availableTemplatesForSelected,
                             templates = templates,
-                            onAddUnit = { tplId -> if (!isClient) onAddUnitForPlayer(selectedPlayer.id, tplId) },
-                            onRemoveUnit = { entryId -> if (!isClient) onRemoveCoopUnit(entryId) },
+                            onAddUnit = { tplId -> if (canEditSelectedPlayer) onAddUnitForPlayer(selectedPlayer.id, tplId) },
+                            onRemoveUnit = { entryId -> if (canEditSelectedPlayer) onRemoveCoopUnit(entryId) },
                             onEditTemplate = { tplId -> if (!isClient) onOpenStatEditor(tplId) },
                             modifier = Modifier
                                 .weight(0.52f)
@@ -679,9 +705,9 @@ private fun Dow3LobbyHeader(
                 }
                 Text(
                     text = if (isClient) {
-                        "Joined as ${state.localPlayerId.uppercase()} • ${state.networkStatus}"
+                        "Joined as ${state.localPlayerId.uppercase()} • Tap your slot to customize your faction & squads"
                     } else {
-                        "Share #${state.roomCode} • Tap UNIT STATS to edit or SAVE STAT to keep"
+                        "Share #${state.roomCode} • Tap P2–P4 mode to set ONLINE / AI BOT / CLOSED"
                     },
                     style = MaterialTheme.typography.labelSmall,
                     color = TextMuted,
@@ -820,13 +846,18 @@ private fun PlayerSlotsPane(
     state: CoopState,
     templates: Map<String, UnitTemplate>,
     isReadOnly: Boolean,
-    sameFactionCheck: Boolean,
+    team2HasUnits: Boolean,
     onSelectPlayer: (String) -> Unit,
     onToggleFaction: (String, Faction) -> Unit,
     onCycleSlotMode: (String) -> Unit,
     onToggleAiOpposition: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val team1Players = state.players.filter { it.id in listOf("p1", "p2") }
+    val team2Players = state.players.filter { it.id in listOf("p3", "p4") }
+    val team1Pts = state.assignedUnits.filter { it.ownerPlayerId in listOf("p1", "p2") }.sumOf { templates[it.templateId]?.points ?: 0 }
+    val team2Pts = state.assignedUnits.filter { it.ownerPlayerId in listOf("p3", "p4") }.sumOf { templates[it.templateId]?.points ?: 0 }
+
     GrimdarkBevelPanel(
         cut = 8.dp,
         borderColor = BorderSteel,
@@ -848,7 +879,7 @@ private fun PlayerSlotsPane(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "COMMANDER SLOTS (TURN ORDER 1–4)",
+                    text = "2V2 TEAMS & COMMANDERS",
                     style = MaterialTheme.typography.labelMedium,
                     color = TacticalCyan,
                     fontWeight = FontWeight.Bold
@@ -869,15 +900,25 @@ private fun PlayerSlotsPane(
                     .fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(7.dp)
             ) {
-                items(state.players.size) { idx ->
-                    val player = state.players[idx]
+                item {
+                    TeamHeaderRow(
+                        title = "TEAM 1 — WEST ZONE (P1 & P2)",
+                        totalPts = team1Pts,
+                        accent = TacticalCyan
+                    )
+                }
+                items(team1Players.size) { idx ->
+                    val player = team1Players[idx]
+                    val turnNumber = state.players.indexOfFirst { it.id == player.id } + 1
                     val playerUnits = state.assignedUnits.filter { it.ownerPlayerId == player.id }
+                    val canEditSlotFaction = if (isReadOnly) state.localPlayerId == player.id else (player.id == "p1" || player.isAi)
                     Dow3PlayerSlotCard(
-                        turnIndex = idx + 1,
+                        turnIndex = turnNumber,
                         player = player,
                         pointLimit = state.pointLimit,
                         isYou = state.localPlayerId == player.id,
-                        isReadOnly = isReadOnly,
+                        canToggleFaction = canEditSlotFaction,
+                        canCycleMode = !isReadOnly && player.id != "p1" && !player.connectedClient,
                         assignedUnits = playerUnits,
                         templates = templates,
                         isSelected = state.selectedConfigPlayerId == player.id,
@@ -891,10 +932,40 @@ private fun PlayerSlotsPane(
                 }
 
                 item {
-                    val activePlayers = state.players.filter { it.isActive }
-                    val playerFaction = activePlayers.firstOrNull()?.faction ?: Faction.MARINES
-                    val aiFaction = if (playerFaction == Faction.MARINES) Faction.XENOS else Faction.MARINES
-                    if (sameFactionCheck) {
+                    TeamHeaderRow(
+                        title = "TEAM 2 — EAST ZONE (P3 & P4)",
+                        totalPts = team2Pts,
+                        accent = CrimsonSoft
+                    )
+                }
+                items(team2Players.size) { idx ->
+                    val player = team2Players[idx]
+                    val turnNumber = state.players.indexOfFirst { it.id == player.id } + 1
+                    val playerUnits = state.assignedUnits.filter { it.ownerPlayerId == player.id }
+                    val canEditSlotFaction = if (isReadOnly) state.localPlayerId == player.id else player.isAi
+                    Dow3PlayerSlotCard(
+                        turnIndex = turnNumber,
+                        player = player,
+                        pointLimit = state.pointLimit,
+                        isYou = state.localPlayerId == player.id,
+                        canToggleFaction = canEditSlotFaction,
+                        canCycleMode = !isReadOnly && player.id != "p1" && !player.connectedClient,
+                        assignedUnits = playerUnits,
+                        templates = templates,
+                        isSelected = state.selectedConfigPlayerId == player.id,
+                        onSelect = { onSelectPlayer(player.id) },
+                        onToggleFaction = {
+                            val next = if (player.faction == Faction.MARINES) Faction.XENOS else Faction.MARINES
+                            onToggleFaction(player.id, next)
+                        },
+                        onCycleMode = { onCycleSlotMode(player.id) }
+                    )
+                }
+
+                item {
+                    val team1HasMarines = team1Players.any { it.isActive && it.faction == Faction.MARINES }
+                    val aiFaction = if (team1HasMarines) Faction.XENOS else Faction.MARINES
+                    if (!team2HasUnits) {
                         val aiCrestRes = if (aiFaction == Faction.MARINES) R.drawable.img_marine_crest else R.drawable.img_xenos_crest
                         val aiAccent = if (aiFaction == Faction.MARINES) MarineBright else XenosViolet
                         Row(
@@ -927,7 +998,7 @@ private fun PlayerSlotsPane(
                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                     Icon(Icons.Default.SmartToy, contentDescription = null, tint = CrimsonSoft, modifier = Modifier.size(14.dp))
                                     Text(
-                                        text = "AI OPPOSITION WAVE (${aiFaction.displayName.uppercase()})",
+                                        text = "TEAM 2 AI OPPOSITION (${aiFaction.displayName.uppercase()})",
                                         style = MaterialTheme.typography.labelMedium,
                                         color = TextPrimary,
                                         fontWeight = FontWeight.Bold
@@ -935,7 +1006,7 @@ private fun PlayerSlotsPane(
                                 }
                                 Text(
                                     text = if (state.spawnAiEnemyIfSameFaction) {
-                                        "Auto-spawns 6 enemy squads for same-faction Co-op"
+                                        "Team 2 has no squads — AI will defend East Zone"
                                     } else {
                                         "AI Opposition disabled"
                                     },
@@ -956,11 +1027,11 @@ private fun PlayerSlotsPane(
                                 .fillMaxWidth()
                                 .clip(CutCornerShape(5.dp))
                                 .background(InputDark)
-                                .border(1.dp, BorderSteel, CutCornerShape(5.dp))
+                                .border(1.dp, ImperialGold.copy(alpha = 0.55f), CutCornerShape(5.dp))
                                 .padding(horizontal = 10.dp, vertical = 7.dp)
                         ) {
                             Text(
-                                text = "TEAM VS TEAM ACTIVE: Marines commanders face Tyranids commanders directly.",
+                                text = "2v2 TEAM BATTLE READY: Team 1 (West) vs Team 2 (East) • Alternating Tabletop Deployment.",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = WarmAmber
                             )
@@ -973,12 +1044,40 @@ private fun PlayerSlotsPane(
 }
 
 @Composable
+private fun TeamHeaderRow(title: String, totalPts: Int, accent: Color) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(CutCornerShape(4.dp))
+            .background(InputDark)
+            .border(1.dp, accent.copy(alpha = 0.5f), CutCornerShape(4.dp))
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.labelSmall,
+            color = accent,
+            fontWeight = FontWeight.Bold
+        )
+        Text(
+            text = "$totalPts PT TOTAL",
+            style = MaterialTheme.typography.labelSmall,
+            color = ImperialGold,
+            fontWeight = FontWeight.Bold
+        )
+    }
+}
+
+@Composable
 private fun Dow3PlayerSlotCard(
     turnIndex: Int,
     player: CoopPlayer,
     pointLimit: Int,
     isYou: Boolean,
-    isReadOnly: Boolean,
+    canToggleFaction: Boolean,
+    canCycleMode: Boolean,
     assignedUnits: List<CoopRosterUnit>,
     templates: Map<String, UnitTemplate>,
     isSelected: Boolean,
@@ -1061,17 +1160,24 @@ private fun Dow3PlayerSlotCard(
                 )
                 if (player.isHost) {
                     SlotStatusPill(text = "HOST", bg = ImperialGold, fg = VoidObsidian)
+                } else if (player.isAi) {
+                    SlotStatusPill(text = "AI", bg = WarmAmber, fg = VoidObsidian)
                 } else if (isYou) {
                     SlotStatusPill(text = "YOU", bg = TacticalCyan, fg = VoidObsidian)
                 } else if (player.connectedClient && player.slotMode == CoopSlotMode.LAN_CLIENT) {
                     SlotStatusPill(text = "JOINED", bg = EmeraldBuff, fg = VoidObsidian)
+                } else if (player.slotMode == CoopSlotMode.LAN_CLIENT) {
+                    SlotStatusPill(text = "OPEN", bg = BorderSteel, fg = TextPrimary)
                 }
             }
 
             val unitNames = assignedUnits.mapNotNull { templates[it.templateId]?.name }
             val summaryText = when {
-                !player.isActive -> "Slot Closed"
-                unitNames.isEmpty() -> "No squads assigned (Tap to add)"
+                !player.isActive -> "Slot Closed (Tap pill to enable AI / Online)"
+                player.slotMode == CoopSlotMode.LAN_CLIENT && !player.connectedClient && !isYou ->
+                    "Waiting for friend to join online..."
+                unitNames.isEmpty() && player.isAi -> "AI Bot • Tap to assign squads"
+                unitNames.isEmpty() -> "No squads assigned yet"
                 else -> "${unitNames.size} Squads: ${unitNames.joinToString(", ")}"
             }
             Text(
@@ -1123,7 +1229,7 @@ private fun Dow3PlayerSlotCard(
                     .clip(CutCornerShape(4.dp))
                     .background(factionBg)
                     .border(1.dp, factionColor, CutCornerShape(4.dp))
-                    .clickable(enabled = !isReadOnly, onClick = onToggleFaction)
+                    .clickable(enabled = canToggleFaction, onClick = onToggleFaction)
                     .padding(horizontal = 10.dp),
                 contentAlignment = Alignment.Center
             ) {
@@ -1139,7 +1245,7 @@ private fun Dow3PlayerSlotCard(
 
             val modeColor = when (player.slotMode) {
                 CoopSlotMode.HOST -> ImperialGold
-                CoopSlotMode.LOCAL_PLAYER -> TacticalCyan
+                CoopSlotMode.AI_BOT -> WarmAmber
                 CoopSlotMode.LAN_CLIENT -> EmeraldBuff
                 CoopSlotMode.OFF -> TextMuted
             }
@@ -1149,18 +1255,23 @@ private fun Dow3PlayerSlotCard(
                     .clip(CutCornerShape(4.dp))
                     .background(InputDark)
                     .border(1.dp, modeColor.copy(alpha = 0.7f), CutCornerShape(4.dp))
-                    .clickable(enabled = !isReadOnly && player.id != "p1", onClick = onCycleMode)
+                    .clickable(enabled = canCycleMode, onClick = onCycleMode)
                     .padding(horizontal = 10.dp),
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    text = player.slotMode.label,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = modeColor,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    softWrap = false
-                )
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    if (player.slotMode == CoopSlotMode.AI_BOT) {
+                        Icon(Icons.Default.SmartToy, contentDescription = null, tint = modeColor, modifier = Modifier.size(12.dp))
+                    }
+                    Text(
+                        text = player.slotMode.label,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = modeColor,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        softWrap = false
+                    )
+                }
             }
         }
     }
@@ -1185,6 +1296,7 @@ private fun CommanderLoadoutPane(
     player: CoopPlayer,
     pointLimit: Int,
     isReadOnly: Boolean,
+    canEditStats: Boolean,
     assignedUnits: List<CoopRosterUnit>,
     availableTemplates: List<UnitTemplate>,
     templates: Map<String, UnitTemplate>,
@@ -1245,7 +1357,7 @@ private fun CommanderLoadoutPane(
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
-                        text = "${player.faction.displayName} • ${assignedUnits.size} Squads${if (isReadOnly) " (Host Controlled)" else ""}",
+                        text = "${player.faction.displayName} • ${assignedUnits.size} Squads${if (isReadOnly) " (Managed by this player)" else ""}",
                         style = MaterialTheme.typography.labelSmall,
                         color = TextMuted
                     )
@@ -1331,7 +1443,14 @@ private fun CommanderLoadoutPane(
                                 .padding(10.dp)
                         ) {
                             Text(
-                                text = if (isReadOnly) "Host has not assigned squads to this slot yet." else "No squads assigned yet. Tap + ADD below.",
+                                text = when {
+                                    isReadOnly && player.slotMode == CoopSlotMode.LAN_CLIENT && !player.connectedClient ->
+                                        "Waiting for a friend to join this online slot and build their own army."
+                                    isReadOnly ->
+                                        "${player.name} manages this army from their own device."
+                                    else ->
+                                        "No squads assigned yet. Tap + ADD below."
+                                },
                                 style = MaterialTheme.typography.bodySmall,
                                 color = WarmAmber
                             )
@@ -1366,7 +1485,7 @@ private fun CommanderLoadoutPane(
                                 }
                             }
                             if (!isReadOnly) {
-                                if (tpl != null) {
+                                if (tpl != null && canEditStats) {
                                     OutlinedButton(
                                         onClick = { onEditTemplate(tpl.id) },
                                         shape = grimdarkBevelShape(4.dp),
@@ -1447,20 +1566,22 @@ private fun CommanderLoadoutPane(
                                     overflow = TextOverflow.Ellipsis
                                 )
                             }
-                            OutlinedButton(
-                                onClick = { onEditTemplate(tpl.id) },
-                                shape = grimdarkBevelShape(4.dp),
-                                border = BorderStroke(1.dp, BorderSteel),
-                                colors = ButtonDefaults.outlinedButtonColors(
-                                    containerColor = PanelIronTop,
-                                    contentColor = TacticalCyan
-                                ),
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                                modifier = Modifier.height(32.dp)
-                            ) {
-                                Icon(Icons.Default.Edit, contentDescription = "Edit ${tpl.name}", modifier = Modifier.size(13.dp))
-                                Spacer(Modifier.width(3.dp))
-                                Text("EDIT", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                            if (canEditStats) {
+                                OutlinedButton(
+                                    onClick = { onEditTemplate(tpl.id) },
+                                    shape = grimdarkBevelShape(4.dp),
+                                    border = BorderStroke(1.dp, BorderSteel),
+                                    colors = ButtonDefaults.outlinedButtonColors(
+                                        containerColor = PanelIronTop,
+                                        contentColor = TacticalCyan
+                                    ),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                    modifier = Modifier.height(32.dp)
+                                ) {
+                                    Icon(Icons.Default.Edit, contentDescription = "Edit ${tpl.name}", modifier = Modifier.size(13.dp))
+                                    Spacer(Modifier.width(3.dp))
+                                    Text("EDIT", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                                }
                             }
                             OutlinedButton(
                                 onClick = { onAddUnit(tpl.id) },

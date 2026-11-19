@@ -568,7 +568,7 @@ private fun JoinOnlineRoomPanel(
                     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Text("PREFERRED SLOT", style = MaterialTheme.typography.labelSmall, color = TextMuted)
                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            listOf("p2", "p3", "p4").forEach { pid ->
+                            listOf("p2" to "P2 (T1)", "p3" to "P3 (T2)", "p4" to "P4 (T2)").forEach { (pid, label) ->
                                 val selected = state.localPlayerId == pid || (state.localPlayerId == "p1" && pid == "p2")
                                 Box(
                                     modifier = Modifier
@@ -581,7 +581,7 @@ private fun JoinOnlineRoomPanel(
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Text(
-                                        text = pid.uppercase(),
+                                        text = label,
                                         style = MaterialTheme.typography.labelSmall,
                                         color = if (selected) TacticalCyan else TextMuted,
                                         fontWeight = FontWeight.Bold

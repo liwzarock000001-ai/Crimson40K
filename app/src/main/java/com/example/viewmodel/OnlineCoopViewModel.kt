@@ -229,11 +229,17 @@ class OnlineCoopViewModel(
     fun syncHostLobby(coopState: CoopState, templates: Map<String, UnitTemplate> = emptyMap()) {
         val code = currentRoomCode ?: coopState.roomCode
         val snap = _activeRoom.value
-        if (code.isBlank() || (snap != null && snap.hostUid != currentUserId)) return
+        if (code.isBlank()) return
         val uidMap = snap?.playerUids ?: mapOf("p1" to currentUserId)
         viewModelScope.launch {
-            repository.updateHostLobby(code, coopState, uidMap, templates).onFailure { err ->
-                _errorMessage.value = err.message ?: "Failed to sync room changes."
+            if (snap != null && snap.hostUid != currentUserId) {
+                repository.updateMemberLobby(code, coopState).onFailure { err ->
+                    _errorMessage.value = err.message ?: "Failed to sync roster changes."
+                }
+            } else {
+                repository.updateHostLobby(code, coopState, uidMap, templates).onFailure { err ->
+                    _errorMessage.value = err.message ?: "Failed to sync room changes."
+                }
             }
         }
     }

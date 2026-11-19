@@ -184,6 +184,26 @@ class GlesBattleRenderer(
         val cubeVbo = getOrUploadVbo(MeshCatalog3D.unitCube)
         val isTeleportMode = state.selectedUnit?.template?.archetype == UnitArchetype.TERMINATOR && state.weaponMode == WeaponMode.SKILL
         val moveAlpha = if (state.moveModeActive) 0.14f + pulse * 0.08f else 0.08f + pulse * 0.05f
+        if (state.isDeploymentPhase) {
+            for (gy in 0 until MapGenerator.GRID_H) {
+                for (gx in 0 until MapGenerator.GRID_W) {
+                    val inWestZone = gx < 3
+                    val inEastZone = gx >= MapGenerator.GRID_W - 3
+                    if (!inWestZone && !inEastZone) continue
+                    if (!MapGenerator.isWalkable(state.map.rows[gy][gx])) continue
+                    if (state.units.any { it.isAlive && it.x == gx && it.y == gy }) continue
+                    Matrix.setIdentityM(modelMat, 0)
+                    Matrix.translateM(modelMat, 0, gx.toFloat(), 0.009f, gy.toFloat())
+                    val isActiveSide = (inWestZone && state.deploymentTeamIndex == 0) || (inEastZone && state.deploymentTeamIndex == 1)
+                    val alpha = if (isActiveSide) 0.28f + pulse * 0.16f else 0.09f
+                    if (inWestZone) {
+                        drawVbo(tileVbo, 0.16f, 0.72f, 0.98f, alpha, unlit = true)
+                    } else {
+                        drawVbo(tileVbo, 0.95f, 0.24f, 0.28f, alpha, unlit = true)
+                    }
+                }
+            }
+        }
         for (pos in state.reachableTiles.keys) {
             Matrix.setIdentityM(modelMat, 0)
             Matrix.translateM(modelMat, 0, pos.x.toFloat(), 0.008f, pos.y.toFloat())
@@ -212,7 +232,7 @@ class GlesBattleRenderer(
             }
 
             // Smooth centimeter (cm) radius perimeter ring
-            if (selectedUnit.faction == state.playerFaction &&
+            if (state.canCommandUnit(selectedUnit, isRemoteClientAction = true) &&
                 selectedUnit.moveCmLeft >= 0.25f &&
                 !isTeleportMode &&
                 (state.moveModeActive || state.movePreview != null)
@@ -350,11 +370,15 @@ class GlesBattleRenderer(
             val rg: Float
             val rb: Float
             when {
-                isSelected && unit.faction == Faction.MARINES -> { rr = 0.76f; rg = 0.82f; rb = 0.90f }
+                isSelected && (!state.isCoopMode && unit.faction == Faction.MARINES || state.isCoopMode && unit.effectiveTeam == 0) -> {
+                    rr = 0.76f; rg = 0.82f; rb = 0.90f
+                }
                 isSelected -> { rr = 0.76f; rg = 0.56f; rb = 0.86f }
                 isChargeable -> { rr = 1.00f; rg = 0.52f; rb = 0.14f }
                 isAttackable -> { rr = 0.72f; rg = 0.16f; rb = 0.20f }
                 unit.isCloaked -> { rr = 0.35f; rg = 0.92f; rb = 0.98f }
+                state.isCoopMode && unit.effectiveTeam == 0 -> { rr = 0.18f; rg = 0.62f; rb = 0.88f }
+                state.isCoopMode && unit.effectiveTeam == 1 -> { rr = 0.82f; rg = 0.24f; rb = 0.32f }
                 unit.faction == Faction.MARINES -> { rr = 0.22f; rg = 0.38f; rb = 0.60f }
                 else -> { rr = 0.44f; rg = 0.21f; rb = 0.52f }
             }
@@ -363,6 +387,15 @@ class GlesBattleRenderer(
             Matrix.translateM(modelMat, 0, ux, 0.01f, uz)
             drawVbo(ringVbo, rr, rg, rb, if (isSelected || isAttackable || isChargeable || unit.isCloaked) 0.78f + pulse * 0.20f else 0.58f, unlit = true)
 
+            if (unit.isMarked) {
+                Matrix.setIdentityM(modelMat, 0)
+                Matrix.translateM(modelMat, 0, ux, 0.024f, uz)
+                Matrix.scaleM(modelMat, 0, 1.18f + pulse * 0.06f, 1f, 1.18f + pulse * 0.06f)
+                drawVbo(ringVbo, 1.00f, 0.42f, 0.12f, 0.72f + pulse * 0.24f, unlit = true)
+            }
+
+            Matrix.setIdentityM(modelMat, 0)
+            Matrix.translateM(modelMat, 0, ux, 0.01f, uz)
             val yawDeg = unit.facingDeg
             Matrix.rotateM(modelMat, 0, yawDeg, 0f, 1f, 0f)
             val arrowR = if (isSelected && unit.faction == Faction.MARINES) 0.86f else if (isSelected) 0.80f else rr

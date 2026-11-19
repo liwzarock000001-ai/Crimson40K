@@ -26,16 +26,29 @@ object AiController {
     fun decideNextAction(
         aiFaction: Faction,
         units: List<BattleUnit>,
-        map: Array<Array<TerrainType>>
+        map: Array<Array<TerrainType>>,
+        aiOwnerId: String? = null
     ): AiDecision {
-        val enemies = units.filter { it.isAlive && it.faction != aiFaction }
+        val isAiUnit: (BattleUnit) -> Boolean = if (aiOwnerId != null) {
+            { it.ownerPlayerId == aiOwnerId }
+        } else {
+            { it.faction == aiFaction }
+        }
+        val aiTeam = when (aiOwnerId) {
+            "p1", "p2" -> 0
+            "p3", "p4", "AI" -> 1
+            else -> null
+        }
+        val enemies = units.filter {
+            it.isAlive && if (aiTeam != null) it.effectiveTeam != aiTeam else it.faction != aiFaction
+        }
         if (enemies.isEmpty()) return AiDecision.TurnComplete
 
         for (i in units.indices) {
             val unit = units[i]
             val isEngaged = TacticalRules.isEngagedInMelee(unit, units)
             val canAttackAny = unit.canShoot || unit.canFight || isEngaged
-            if (!unit.isAlive || unit.faction != aiFaction || (!canAttackAny && unit.moveCmLeft < 3.0f)) continue
+            if (!unit.isAlive || !isAiUnit(unit) || (!canAttackAny && unit.moveCmLeft < 3.0f)) continue
 
             // 1. Self-buff leap if melee far from enemy
             var distToNearest = Int.MAX_VALUE
@@ -45,11 +58,11 @@ object AiController {
                 if (d < distToNearest) distToNearest = d
             }
             if (unit.skillCooldownLeft == 0) {
-                val selfSkill = TacticalRules.activateSelfSkillIfApplicable(unit)
-                val shouldTriggerSelf = if (unit.template.archetype == UnitArchetype.VON_RYANS_LEAPER) {
-                    distToNearest <= 7 && !unit.isCloaked
-                } else {
-                    distToNearest > 2
+                val selfSkill = TacticalRules.activateSelfSkillIfApplicable(unit, units)
+                val shouldTriggerSelf = when (unit.template.archetype) {
+                    UnitArchetype.VON_RYANS_LEAPER -> distToNearest <= 7 && !unit.isCloaked
+                    UnitArchetype.ASSAULT_MARINE -> true
+                    else -> distToNearest > 2
                 }
                 if (selfSkill != null && shouldTriggerSelf) {
                     return AiDecision.SelfSkill(unit.uid)
@@ -114,7 +127,7 @@ object AiController {
                             tileHasAttack = true
                             val preview = TacticalRules.canTargetFrom(unit, pos.x, pos.y, attackFromHere.first, attackFromHere.second, map, units)
                             score += 1000f + (preview?.expectedTotalDamage ?: 0) * 5f
-                            if (preview?.coverTag == CoverTag.FLANK || preview?.coverTag == CoverTag.REAR) score += 120f
+                            if (preview?.coverTag == CoverTag.OPEN) score += 60f
                         }
                         var minEnemyDist = Int.MAX_VALUE
                         for (eIdx in enemies.indices) {
@@ -190,6 +203,15 @@ object AiController {
                 var score = preview.expectedTotalDamage.toFloat()
                 if (preview.expectedTotalDamage >= enemy.totalWounds) score += 250f
                 if (mode == WeaponMode.SKILL) score += 25f
+                if (mode == WeaponMode.SKILL &&
+                    unit.template.archetype == UnitArchetype.INCURSOR &&
+                    enemy.markedByTeam != unit.effectiveTeam
+                ) {
+                    score += 40f
+                }
+                if (enemy.markedByTeam == unit.effectiveTeam && !preview.isMelee) {
+                    score += 20f
+                }
                 if (score > bestScore) {
                     bestScore = score
                     best = enemy to mode

@@ -129,6 +129,7 @@ class MainActivity : ComponentActivity() {
                                 onToggleSound = vm::toggleSound,
                                 onToggleUnitCard = vm::toggleUnitCardCollapsed,
                                 onDismissTurnSplash = vm::dismissTurnSplash,
+                                onSelectReserveUnit = vm::selectReserveUnit,
                                 onSaveBattle = vm::saveSkirmishBattleToDatabase,
                                 onExitToSetup = vm::returnToSetup
                             )
@@ -303,6 +304,7 @@ private fun CoopFlowHost(
                         onToggleSound = vm::toggleSound,
                         onToggleUnitCard = vm::toggleUnitCardCollapsed,
                         onDismissTurnSplash = vm::dismissTurnSplash,
+                        onSelectReserveUnit = vm::selectReserveUnit,
                         onSaveBattle = vm::saveSkirmishBattleToDatabase,
                         onExitToSetup = {
                             val inactiveBattle = battleState.copy(
@@ -378,7 +380,11 @@ private fun CoopFlowHost(
                                         connectedClient = true
                                     )
                                     else -> p.copy(
-                                        slotMode = if (p.slotMode == CoopSlotMode.OFF) CoopSlotMode.OFF else CoopSlotMode.LAN_CLIENT,
+                                        slotMode = when (p.slotMode) {
+                                            CoopSlotMode.OFF -> CoopSlotMode.OFF
+                                            CoopSlotMode.AI_BOT -> CoopSlotMode.AI_BOT
+                                            CoopSlotMode.HOST, CoopSlotMode.LAN_CLIENT -> CoopSlotMode.LAN_CLIENT
+                                        },
                                         connectedClient = false
                                     )
                                 }

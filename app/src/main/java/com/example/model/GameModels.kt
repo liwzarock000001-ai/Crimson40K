@@ -47,6 +47,7 @@ enum class TerminatorWeaponChoice(val label: String) {
 
 enum class UnitArchetype {
     INTERCESSOR,
+    INCURSOR,
     HELLBLASTER,
     ASSAULT_MARINE,
     TERMINATOR,
@@ -60,6 +61,20 @@ enum class UnitArchetype {
     CARNIFEX,
     HIVE_TYRANT
 }
+
+@Immutable
+data class WeaponProfile(
+    val name: String,
+    val range: Int,
+    val attacksPerModel: Int,
+    val skill: Int,
+    val strength: Int,
+    val armorPen: Int,
+    val damage: Int,
+    val sustainedHits: Int = 0,
+    val assault: Boolean = false,
+    val pistol: Boolean = false
+)
 
 @Immutable
 data class UnitTemplate(
@@ -92,17 +107,44 @@ data class UnitTemplate(
     val mainWeaponName: String = "Primary Weapon",
     val mainWeaponAssault: Boolean = false,
     val mainWeaponPistol: Boolean = false,
+    val mainSustainedHits: Int = 0,
+    val meleeWeaponName: String = "Close Combat Weapon",
+    val meleeAttacks: Int = 0,
+    val meleeWeaponSkill: Int = 0,
+    val meleeStrength: Int = 4,
+    val meleeArmorPen: Int = 0,
+    val meleeDamage: Int = 1,
+    val meleeSustainedHits: Int = 0,
     val pistolWeaponName: String = "Bolt Pistol",
     val pistolAttacks: Int = 1,
     val pistolDamage: Int = 0,
     val pistolStrength: Int = 4,
     val pistolArmorPen: Int = 0,
     val pistolRange: Int = 3,
-    val pistolCooldown: Int = 1
+    val pistolCooldown: Int = 1,
+    val pistolSustainedHits: Int = 0,
+    val warriorMeleeProfile: WeaponProfile? = null,
+    val warriorRangedProfile: WeaponProfile? = null,
+    val terminatorHammerProfile: WeaponProfile? = null,
+    val terminatorClawsProfile: WeaponProfile? = null
 ) {
     val maxTotalWounds: Int get() = squadSize * woundsPerModel
     val hasPistol: Boolean get() = pistolDamage > 0 && pistolRange > 0
     val isRangedMain: Boolean get() = range > 1
+    val effectiveMeleeWeaponName: String
+        get() = if (isRangedMain) meleeWeaponName.ifBlank { "Close Combat Weapon" } else mainWeaponName
+    val effectiveMeleeAttacks: Int
+        get() = if (isRangedMain && meleeAttacks > 0) meleeAttacks else attacksPerModel
+    val effectiveMeleeWeaponSkill: Int
+        get() = if (isRangedMain && meleeWeaponSkill in 2..6) meleeWeaponSkill else weaponSkill
+    val effectiveMeleeStrength: Int
+        get() = if (isRangedMain) meleeStrength else strength
+    val effectiveMeleeArmorPen: Int
+        get() = if (isRangedMain) meleeArmorPen else armorPen
+    val effectiveMeleeDamage: Int
+        get() = if (isRangedMain) meleeDamage.coerceAtLeast(1) else damage
+    val effectiveMeleeSustainedHits: Int
+        get() = if (isRangedMain) meleeSustainedHits.coerceAtLeast(0) else mainSustainedHits.coerceAtLeast(0)
 }
 
 @Immutable
@@ -173,12 +215,23 @@ data class BattleUnit(
     val kills: Int = 0,
     val damageDealt: Int = 0,
     val ownerPlayerId: String = "PLAYER",
-    val ownerPlayerName: String = ""
+    val ownerPlayerName: String = "",
+    val markedByTeam: Int? = null,
+    val meleeChargeBuffActive: Boolean = false
 ) {
     val pos: GridPos get() = GridPos(x, y)
     val worldPos: WorldPos get() = WorldPos(worldX, worldY)
     val isAlive: Boolean get() = totalWounds > 0
     val isCloaked: Boolean get() = stealthTurnsLeft > 0
+    val isMarked: Boolean get() = markedByTeam != null
+    val effectiveTeam: Int
+        get() = when (ownerPlayerId) {
+            "p1", "p2" -> 0
+            "p3", "p4", "AI" -> 1
+            else -> if (faction == Faction.MARINES) 0 else 1
+        }
+    fun isEnemyOf(other: BattleUnit): Boolean = effectiveTeam != other.effectiveTeam
+    fun isAllyOf(other: BattleUnit): Boolean = effectiveTeam == other.effectiveTeam
     val hasRangedProfile: Boolean
         get() = template.range > 1 ||
             template.hasPistol ||
@@ -214,6 +267,12 @@ data class BattleUnit(
         get() = (template.ballisticSkill - effectiveHitBonus).coerceIn(2, 6)
     val effectiveWeaponSkill: Int
         get() = (template.weaponSkill - effectiveHitBonus).coerceIn(2, 6)
+    val effectiveMeleeWeaponSkill: Int
+        get() = (template.effectiveMeleeWeaponSkill - effectiveHitBonus).coerceIn(2, 6)
+    val effectiveMainStrength: Int
+        get() = template.strength + if (meleeChargeBuffActive && !template.isRangedMain) 1 else 0
+    val effectiveMainArmorPen: Int
+        get() = (template.armorPen + if (meleeChargeBuffActive && !template.isRangedMain) 1 else 0).coerceAtMost(6)
 }
 
 enum class WeaponMode {
@@ -224,9 +283,7 @@ enum class WeaponMode {
 
 enum class CoverTag(val label: String) {
     OPEN("OPEN"),
-    COVER("COVER"),
-    FLANK("FLANK"),
-    REAR("REAR")
+    COVER("COVER")
 }
 
 @Immutable
@@ -247,6 +304,8 @@ data class TargetPreview(
     val coverTag: CoverTag,
     val weaponMode: WeaponMode,
     val weaponName: String = "",
+    val sustainedHits: Int = 0,
+    val markedBonusApplied: Boolean = false,
     val inRange: Boolean,
     val hasLos: Boolean
 )
@@ -305,7 +364,8 @@ data class BattleSummary(
     val rounds: Int,
     val playerKills: Int,
     val enemyKills: Int,
-    val totalDamageDealt: Int
+    val totalDamageDealt: Int,
+    val winnerLabel: String = ""
 )
 
 enum class AppScreen {
@@ -320,8 +380,8 @@ enum class AppScreen {
 
 enum class CoopSlotMode(val label: String) {
     HOST("HOST"),
-    LOCAL_PLAYER("SHARED"),
     LAN_CLIENT("ONLINE"),
+    AI_BOT("AI BOT"),
     OFF("CLOSED")
 }
 
@@ -357,6 +417,7 @@ data class CoopPlayer(
     val connectedClient: Boolean = false
 ) {
     val isHost: Boolean get() = slotMode == CoopSlotMode.HOST
+    val isAi: Boolean get() = slotMode == CoopSlotMode.AI_BOT
     val isActive: Boolean get() = slotMode != CoopSlotMode.OFF
 }
 
@@ -381,9 +442,9 @@ data class CoopState(
     val discoveredRooms: List<DiscoveredCoopRoom> = emptyList(),
     val players: List<CoopPlayer> = listOf(
         CoopPlayer("p1", "Commander 1", Faction.MARINES, CoopSlotMode.HOST, true, true),
-        CoopPlayer("p2", "Commander 2", Faction.MARINES, CoopSlotMode.LOCAL_PLAYER, true, false),
-        CoopPlayer("p3", "Commander 3", Faction.XENOS, CoopSlotMode.LOCAL_PLAYER, true, false),
-        CoopPlayer("p4", "Commander 4", Faction.XENOS, CoopSlotMode.LOCAL_PLAYER, true, false)
+        CoopPlayer("p2", "Commander 2", Faction.MARINES, CoopSlotMode.LAN_CLIENT, true, false),
+        CoopPlayer("p3", "AI Vanguard", Faction.XENOS, CoopSlotMode.AI_BOT, true, false),
+        CoopPlayer("p4", "Commander 4", Faction.XENOS, CoopSlotMode.LAN_CLIENT, true, false)
     ),
     val assignedUnits: List<CoopRosterUnit> = listOf(
         CoopRosterUnit("c1", "p1", "intercessors"),

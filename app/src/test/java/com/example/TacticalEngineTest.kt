@@ -10,10 +10,15 @@ import com.example.model.CoverTag
 import com.example.model.Facing
 import com.example.model.Faction
 import com.example.model.GridPos
+import com.example.model.TerrainType
+import com.example.model.UnitArchetype
+import com.example.model.WarriorWeaponChoice
 import com.example.model.WeaponMode
+import com.example.ui.battle.UnitMeshSculptor3D
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import kotlin.random.Random
@@ -37,7 +42,7 @@ class TacticalEngineTest {
         )
         val search = TacticalRules.computeReachableTiles(unit, map, listOf(unit))
         assertTrue(search.costs.isNotEmpty())
-        assertFalse(GridPos(4, 6) in search.costs) // RUIN_WALL
+        assertFalse(GridPos(4, 4) in search.costs) // PILLAR
         assertFalse(GridPos(2, 6) in search.costs) // Start tile excluded
     }
 
@@ -69,7 +74,7 @@ class TacticalEngineTest {
             maxTotalWounds = xenosTpl.maxTotalWounds,
             moveCmLeft = 15f
         )
-        assertEquals(CoverTag.REAR, TacticalRules.evaluateCoverTag(attacker, defenderFacingEast, map))
+        assertEquals(CoverTag.OPEN, TacticalRules.evaluateCoverTag(attacker, defenderFacingEast, map))
 
         val outcome = TacticalRules.resolveAttack(
             attacker = attacker,
@@ -199,8 +204,8 @@ class TacticalEngineTest {
         assertNotNull(tapPreview)
         assertEquals(4.5f, tapPreview!!.distanceCm, 0.05f)
 
-        // Tapping directly inside/against RUIN_WALL at (4, 6) should be blocked
-        val blockedWall = TacticalRules.computeCmMovePreview(marine, 4.0f, 6.0f, listOf(marine), map)
+        // Tapping directly inside/against PILLAR at (4, 4) should be blocked
+        val blockedWall = TacticalRules.computeCmMovePreview(marine, 4.0f, 4.0f, listOf(marine), map)
         assertEquals(null, blockedWall)
     }
 
@@ -289,8 +294,8 @@ class TacticalEngineTest {
         val intercessorTpl = DefaultCatalog.defaultTemplates.first { it.id == "intercessors" }
         val warriorTpl = DefaultCatalog.defaultTemplates.first { it.id == "warriors" }
 
-        val charger = BattleUnit("m1", intercessorTpl, Faction.MARINES, 5, 5, Facing.EAST, intercessorTpl.maxTotalWounds, intercessorTpl.maxTotalWounds, 0f)
-        val enemy = BattleUnit("x1", warriorTpl, Faction.XENOS, 10, 5, Facing.WEST, warriorTpl.maxTotalWounds, warriorTpl.maxTotalWounds, 15f)
+        val charger = BattleUnit("m1", intercessorTpl, Faction.MARINES, 5, 8, Facing.EAST, intercessorTpl.maxTotalWounds, intercessorTpl.maxTotalWounds, 0f)
+        val enemy = BattleUnit("x1", warriorTpl, Faction.XENOS, 10, 8, Facing.WEST, warriorTpl.maxTotalWounds, warriorTpl.maxTotalWounds, 15f)
 
         val preview = TacticalRules.findChargeEngagementSpot(charger, enemy, listOf(charger, enemy), map)
         assertNotNull(preview)
@@ -300,7 +305,7 @@ class TacticalEngineTest {
         // After Charge lands adjacent to enemy, shooting is blocked and Melee WS fight is unlocked
         val chargedUnit = charger.copy(
             x = 9,
-            y = 5,
+            y = 8,
             worldX = preview.destinationX,
             worldY = preview.destinationY,
             hasCharged = true
@@ -461,14 +466,14 @@ class TacticalEngineTest {
         val warriorTpl = DefaultCatalog.defaultTemplates.first { it.id == "warriors" }
 
         // 4 tiles = 12.0 cm center-to-center; adjacent engagement spot sits ~1.1 tiles from enemy (<= 12 cm) -> valid
-        val chargerNear = BattleUnit("m_near", intercessorTpl, Faction.MARINES, 5, 5, Facing.EAST, intercessorTpl.maxTotalWounds, intercessorTpl.maxTotalWounds, 0f)
-        val enemy = BattleUnit("x1", warriorTpl, Faction.XENOS, 9, 5, Facing.WEST, warriorTpl.maxTotalWounds, warriorTpl.maxTotalWounds, 15f)
+        val chargerNear = BattleUnit("m_near", intercessorTpl, Faction.MARINES, 5, 8, Facing.EAST, intercessorTpl.maxTotalWounds, intercessorTpl.maxTotalWounds, 0f)
+        val enemy = BattleUnit("x1", warriorTpl, Faction.XENOS, 9, 8, Facing.WEST, warriorTpl.maxTotalWounds, warriorTpl.maxTotalWounds, 15f)
         val nearPreview = TacticalRules.findChargeEngagementSpot(chargerNear, enemy, listOf(chargerNear, enemy), map)
         assertNotNull(nearPreview)
         assertTrue(nearPreview!!.distanceCm <= 12.0f)
 
         // 6 tiles away = ~15+ cm needed even to reach adjacent engagement tile -> > 12 cm, denied!
-        val chargerFar = BattleUnit("m_far", intercessorTpl, Faction.MARINES, 2, 5, Facing.EAST, intercessorTpl.maxTotalWounds, intercessorTpl.maxTotalWounds, 0f)
+        val chargerFar = BattleUnit("m_far", intercessorTpl, Faction.MARINES, 2, 8, Facing.EAST, intercessorTpl.maxTotalWounds, intercessorTpl.maxTotalWounds, 0f)
         val farPreview = TacticalRules.findChargeEngagementSpot(chargerFar, enemy, listOf(chargerFar, enemy), map)
         assertEquals(null, farPreview)
     }
@@ -574,7 +579,423 @@ class TacticalEngineTest {
         assertTrue(TacticalRules.canAdvance(engagedTermi, freedUnits))
         assertNotNull(TacticalRules.computeCmMovePreview(engagedTermi, 1.0f, 6.0f, freedUnits, map))
     }
+
+    @Test
+    fun sectorMapExpandedBy50PercentTo24x21AndDeploymentZonesCover3BorderColumns() {
+        assertEquals(24, MapGenerator.GRID_W)
+        assertEquals(21, MapGenerator.GRID_H)
+        val map = MapGenerator.generateSectorMap(99L)
+        assertEquals(21, map.size)
+        assertEquals(24, map[0].size)
+
+        // Team 0 (West) occupies columns 0..2
+        assertTrue(TacticalRules.isWithinDeploymentZone(0, 10, 0))
+        assertTrue(TacticalRules.isWithinDeploymentZone(2, 10, 0))
+        assertFalse(TacticalRules.isWithinDeploymentZone(3, 10, 0))
+        assertFalse(TacticalRules.isWithinDeploymentZone(22, 10, 0))
+        assertFalse(TacticalRules.isWithinDeploymentZone(-1, 10, 0))
+
+        // Team 1 (East) occupies columns 21..23
+        assertTrue(TacticalRules.isWithinDeploymentZone(21, 10, 1))
+        assertTrue(TacticalRules.isWithinDeploymentZone(23, 10, 1))
+        assertFalse(TacticalRules.isWithinDeploymentZone(20, 10, 1))
+        assertFalse(TacticalRules.isWithinDeploymentZone(1, 10, 1))
+        assertFalse(TacticalRules.isWithinDeploymentZone(24, 10, 1))
+    }
+
+    @Test
+    fun twoVsTwoTeamsSupportSameFactionAndCoverDropsFlankRear() {
+        assertEquals(listOf(CoverTag.OPEN, CoverTag.COVER), CoverTag.entries.toList())
+
+        val map = MapGenerator.generateSectorMap(1L)
+        val marineTpl = DefaultCatalog.defaultTemplates.first { it.id == "intercessors" }
+
+        val p1Marine = BattleUnit(
+            uid = "u_p1",
+            template = marineTpl,
+            faction = Faction.MARINES,
+            x = 1,
+            y = 8,
+            facing = Facing.EAST,
+            totalWounds = marineTpl.maxTotalWounds,
+            maxTotalWounds = marineTpl.maxTotalWounds,
+            moveCmLeft = 15f,
+            ownerPlayerId = "p1"
+        )
+        val p2Marine = p1Marine.copy(uid = "u_p2", x = 2, y = 9, ownerPlayerId = "p2")
+        val p3Marine = p1Marine.copy(uid = "u_p3", x = 4, y = 8, facing = Facing.WEST, ownerPlayerId = "p3")
+        val aiMarine = p1Marine.copy(uid = "u_ai", x = 6, y = 8, facing = Facing.WEST, ownerPlayerId = "AI")
+
+        assertTrue(p1Marine.isAllyOf(p2Marine))
+        assertFalse(p1Marine.isEnemyOf(p2Marine))
+        assertTrue(p1Marine.isEnemyOf(p3Marine))
+        assertTrue(p1Marine.isEnemyOf(aiMarine))
+
+        val units = listOf(p1Marine, p2Marine, p3Marine, aiMarine)
+        val preview = TacticalRules.canTarget(p1Marine, p3Marine, WeaponMode.MAIN, map, units)
+        assertNotNull(preview)
+        assertEquals(null, TacticalRules.canTarget(p1Marine, p2Marine, WeaponMode.MAIN, map, units))
+
+        // AI controller scoped to aiOwnerId = "AI" only moves/attacks with AI-owned unit against Team 0
+        val aiDecision = AiController.decideNextAction(Faction.MARINES, units, map, aiOwnerId = "AI")
+        assertNotNull(aiDecision)
+        assertTrue(aiDecision !is AiDecision.TurnComplete)
+
+        // Team 1 AI Ally (p2) targets Team 2 (p3/AI) and ignores Team 1 (p1) even in Marine mirror
+        val p2AiDecision = AiController.decideNextAction(Faction.MARINES, units, map, aiOwnerId = "p2")
+        assertNotNull(p2AiDecision)
+        assertTrue(p2AiDecision !is AiDecision.TurnComplete)
+        if (p2AiDecision is AiDecision.Attack) {
+            assertEquals("u_p2", p2AiDecision.attackerUid)
+            assertTrue(p2AiDecision.targetUid in listOf("u_p3", "u_ai"))
+        }
+
+        // Team 2 AI (p3) targets Team 1 (p1/p2) and ignores Team 2 (AI)
+        val p3AiDecision = AiController.decideNextAction(Faction.MARINES, units, map, aiOwnerId = "p3")
+        assertNotNull(p3AiDecision)
+        assertTrue(p3AiDecision !is AiDecision.TurnComplete)
+        if (p3AiDecision is AiDecision.Attack) {
+            assertEquals("u_p3", p3AiDecision.attackerUid)
+            assertTrue(p3AiDecision.targetUid in listOf("u_p1", "u_p2"))
+        }
+    }
+
+    @Test
+    fun incursorSkillFiresGunStatsAndMarksTargetForAlliedRangedOnly() {
+        val openMap = Array(MapGenerator.GRID_H) { Array(MapGenerator.GRID_W) { TerrainType.OPEN } }
+        val incursorTpl = DefaultCatalog.defaultTemplates.first { it.id == "incursors" }
+        assertEquals(UnitArchetype.INCURSOR, incursorTpl.archetype)
+        assertEquals(1, incursorTpl.skillCooldown)
+        assertEquals(1, incursorTpl.meleeSustainedHits)
+        assertEquals("Paired Combat Blades", incursorTpl.meleeWeaponName)
+        assertTrue(UnitMeshSculptor3D.build(UnitArchetype.INCURSOR).vertexCount > 100)
+
+        val allyTpl = DefaultCatalog.defaultTemplates.first { it.id == "intercessors" }
+        val meleeAllyTpl = DefaultCatalog.defaultTemplates.first { it.id == "assault_intercessors" }
+        val enemyTpl = DefaultCatalog.defaultTemplates.first { it.id == "carnifex" }
+
+        val incursor = BattleUnit(
+            uid = "u_incursor",
+            template = incursorTpl,
+            faction = Faction.MARINES,
+            x = 2,
+            y = 10,
+            facing = Facing.EAST,
+            totalWounds = incursorTpl.maxTotalWounds,
+            maxTotalWounds = incursorTpl.maxTotalWounds,
+            moveCmLeft = incursorTpl.moveCm.toFloat(),
+            ownerPlayerId = "p1"
+        )
+        val rangedAlly = BattleUnit(
+            uid = "u_ally_ranged",
+            template = allyTpl,
+            faction = Faction.MARINES,
+            x = 2,
+            y = 12,
+            facing = Facing.EAST,
+            totalWounds = allyTpl.maxTotalWounds,
+            maxTotalWounds = allyTpl.maxTotalWounds,
+            moveCmLeft = 0f, // spent move so stationary +1 bonus doesn't obscure mark delta
+            ownerPlayerId = "p2"
+        )
+        val meleeAlly = BattleUnit(
+            uid = "u_ally_melee",
+            template = meleeAllyTpl,
+            faction = Faction.MARINES,
+            x = 5,
+            y = 10,
+            facing = Facing.EAST,
+            totalWounds = meleeAllyTpl.maxTotalWounds,
+            maxTotalWounds = meleeAllyTpl.maxTotalWounds,
+            moveCmLeft = 0f,
+            ownerPlayerId = "p2"
+        )
+        val enemy = BattleUnit(
+            uid = "u_enemy",
+            template = enemyTpl,
+            faction = Faction.XENOS,
+            x = 6,
+            y = 10,
+            facing = Facing.WEST,
+            totalWounds = enemyTpl.maxTotalWounds,
+            maxTotalWounds = enemyTpl.maxTotalWounds,
+            moveCmLeft = enemyTpl.moveCm.toFloat(),
+            ownerPlayerId = "p3"
+        )
+
+        val units = listOf(incursor, rangedAlly, meleeAlly, enemy)
+        val skillPreview = TacticalRules.canTarget(incursor, enemy, WeaponMode.SKILL, openMap, units)
+        val mainPreview = TacticalRules.canTarget(incursor, enemy, WeaponMode.MAIN, openMap, units)
+        assertNotNull(skillPreview)
+        assertNotNull(mainPreview)
+        // Skill uses full main gun stats
+        assertEquals(mainPreview!!.attacksCount, skillPreview!!.attacksCount)
+        assertEquals(mainPreview.weaponStrength, skillPreview.weaponStrength)
+        assertEquals(mainPreview.weaponAp, skillPreview.weaponAp)
+        assertEquals(mainPreview.hitRollNeeded, skillPreview.hitRollNeeded)
+
+        val beforeMarkRanged = TacticalRules.canTarget(rangedAlly, enemy, WeaponMode.MAIN, openMap, units)!!
+        val beforeMarkMelee = TacticalRules.canTarget(meleeAlly, enemy, WeaponMode.MAIN, openMap, units)!!
+        assertFalse(beforeMarkRanged.markedBonusApplied)
+        assertEquals(3, beforeMarkRanged.hitRollNeeded)
+        assertEquals(3, beforeMarkMelee.hitRollNeeded)
+
+        val outcome = TacticalRules.resolveAttack(incursor, enemy, units, WeaponMode.SKILL, openMap, Random(7))
+        assertEquals(1, outcome.updatedAttacker.skillCooldownLeft)
+        val markedEnemy = outcome.updatedTargets.first()
+        assertTrue(markedEnemy.isAlive)
+        assertEquals(incursor.effectiveTeam, markedEnemy.markedByTeam)
+        assertTrue(outcome.floatingTexts.any { it.second.first.contains("MARKED") })
+
+        val unitsAfterMark = listOf(outcome.updatedAttacker, rangedAlly, meleeAlly, markedEnemy)
+        val afterMarkRanged = TacticalRules.canTarget(rangedAlly, markedEnemy, WeaponMode.MAIN, openMap, unitsAfterMark)!!
+        val afterMarkPistol = TacticalRules.canTarget(rangedAlly, markedEnemy, WeaponMode.PISTOL, openMap, unitsAfterMark)!!
+        val afterMarkMelee = TacticalRules.canTarget(meleeAlly, markedEnemy, WeaponMode.MAIN, openMap, unitsAfterMark)!!
+
+        // Allied gun attacks get +1 to Hit roll (3+ -> 2+), allied melee does NOT
+        assertTrue(afterMarkRanged.markedBonusApplied)
+        assertEquals(2, afterMarkRanged.hitRollNeeded)
+        assertTrue(afterMarkPistol.markedBonusApplied)
+        assertEquals(2, afterMarkPistol.hitRollNeeded)
+        assertFalse(afterMarkMelee.markedBonusApplied)
+        assertEquals(3, afterMarkMelee.hitRollNeeded)
+    }
+
+    @Test
+    fun sustainedHitsGeneratesExtraHitsOnUnmodifiedSixAndSupportsCustomX() {
+        val openMap = Array(MapGenerator.GRID_H) { Array(MapGenerator.GRID_W) { TerrainType.OPEN } }
+        val baseIncursor = DefaultCatalog.defaultTemplates.first { it.id == "incursors" }
+        val customTemplate = baseIncursor.copy(meleeSustainedHits = 3)
+        val enemyTpl = DefaultCatalog.defaultTemplates.first { it.id == "carnifex" }
+
+        val attacker = BattleUnit(
+            uid = "u_inc_melee",
+            template = customTemplate,
+            faction = Faction.MARINES,
+            x = 5,
+            y = 10,
+            facing = Facing.EAST,
+            totalWounds = customTemplate.maxTotalWounds,
+            maxTotalWounds = customTemplate.maxTotalWounds,
+            moveCmLeft = 0f
+        )
+        val target = BattleUnit(
+            uid = "u_target",
+            template = enemyTpl,
+            faction = Faction.XENOS,
+            x = 6,
+            y = 10,
+            facing = Facing.WEST,
+            totalWounds = 50,
+            maxTotalWounds = 50,
+            moveCmLeft = 0f
+        )
+        val units = listOf(attacker, target)
+        val preview = TacticalRules.canTarget(attacker, target, WeaponMode.MAIN, openMap, units)!!
+        assertTrue(preview.isMelee)
+        assertEquals(3, preview.sustainedHits)
+
+        // With 15 melee attacks (5 models x 3A), deterministic RNG should roll 6s -> hits > attacksCount
+        val outcome = TacticalRules.resolveAttack(attacker, target, units, WeaponMode.MAIN, openMap, Random(1234))
+        assertTrue(outcome.hits > preview.attacksCount)
+        assertTrue(outcome.floatingTexts.any { it.second.first.startsWith("SUSTAINED +") })
+    }
+
+    @Test
+    fun weaponProfilesAreCompletelyIndependentPerWeapon() {
+        val openMap = Array(MapGenerator.GRID_H) { Array(MapGenerator.GRID_W) { TerrainType.OPEN } }
+        val baseWarrior = DefaultCatalog.defaultTemplates.first { it.id == "warriors" }
+        val editedMelee = baseWarrior.warriorMeleeProfile!!.copy(attacksPerModel = 6, strength = 7, sustainedHits = 2)
+        val editedRanged = baseWarrior.warriorRangedProfile!!.copy(attacksPerModel = 4, strength = 6, range = 6)
+
+        val warriorSaved = baseWarrior.copy(
+            weaponChoice = WarriorWeaponChoice.FLESHBORER,
+            range = editedRanged.range,
+            attacksPerModel = editedRanged.attacksPerModel,
+            ballisticSkill = editedRanged.skill,
+            weaponSkill = editedMelee.skill,
+            strength = editedRanged.strength,
+            armorPen = editedRanged.armorPen,
+            damage = editedRanged.damage,
+            mainWeaponName = editedRanged.name,
+            mainSustainedHits = editedRanged.sustainedHits,
+            meleeWeaponName = editedMelee.name,
+            meleeAttacks = editedMelee.attacksPerModel,
+            meleeWeaponSkill = editedMelee.skill,
+            meleeStrength = editedMelee.strength,
+            meleeArmorPen = editedMelee.armorPen,
+            meleeDamage = editedMelee.damage,
+            meleeSustainedHits = editedMelee.sustainedHits,
+            warriorMeleeProfile = editedMelee,
+            warriorRangedProfile = editedRanged
+        )
+
+        // Ranged Fleshborer active while Boneswords melee stats remain completely independent
+        assertEquals(6, warriorSaved.warriorMeleeProfile?.attacksPerModel)
+        assertEquals(7, warriorSaved.warriorMeleeProfile?.strength)
+        assertEquals(2, warriorSaved.warriorMeleeProfile?.sustainedHits)
+        assertEquals(4, warriorSaved.warriorRangedProfile?.attacksPerModel)
+        assertEquals(6, warriorSaved.warriorRangedProfile?.strength)
+        assertEquals(6, warriorSaved.warriorRangedProfile?.range)
+        assertEquals(0, warriorSaved.warriorRangedProfile?.sustainedHits)
+
+        val warriorUnit = BattleUnit(
+            uid = "u_war",
+            template = warriorSaved,
+            faction = Faction.XENOS,
+            x = 5,
+            y = 10,
+            facing = Facing.EAST,
+            totalWounds = warriorSaved.maxTotalWounds,
+            maxTotalWounds = warriorSaved.maxTotalWounds,
+            moveCmLeft = 0f
+        )
+        val marineTarget = BattleUnit(
+            uid = "u_mar_near",
+            template = DefaultCatalog.defaultTemplates.first { it.id == "intercessors" },
+            faction = Faction.MARINES,
+            x = 6,
+            y = 10,
+            facing = Facing.WEST,
+            totalWounds = 10,
+            maxTotalWounds = 10,
+            moveCmLeft = 0f
+        )
+        val marineFar = marineTarget.copy(uid = "u_mar_far", x = 10, y = 10, worldX = 10f, worldY = 10f)
+        val warriorMeleePreview = TacticalRules.canTarget(warriorUnit, marineTarget, WeaponMode.MAIN, openMap, listOf(warriorUnit, marineTarget))!!
+        val warriorRangedPreview = TacticalRules.canTarget(warriorUnit, marineFar, WeaponMode.MAIN, openMap, listOf(warriorUnit, marineFar))!!
+        assertTrue(warriorMeleePreview.isMelee)
+        assertEquals(18, warriorMeleePreview.attacksCount) // 3 models * 6A Boneswords
+        assertEquals(7, warriorMeleePreview.weaponStrength)
+        assertEquals(2, warriorMeleePreview.sustainedHits)
+        assertFalse(warriorRangedPreview.isMelee)
+        assertEquals(12, warriorRangedPreview.attacksCount) // 3 models * 4A Fleshborer
+        assertEquals(6, warriorRangedPreview.weaponStrength)
+        assertEquals(0, warriorRangedPreview.sustainedHits)
+
+        // Ranged-main unit (Incursor) uses independent melee stats in close combat vs gun stats at range
+        val customIncursorTpl = DefaultCatalog.defaultTemplates.first { it.id == "incursors" }.copy(
+            attacksPerModel = 2,
+            strength = 4,
+            mainSustainedHits = 0,
+            meleeAttacks = 5,
+            meleeWeaponSkill = 2,
+            meleeStrength = 6,
+            meleeArmorPen = 2,
+            meleeDamage = 2,
+            meleeSustainedHits = 2
+        )
+        val incursor = BattleUnit(
+            uid = "u_inc_indep",
+            template = customIncursorTpl,
+            faction = Faction.MARINES,
+            x = 5,
+            y = 10,
+            facing = Facing.EAST,
+            totalWounds = 10,
+            maxTotalWounds = 10,
+            moveCmLeft = 0f
+        )
+        val nearEnemy = BattleUnit(
+            uid = "u_near",
+            template = baseWarrior,
+            faction = Faction.XENOS,
+            x = 6,
+            y = 10,
+            facing = Facing.WEST,
+            totalWounds = 10,
+            maxTotalWounds = 10,
+            moveCmLeft = 0f
+        )
+        val farEnemy = nearEnemy.copy(uid = "u_far", x = 10, y = 10, worldX = 10f, worldY = 10f)
+        val meleePreview = TacticalRules.canTarget(incursor, nearEnemy, WeaponMode.MAIN, openMap, listOf(incursor, nearEnemy))!!
+        val rangedPreview = TacticalRules.canTarget(incursor, farEnemy, WeaponMode.MAIN, openMap, listOf(incursor, farEnemy))!!
+        assertTrue(meleePreview.isMelee)
+        assertFalse(rangedPreview.isMelee)
+        assertEquals(25, meleePreview.attacksCount)
+        assertEquals(6, meleePreview.weaponStrength)
+        assertEquals(2, meleePreview.weaponAp)
+        assertEquals(2, meleePreview.sustainedHits)
+        assertEquals(2, meleePreview.hitRollNeeded)
+
+        assertEquals(10, rangedPreview.attacksCount)
+        assertEquals(4, rangedPreview.weaponStrength)
+        assertEquals(0, rangedPreview.weaponAp)
+        assertEquals(0, rangedPreview.sustainedHits)
+    }
+
+    @Test
+    fun assaultIntercessorSkillRequiresChargeAndGrantsPlusOneStrengthAndAp() {
+        val openMap = Array(MapGenerator.GRID_H) { Array(MapGenerator.GRID_W) { TerrainType.OPEN } }
+        val assaultTpl = DefaultCatalog.defaultTemplates.first { it.id == "assault_intercessors" }
+        val enemyTpl = DefaultCatalog.defaultTemplates.first { it.id == "carnifex" }
+
+        val enemy = BattleUnit(
+            uid = "u_car_target",
+            template = enemyTpl,
+            faction = Faction.XENOS,
+            x = 6,
+            y = 10,
+            facing = Facing.WEST,
+            totalWounds = enemyTpl.maxTotalWounds,
+            maxTotalWounds = enemyTpl.maxTotalWounds,
+            moveCmLeft = 0f
+        )
+
+        // 1. Not engaged & not charged -> Skill blocked
+        val unchargedFar = BattleUnit(
+            uid = "u_ai_1",
+            template = assaultTpl,
+            faction = Faction.MARINES,
+            x = 3,
+            y = 10,
+            facing = Facing.EAST,
+            totalWounds = assaultTpl.maxTotalWounds,
+            maxTotalWounds = assaultTpl.maxTotalWounds,
+            moveCmLeft = 18f,
+            hasCharged = false
+        )
+        assertFalse(TacticalRules.canUseMode(unchargedFar, WeaponMode.SKILL, listOf(unchargedFar, enemy)))
+        assertNull(TacticalRules.activateSelfSkillIfApplicable(unchargedFar, listOf(unchargedFar, enemy)))
+
+        // 2. In melee range WITHOUT charging (e.g., walked or still engaged at start of new turn with hasCharged = false) -> Skill blocked!
+        val engagedNoCharge = unchargedFar.copy(x = 5, worldX = 5f, hasCharged = false, skillCooldownLeft = 0)
+        assertFalse(TacticalRules.canUseMode(engagedNoCharge, WeaponMode.SKILL, listOf(engagedNoCharge, enemy)))
+        assertNull(TacticalRules.activateSelfSkillIfApplicable(engagedNoCharge, listOf(engagedNoCharge, enemy)))
+
+        // 3. Charged but failed to reach melee (hasCharged = true, not engaged) -> Skill blocked!
+        val failedChargeNotEngaged = unchargedFar.copy(x = 3, worldX = 3f, hasCharged = true)
+        assertFalse(TacticalRules.canUseMode(failedChargeNotEngaged, WeaponMode.SKILL, listOf(failedChargeNotEngaged, enemy)))
+        assertNull(TacticalRules.activateSelfSkillIfApplicable(failedChargeNotEngaged, listOf(failedChargeNotEngaged, enemy)))
+
+        // 4. Charged and reached melee target -> Skill ready & activates +1S +1AP melee buff within turn
+        val chargedInMelee = engagedNoCharge.copy(hasCharged = true)
+        assertTrue(TacticalRules.canUseMode(chargedInMelee, WeaponMode.SKILL, listOf(chargedInMelee, enemy)))
+
+        val basePreview = TacticalRules.canTarget(chargedInMelee, enemy, WeaponMode.MAIN, openMap, listOf(chargedInMelee, enemy))!!
+        assertEquals(assaultTpl.strength, basePreview.weaponStrength)
+        assertEquals(assaultTpl.armorPen, basePreview.weaponAp)
+
+        val buffed = TacticalRules.activateSelfSkillIfApplicable(chargedInMelee, listOf(chargedInMelee, enemy))
+        assertNotNull(buffed)
+        assertTrue(buffed!!.meleeChargeBuffActive)
+        assertEquals(assaultTpl.skillCooldown, buffed.skillCooldownLeft)
+        // Cannot activate twice in the same turn
+        assertFalse(TacticalRules.canUseMode(buffed, WeaponMode.SKILL, listOf(buffed, enemy)))
+
+        val buffedPreview = TacticalRules.canTarget(buffed, enemy, WeaponMode.MAIN, openMap, listOf(buffed, enemy))!!
+        assertTrue(buffedPreview.isMelee)
+        assertEquals(assaultTpl.strength + 1, buffedPreview.weaponStrength)
+        assertEquals(assaultTpl.armorPen + 1, buffedPreview.weaponAp)
+        assertEquals(assaultTpl.effectiveMeleeWeaponSkill, buffedPreview.hitRollNeeded)
+        assertEquals(assaultTpl.strength + 1, buffed.effectiveMainStrength)
+        assertEquals(assaultTpl.armorPen + 1, buffed.effectiveMainArmorPen)
+        // Pistol stats are unaffected by melee Charge buff
+        assertEquals(assaultTpl.pistolStrength, TacticalRules.weaponStrength(buffed, WeaponMode.PISTOL))
+        assertEquals(assaultTpl.pistolArmorPen, TacticalRules.weaponAp(buffed, WeaponMode.PISTOL))
+    }
 }
+
 
 
 

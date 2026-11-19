@@ -252,13 +252,21 @@ fun Battlefield3DView(
                 if (sx < -60f || sx > size.width + 60f || sy < -40f || sy > size.height + 40f) continue
 
                 val isSelected = unit.uid == st.selectedUnitUid
+                val isTeam0 = if (st.isCoopMode) unit.effectiveTeam == 0 else unit.faction == Faction.MARINES
                 val borderCol = when {
-                    isSelected && unit.faction == Faction.MARINES -> Color(0xFFD9E2EE)
-                    isSelected -> Color(0xFFC7B2AC)
+                    isSelected && isTeam0 -> Color(0xFFD9E2EE)
+                    isSelected -> Color(0xFFFFB5B5)
+                    st.isCoopMode && isTeam0 -> Color(0xFF3A8FD6)
+                    st.isCoopMode -> Color(0xFFC9444C)
                     unit.faction == Faction.MARINES -> Color(0xFF345B91)
                     else -> Color(0xFF6B3680)
                 }
-                val fillCol = if (unit.faction == Faction.MARINES) Color(0xFF3B669E) else Color(0xFF7D4394)
+                val fillCol = when {
+                    st.isCoopMode && isTeam0 -> Color(0xFF3A8FD6)
+                    st.isCoopMode -> Color(0xFFC9444C)
+                    unit.faction == Faction.MARINES -> Color(0xFF3B669E)
+                    else -> Color(0xFF7D4394)
+                }
                 val woundsFrac = (unit.totalWounds.toFloat() / unit.maxTotalWounds.coerceAtLeast(1)).coerceIn(0f, 1f)
 
                 val plateAlpha = ((cam.distance - 1.35f) / 1.4f).coerceIn(0.28f, 1f)
@@ -279,7 +287,11 @@ fun Battlefield3DView(
                     style = Stroke(width = (if (isSelected) 1.5f else 1f) * density)
                 )
 
-                val label = "${unit.aliveModels}x ${unit.totalWounds}W"
+                val label = if (st.isCoopMode) {
+                    "${unit.ownerPlayerId.uppercase()} ${unit.aliveModels}x"
+                } else {
+                    "${unit.aliveModels}x ${unit.totalWounds}W"
+                }
                 if (plateLabelCache.size > 128) plateLabelCache.clear()
                 val measured = plateLabelCache.getOrPut(label) {
                     textMeasurer.measure(label, plateTextStyle)
@@ -301,6 +313,44 @@ fun Battlefield3DView(
                     topLeft = Offset(left + barPad, barTop),
                     size = Size(barW * woundsFrac, barH)
                 )
+
+                if (unit.isMarked) {
+                    val markLabel = "◎ MARKED +1 HIT"
+                    val markMeasured = plateLabelCache.getOrPut(markLabel) {
+                        textMeasurer.measure(
+                            markLabel,
+                            TextStyle(
+                                color = Color(0xFFFFD166),
+                                fontSize = 9.5.sp,
+                                fontWeight = FontWeight.Black
+                            )
+                        )
+                    }
+                    val mPadX = 6f * density
+                    val mPadY = 2.5f * density
+                    val mW = markMeasured.size.width + mPadX * 2f
+                    val mH = markMeasured.size.height + mPadY * 2f
+                    val mLeft = sx - mW * 0.5f
+                    val mTop = top - mH - 3.5f * density
+                    drawRoundRect(
+                        color = Color(0xEE2A080C).copy(alpha = plateAlpha),
+                        topLeft = Offset(mLeft, mTop),
+                        size = Size(mW, mH),
+                        cornerRadius = cornerR
+                    )
+                    drawRoundRect(
+                        color = Color(0xFFFF6B35).copy(alpha = plateAlpha),
+                        topLeft = Offset(mLeft, mTop),
+                        size = Size(mW, mH),
+                        cornerRadius = cornerR,
+                        style = Stroke(width = 1.3f * density)
+                    )
+                    drawText(
+                        textLayoutResult = markMeasured,
+                        topLeft = Offset(mLeft + mPadX, mTop + mPadY),
+                        alpha = plateAlpha
+                    )
+                }
             }
 
             // CM Ruler Preview Badge

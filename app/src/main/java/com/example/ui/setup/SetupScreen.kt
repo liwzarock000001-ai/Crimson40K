@@ -739,11 +739,12 @@ private fun DeployedUnitRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-            val skillPart = if (template.isRangedMain) "R${template.range} BS${template.ballisticSkill}+" else "MELEE 2cm"
+            val skillPart = if (template.isRangedMain) "R${template.range} BS${template.ballisticSkill}+" else "MELEE 2cm WS${template.weaponSkill}+"
             val apPart = if (template.armorPen == 0) "AP0" else "AP-${template.armorPen}"
             val weaponTags = buildString {
                 if (template.mainWeaponAssault) append(" [ASSAULT]")
                 if (template.mainWeaponPistol) append(" [PISTOL]")
+                if (template.mainSustainedHits > 0) append(" [SUSTAINED ${template.mainSustainedHits}]")
             }
             Text(
                 text = "${template.mainWeaponName.uppercase()}$weaponTags: $skillPart • A${template.attacksPerModel} S${template.strength} $apPart D${template.damage}",
@@ -752,10 +753,22 @@ private fun DeployedUnitRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
+            if (template.isRangedMain) {
+                val mAp = if (template.effectiveMeleeArmorPen == 0) "AP0" else "AP-${template.effectiveMeleeArmorPen}"
+                val mSus = if (template.effectiveMeleeSustainedHits > 0) " [SUSTAINED ${template.effectiveMeleeSustainedHits}]" else ""
+                Text(
+                    text = "MELEE (${template.effectiveMeleeWeaponName})$mSus: WS${template.effectiveMeleeWeaponSkill}+ • A${template.effectiveMeleeAttacks} S${template.effectiveMeleeStrength} $mAp D${template.effectiveMeleeDamage}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = TextMuted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
             if (template.hasPistol) {
                 val pAp = if (template.pistolArmorPen == 0) "AP0" else "AP-${template.pistolArmorPen}"
+                val pSus = if (template.pistolSustainedHits > 0) " [SUSTAINED ${template.pistolSustainedHits}]" else ""
                 Text(
-                    text = "PISTOL (${template.pistolWeaponName}): R${template.pistolRange} BS${template.ballisticSkill}+ • A${template.pistolAttacks} S${template.pistolStrength} $pAp D${template.pistolDamage}",
+                    text = "PISTOL (${template.pistolWeaponName})$pSus: R${template.pistolRange} BS${template.ballisticSkill}+ • A${template.pistolAttacks} S${template.pistolStrength} $pAp D${template.pistolDamage}",
                     style = MaterialTheme.typography.labelSmall,
                     color = TacticalCyan,
                     maxLines = 1,

@@ -40,6 +40,55 @@ object DefaultCatalog {
             passiveDesc = "+1 to Hit (BS) when stationary (full Move cm).",
             mainWeaponName = "Bolt Rifle",
             mainWeaponAssault = true,
+            meleeWeaponName = "Close Combat Weapon",
+            meleeAttacks = 3,
+            meleeWeaponSkill = 3,
+            meleeStrength = 4,
+            meleeArmorPen = 0,
+            meleeDamage = 1,
+            pistolWeaponName = "Bolt Pistol",
+            pistolAttacks = 1,
+            pistolDamage = 1,
+            pistolStrength = 4,
+            pistolArmorPen = 0,
+            pistolRange = 3,
+            pistolCooldown = 1
+        ),
+        UnitTemplate(
+            id = "incursors",
+            name = "Incursor Squad",
+            faction = Faction.MARINES,
+            archetype = UnitArchetype.INCURSOR,
+            role = "Phobos Recon",
+            points = 170,
+            squadSize = 5,
+            woundsPerModel = 2,
+            toughness = 4,
+            save = 3,
+            invulnSave = null,
+            armorPen = 0,
+            moveCm = 18,
+            strength = 4,
+            damage = 1,
+            attacksPerModel = 2,
+            range = 5,
+            ballisticSkill = 3,
+            weaponSkill = 3,
+            skillName = "Multi-Spectrum Array",
+            skillDesc = "Fires full Occulus Bolt Carbine stats & Marks target enemy. Allied ranged (gun) attacks against the Marked enemy gain +1 to Hit roll during your team's turn. Cooldown: 1 Turn.",
+            skillCooldown = 1,
+            passiveName = "Occulus Targeter",
+            passiveDesc = "18 cm Phobos Recon with Assault Bolt Carbines and Sustained Hits melee blades.",
+            mainWeaponName = "Occulus Bolt Carbine",
+            mainWeaponAssault = true,
+            mainSustainedHits = 0,
+            meleeWeaponName = "Paired Combat Blades",
+            meleeAttacks = 3,
+            meleeWeaponSkill = 3,
+            meleeStrength = 4,
+            meleeArmorPen = 0,
+            meleeDamage = 1,
+            meleeSustainedHits = 1,
             pistolWeaponName = "Bolt Pistol",
             pistolAttacks = 1,
             pistolDamage = 1,
@@ -75,6 +124,12 @@ object DefaultCatalog {
             passiveDesc = "High Strength & AP plasma pierces heavy armor saves.",
             mainWeaponName = "Plasma Incinerator",
             mainWeaponAssault = false,
+            meleeWeaponName = "Close Combat Weapon",
+            meleeAttacks = 3,
+            meleeWeaponSkill = 4,
+            meleeStrength = 4,
+            meleeArmorPen = 0,
+            meleeDamage = 1,
             pistolWeaponName = "Plasma Pistol",
             pistolAttacks = 1,
             pistolDamage = 1,
@@ -103,10 +158,10 @@ object DefaultCatalog {
             range = 1,
             ballisticSkill = 3,
             weaponSkill = 3,
-            skillName = "Chainsword Whirlwind",
-            skillDesc = "Cleaves all adjacent enemy squads in melee range.",
-            skillCooldown = 2,
-            passiveName = "Shock Assault",
+            skillName = "Shock Assault",
+            skillDesc = "Requires completing a Charge into melee this turn. Adds +1 Strength and +1 AP to melee weapons until end of turn (must Charge again on future turns).",
+            skillCooldown = 1,
+            passiveName = "Close Support",
             passiveDesc = "Fires Heavy Bolt Pistol then charges with 3x S4 AP-1 Chainsword strikes.",
             mainWeaponName = "Astartes Chainsword",
             mainWeaponAssault = false,
@@ -146,7 +201,27 @@ object DefaultCatalog {
             terminatorWeapon = TerminatorWeaponChoice.THUNDER_HAMMER_SHIELD,
             mainWeaponName = "Thunder Hammer & Storm Shield",
             mainWeaponAssault = false,
-            pistolDamage = 0
+            pistolDamage = 0,
+            terminatorHammerProfile = com.example.model.WeaponProfile(
+                name = "Thunder Hammer & Storm Shield",
+                range = 1,
+                attacksPerModel = 3,
+                skill = 3,
+                strength = 8,
+                armorPen = 2,
+                damage = 2,
+                sustainedHits = 0
+            ),
+            terminatorClawsProfile = com.example.model.WeaponProfile(
+                name = "Twin Lightning Claws",
+                range = 1,
+                attacksPerModel = 5,
+                skill = 3,
+                strength = 5,
+                armorPen = 2,
+                damage = 1,
+                sustainedHits = 0
+            )
         ),
         UnitTemplate(
             id = "dreadnought",
@@ -175,6 +250,12 @@ object DefaultCatalog {
             passiveDesc = "12W, T10, 2+ Save and reduces incoming Damage D by 1 (min 1).",
             mainWeaponName = "Macro Plasma & Combat Fist",
             mainWeaponAssault = false,
+            meleeWeaponName = "Redemptor Fist",
+            meleeAttacks = 5,
+            meleeWeaponSkill = 3,
+            meleeStrength = 12,
+            meleeArmorPen = 2,
+            meleeDamage = 3,
             pistolDamage = 0
         ),
 
@@ -206,6 +287,12 @@ object DefaultCatalog {
             passiveDesc = "Gains +2 to Save rolls while in Cover (craters & barricades).",
             mainWeaponName = "Fleshborer",
             mainWeaponAssault = true,
+            meleeWeaponName = "Chitinous Claws & Teeth",
+            meleeAttacks = 1,
+            meleeWeaponSkill = 4,
+            meleeStrength = 3,
+            meleeArmorPen = 0,
+            meleeDamage = 1,
             pistolDamage = 0
         ),
         UnitTemplate(
@@ -265,7 +352,34 @@ object DefaultCatalog {
             weaponChoice = WarriorWeaponChoice.BONESWORDS,
             mainWeaponName = "Tyranid Boneswords",
             mainWeaponAssault = false,
-            pistolDamage = 0
+            meleeWeaponName = "Tyranid Boneswords",
+            meleeAttacks = 3,
+            meleeWeaponSkill = 3,
+            meleeStrength = 5,
+            meleeArmorPen = 2,
+            meleeDamage = 2,
+            pistolDamage = 0,
+            warriorMeleeProfile = com.example.model.WeaponProfile(
+                name = "Tyranid Boneswords",
+                range = 1,
+                attacksPerModel = 3,
+                skill = 3,
+                strength = 5,
+                armorPen = 2,
+                damage = 2,
+                sustainedHits = 0
+            ),
+            warriorRangedProfile = com.example.model.WeaponProfile(
+                name = "Fleshborer",
+                range = 4,
+                attacksPerModel = 2,
+                skill = 4,
+                strength = 5,
+                armorPen = 0,
+                damage = 1,
+                sustainedHits = 0,
+                assault = true
+            )
         ),
         UnitTemplate(
             id = "carnifex",
@@ -349,6 +463,36 @@ object DefaultCatalog {
         RosterSlot("x5", "von_ryans_leaper")
     )
 
+    private fun profileToJson(p: com.example.model.WeaponProfile): JSONObject = JSONObject().apply {
+        put("name", p.name)
+        put("range", p.range)
+        put("attacksPerModel", p.attacksPerModel)
+        put("skill", p.skill)
+        put("strength", p.strength)
+        put("armorPen", p.armorPen)
+        put("damage", p.damage)
+        put("sustainedHits", p.sustainedHits)
+        put("assault", p.assault)
+        put("pistol", p.pistol)
+    }
+
+    private fun jsonToProfile(obj: JSONObject?, fallback: com.example.model.WeaponProfile?): com.example.model.WeaponProfile? {
+        if (obj == null) return fallback
+        val fb = fallback ?: return null
+        return com.example.model.WeaponProfile(
+            name = obj.optString("name", fb.name).ifBlank { fb.name },
+            range = obj.optInt("range", fb.range).coerceIn(1, 12),
+            attacksPerModel = obj.optInt("attacksPerModel", fb.attacksPerModel).coerceIn(1, 10),
+            skill = obj.optInt("skill", fb.skill).coerceIn(2, 6),
+            strength = obj.optInt("strength", fb.strength).coerceIn(1, 20),
+            armorPen = obj.optInt("armorPen", fb.armorPen).coerceIn(0, 5),
+            damage = obj.optInt("damage", fb.damage).coerceIn(1, 500),
+            sustainedHits = obj.optInt("sustainedHits", fb.sustainedHits).coerceIn(0, 6),
+            assault = obj.optBoolean("assault", fb.assault),
+            pistol = obj.optBoolean("pistol", fb.pistol)
+        )
+    }
+
     fun serializeTemplates(templates: Map<String, UnitTemplate>): String {
         val arr = JSONArray()
         templates.values.forEach { t ->
@@ -374,12 +518,25 @@ object DefaultCatalog {
                 put("mainWeaponName", t.mainWeaponName)
                 put("mainWeaponAssault", t.mainWeaponAssault)
                 put("mainWeaponPistol", t.mainWeaponPistol)
+                put("mainSustainedHits", t.mainSustainedHits)
+                put("meleeWeaponName", t.meleeWeaponName)
+                put("meleeAttacks", t.meleeAttacks)
+                put("meleeWeaponSkill", t.meleeWeaponSkill)
+                put("meleeStrength", t.meleeStrength)
+                put("meleeArmorPen", t.meleeArmorPen)
+                put("meleeDamage", t.meleeDamage)
+                put("meleeSustainedHits", t.meleeSustainedHits)
                 put("pistolAttacks", t.pistolAttacks)
                 put("pistolDamage", t.pistolDamage)
                 put("pistolStrength", t.pistolStrength)
                 put("pistolArmorPen", t.pistolArmorPen)
                 put("pistolRange", t.pistolRange)
                 put("pistolCooldown", t.pistolCooldown)
+                put("pistolSustainedHits", t.pistolSustainedHits)
+                t.warriorMeleeProfile?.let { put("warriorMeleeProfile", profileToJson(it)) }
+                t.warriorRangedProfile?.let { put("warriorRangedProfile", profileToJson(it)) }
+                t.terminatorHammerProfile?.let { put("terminatorHammerProfile", profileToJson(it)) }
+                t.terminatorClawsProfile?.let { put("terminatorClawsProfile", profileToJson(it)) }
             })
         }
         return arr.toString()
@@ -424,12 +581,25 @@ object DefaultCatalog {
                     mainWeaponName = if (isLegacyTerminator) existing.mainWeaponName else obj.optString("mainWeaponName", existing.mainWeaponName).ifBlank { existing.mainWeaponName },
                     mainWeaponAssault = if (isLegacyTerminator) existing.mainWeaponAssault else if (obj.has("mainWeaponAssault")) obj.optBoolean("mainWeaponAssault", existing.mainWeaponAssault) else existing.mainWeaponAssault,
                     mainWeaponPistol = if (isLegacyTerminator) existing.mainWeaponPistol else if (obj.has("mainWeaponPistol")) obj.optBoolean("mainWeaponPistol", existing.mainWeaponPistol) else existing.mainWeaponPistol,
+                    mainSustainedHits = obj.optInt("mainSustainedHits", existing.mainSustainedHits).coerceIn(0, 6),
+                    meleeWeaponName = obj.optString("meleeWeaponName", existing.meleeWeaponName).ifBlank { existing.meleeWeaponName },
+                    meleeAttacks = obj.optInt("meleeAttacks", existing.meleeAttacks).coerceIn(0, 10),
+                    meleeWeaponSkill = obj.optInt("meleeWeaponSkill", existing.meleeWeaponSkill).coerceIn(0, 6),
+                    meleeStrength = obj.optInt("meleeStrength", existing.meleeStrength).coerceIn(1, 20),
+                    meleeArmorPen = obj.optInt("meleeArmorPen", existing.meleeArmorPen).coerceIn(0, 5),
+                    meleeDamage = obj.optInt("meleeDamage", existing.meleeDamage).coerceIn(1, 500),
+                    meleeSustainedHits = obj.optInt("meleeSustainedHits", existing.meleeSustainedHits).coerceIn(0, 6),
                     pistolAttacks = obj.optInt("pistolAttacks", existing.pistolAttacks).coerceIn(1, 10),
                     pistolDamage = obj.optInt("pistolDamage", existing.pistolDamage).coerceIn(0, 200),
                     pistolStrength = obj.optInt("pistolStrength", existing.pistolStrength).coerceIn(1, 20),
                     pistolArmorPen = obj.optInt("pistolArmorPen", existing.pistolArmorPen).coerceIn(0, 5),
                     pistolRange = obj.optInt("pistolRange", existing.pistolRange).coerceIn(1, 8),
-                    pistolCooldown = obj.optInt("pistolCooldown", existing.pistolCooldown).coerceIn(1, 6)
+                    pistolCooldown = obj.optInt("pistolCooldown", existing.pistolCooldown).coerceIn(1, 6),
+                    pistolSustainedHits = obj.optInt("pistolSustainedHits", existing.pistolSustainedHits).coerceIn(0, 6),
+                    warriorMeleeProfile = jsonToProfile(obj.optJSONObject("warriorMeleeProfile"), existing.warriorMeleeProfile),
+                    warriorRangedProfile = jsonToProfile(obj.optJSONObject("warriorRangedProfile"), existing.warriorRangedProfile),
+                    terminatorHammerProfile = jsonToProfile(obj.optJSONObject("terminatorHammerProfile"), existing.terminatorHammerProfile),
+                    terminatorClawsProfile = jsonToProfile(obj.optJSONObject("terminatorClawsProfile"), existing.terminatorClawsProfile)
                 )
             }
             base

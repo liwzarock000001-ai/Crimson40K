@@ -11,6 +11,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -29,6 +30,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CutCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.DirectionsRun
@@ -146,6 +150,7 @@ fun BattleScreen(
     onToggleSound: () -> Unit,
     onToggleUnitCard: () -> Unit,
     onDismissTurnSplash: () -> Unit,
+    onSelectReserveUnit: (String) -> Unit = {},
     onSaveBattle: () -> Unit = {},
     onExitToSetup: () -> Unit
 ) {
@@ -204,138 +209,161 @@ fun BattleScreen(
                 )
         )
 
-        // Top-Left Relic Command Header & Army Counters (themed by active faction)
-        TopHudOverlay(
-            round = state.round,
-            activeFaction = state.activeFaction,
-            isPlayerTurn = state.isPlayerTurn,
-            isCoopMode = state.isCoopMode,
-            activeCoopPlayerName = state.activeCoopPlayerName,
-            autoFocusCamera = state.autoFocusCamera,
-            soundEnabled = state.soundEnabled,
-            marineAliveModels = state.marineAliveModels,
-            xenosAliveModels = state.xenosAliveModels,
-            onToggleAutoFocus = onToggleAutoFocus,
-            onCenterCamera = onCenterCamera,
-            onRotateCamera = remember {
-                {
-                    cameraYawDeltaDeg = -45f
-                    cameraYawDeltaTrigger++
-                }
-            },
-            onZoomIn = remember {
-                {
-                    zoomStepDirection = 1
-                    zoomStepTrigger++
-                }
-            },
-            onZoomOut = remember {
-                {
-                    zoomStepDirection = -1
-                    zoomStepTrigger++
-                }
-            },
-            onToggleSound = onToggleSound,
-            onSaveBattle = onSaveBattle,
-            onRequestSetup = remember { { showConfirmExit = true } },
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .statusBarsPadding()
-                .displayCutoutPadding()
-                .padding(8.dp)
-        )
-
-        // Top-Right Camera Orbit & Side-Angle Controls + Turn Splash Banner
+        // Top HUD Stack: Slim Deployment Banner (topmost edge) + Top-Left Command Header & Top-Right Camera Controls (zero overlap)
         Column(
             modifier = Modifier
-                .align(Alignment.TopEnd)
+                .align(Alignment.TopCenter)
+                .fillMaxWidth()
                 .statusBarsPadding()
                 .displayCutoutPadding()
-                .padding(8.dp),
-            horizontalAlignment = Alignment.End,
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+                .padding(horizontal = 8.dp, vertical = if (state.isDeploymentPhase) 2.dp else 8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            val camPal = factionPalette(state.activeFaction)
-            GrimdarkBevelPanel(
-                cut = 6.dp,
-                borderColor = camPal.trimBorder,
-                topColor = camPal.panelTop,
-                bottomColor = camPal.panelBottom,
-                showRivets = false
+            if (state.isDeploymentPhase) {
+                DeploymentPhaseBanner(
+                    turnPlayerName = state.deploymentTurnPlayerName,
+                    teamIndex = state.deploymentTeamIndex,
+                    isLocalTurn = state.isPlayerTurn,
+                    remainingReserves = state.reserveUnits.size,
+                    modifier = Modifier
+                        .align(Alignment.CenterHorizontally)
+                        .testTag("deployment_phase_banner")
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Top
             ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    HudIconButton(
-                        icon = Icons.AutoMirrored.Filled.RotateLeft,
-                        contentDesc = "Orbit Camera Left",
-                        onClick = {
+                // Top-Left Relic Command Header & Army Counters (themed by active faction)
+                TopHudOverlay(
+                    round = state.round,
+                    activeFaction = state.activeFaction,
+                    isPlayerTurn = state.isPlayerTurn,
+                    isCoopMode = state.isCoopMode,
+                    isDeploymentPhase = state.isDeploymentPhase,
+                    activeCoopPlayerName = if (state.isDeploymentPhase) state.deploymentTurnPlayerName else state.activeCoopPlayerName,
+                    autoFocusCamera = state.autoFocusCamera,
+                    soundEnabled = state.soundEnabled,
+                    marineAliveModels = state.marineAliveModels,
+                    xenosAliveModels = state.xenosAliveModels,
+                    onToggleAutoFocus = onToggleAutoFocus,
+                    onCenterCamera = onCenterCamera,
+                    onRotateCamera = remember {
+                        {
                             cameraYawDeltaDeg = -45f
                             cameraYawDeltaTrigger++
-                        },
-                        testTag = "cam_orbit_left_button"
-                    )
-                    HudChipButton(
-                        label = when (cameraPitchMode) {
-                            1 -> "3/4"
-                            2 -> "Side"
-                            else -> "Top"
-                        },
-                        icon = Icons.Default.Videocam,
-                        tint = if (cameraPitchMode != 0) TacticalCyan else camPal.headerText,
-                        borderColor = if (cameraPitchMode != 0) TacticalCyan.copy(alpha = 0.75f) else BorderSteel,
-                        onClick = { cameraPitchMode = (cameraPitchMode + 1) % 3 },
-                        testTag = "cam_pitch_toggle_button"
-                    )
-                    HudIconButton(
-                        icon = Icons.AutoMirrored.Filled.RotateRight,
-                        contentDesc = "Orbit Camera Right",
-                        onClick = {
-                            cameraYawDeltaDeg = 45f
-                            cameraYawDeltaTrigger++
-                        },
-                        testTag = "cam_orbit_right_button"
-                    )
-                }
-            }
+                        }
+                    },
+                    onZoomIn = remember {
+                        {
+                            zoomStepDirection = 1
+                            zoomStepTrigger++
+                        }
+                    },
+                    onZoomOut = remember {
+                        {
+                            zoomStepDirection = -1
+                            zoomStepTrigger++
+                        }
+                    },
+                    onToggleSound = onToggleSound,
+                    onSaveBattle = onSaveBattle,
+                    onRequestSetup = remember { { showConfirmExit = true } },
+                    modifier = Modifier
+                        .weight(1f, fill = false)
+                        .padding(end = 6.dp)
+                )
 
-            AnimatedVisibility(
-                visible = state.saveBannerMessage != null,
-                enter = fadeIn(),
-                exit = fadeOut()
-            ) {
-                state.saveBannerMessage?.let { msg ->
+                // Top-Right Camera Orbit & Side-Angle Controls + Turn Splash Banner
+                Column(
+                    horizontalAlignment = Alignment.End,
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    val camPal = factionPalette(state.activeFaction)
                     GrimdarkBevelPanel(
                         cut = 6.dp,
-                        borderColor = EmeraldBorder,
-                        topColor = EmeraldSurface,
-                        bottomColor = VoidObsidian,
+                        borderColor = camPal.trimBorder,
+                        topColor = camPal.panelTop,
+                        bottomColor = camPal.panelBottom,
                         showRivets = false
                     ) {
-                        Text(
-                            text = msg,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = EmeraldBuff,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
-                        )
+                        Row(
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            HudIconButton(
+                                icon = Icons.AutoMirrored.Filled.RotateLeft,
+                                contentDesc = "Orbit Camera Left",
+                                onClick = {
+                                    cameraYawDeltaDeg = -45f
+                                    cameraYawDeltaTrigger++
+                                },
+                                testTag = "cam_orbit_left_button"
+                            )
+                            HudChipButton(
+                                label = when (cameraPitchMode) {
+                                    1 -> "3/4"
+                                    2 -> "Side"
+                                    else -> "Top"
+                                },
+                                icon = Icons.Default.Videocam,
+                                tint = if (cameraPitchMode != 0) TacticalCyan else camPal.headerText,
+                                borderColor = if (cameraPitchMode != 0) TacticalCyan.copy(alpha = 0.75f) else BorderSteel,
+                                onClick = { cameraPitchMode = (cameraPitchMode + 1) % 3 },
+                                testTag = "cam_pitch_toggle_button"
+                            )
+                            HudIconButton(
+                                icon = Icons.AutoMirrored.Filled.RotateRight,
+                                contentDesc = "Orbit Camera Right",
+                                onClick = {
+                                    cameraYawDeltaDeg = 45f
+                                    cameraYawDeltaTrigger++
+                                },
+                                testTag = "cam_orbit_right_button"
+                            )
+                        }
                     }
-                }
-            }
 
-            AnimatedVisibility(
-                visible = state.turnSplash != null,
-                enter = fadeIn() + scaleIn(initialScale = 0.94f),
-                exit = fadeOut() + scaleOut(targetScale = 0.96f)
-            ) {
-                state.turnSplash?.let { splash ->
-                    TurnSplashCard(splash = splash, onClick = onDismissTurnSplash)
+                    AnimatedVisibility(
+                        visible = state.saveBannerMessage != null,
+                        enter = fadeIn(),
+                        exit = fadeOut()
+                    ) {
+                        state.saveBannerMessage?.let { msg ->
+                            GrimdarkBevelPanel(
+                                cut = 6.dp,
+                                borderColor = EmeraldBorder,
+                                topColor = EmeraldSurface,
+                                bottomColor = VoidObsidian,
+                                showRivets = false
+                            ) {
+                                Text(
+                                    text = msg,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = EmeraldBuff,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    AnimatedVisibility(
+                        visible = state.turnSplash != null,
+                        enter = fadeIn() + scaleIn(initialScale = 0.94f),
+                        exit = fadeOut() + scaleOut(targetScale = 0.96f)
+                    ) {
+                        state.turnSplash?.let { splash ->
+                            TurnSplashCard(splash = splash, onClick = onDismissTurnSplash)
+                        }
+                    }
                 }
             }
         }
 
-        // Bottom HUD: Target Preview cleanly docked above Unit Dossier + Command Dock
+        // Bottom HUD: Deployment Tray OR Target Preview cleanly docked above Unit Dossier + Command Dock
         val selectedUnit = state.selectedUnit
         Column(
             modifier = Modifier
@@ -347,6 +375,12 @@ fun BattleScreen(
             verticalArrangement = Arrangement.spacedBy(8.dp),
             horizontalAlignment = Alignment.End
         ) {
+            if (state.isDeploymentPhase) {
+                DeploymentTrayBar(
+                    state = state,
+                    onSelectReserveUnit = onSelectReserveUnit
+                )
+            } else {
             AnimatedVisibility(visible = state.targetPreview != null) {
                 state.targetPreview?.let { preview ->
                     TargetPreviewBanner(
@@ -472,6 +506,7 @@ fun BattleScreen(
                     onInspectSkill = { template -> viewingSkillInfoTemplate = template }
                 )
             }
+            }
         }
 
         // Confirm Return to Setup Dialog
@@ -526,6 +561,7 @@ private fun TopHudOverlay(
     activeFaction: Faction,
     isPlayerTurn: Boolean,
     isCoopMode: Boolean,
+    isDeploymentPhase: Boolean,
     activeCoopPlayerName: String,
     autoFocusCamera: Boolean,
     soundEnabled: Boolean,
@@ -596,7 +632,9 @@ private fun TopHudOverlay(
                     accentBarColor = pal.primaryAccent
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp),
+                        modifier = Modifier
+                            .horizontalScroll(rememberScrollState())
+                            .padding(horizontal = 9.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(5.dp)
                     ) {
@@ -608,7 +646,11 @@ private fun TopHudOverlay(
                         )
                         Column(modifier = Modifier.padding(end = 4.dp)) {
                             Text(
-                                text = if (isCoopMode) "R$round • CO-OP" else "ROUND $round",
+                                text = when {
+                                    isDeploymentPhase -> "DEPLOY • CO-OP"
+                                    isCoopMode -> "R$round • CO-OP"
+                                    else -> "ROUND $round"
+                                },
                                 style = MaterialTheme.typography.labelSmall,
                                 color = pal.trimBorder
                             )
@@ -776,12 +818,10 @@ private fun TargetPreviewBanner(
     val tagBg = when (preview.coverTag) {
         CoverTag.OPEN -> Color(0xFF1F232B)
         CoverTag.COVER -> Color(0xFF3E3012)
-        CoverTag.FLANK, CoverTag.REAR -> CrimsonSurface
     }
     val tagFg = when (preview.coverTag) {
         CoverTag.OPEN -> TextMuted
         CoverTag.COVER -> WarmAmber
-        CoverTag.FLANK, CoverTag.REAR -> CrimsonSoft
     }
 
     GrimdarkBevelPanel(
@@ -831,6 +871,26 @@ private fun TargetPreviewBanner(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
+                if (preview.markedBonusApplied || preview.sustainedHits > 0) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                        if (preview.markedBonusApplied) {
+                            Text(
+                                text = "◎ MARKED (+1 HIT)",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = WarmAmber,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        if (preview.sustainedHits > 0) {
+                            Text(
+                                text = "[SUSTAINED HITS ${preview.sustainedHits}]",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = EmeraldBuff,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
                 Text(
                     text = "$hitSkillLabel ${preview.hitRollNeeded}+ (${preview.hitChance}%) • S${preview.weaponStrength} vs T${preview.targetToughness} (${preview.woundRollNeeded}+) • $apText • $saveText",
                     style = MaterialTheme.typography.labelSmall,
@@ -980,6 +1040,9 @@ private fun UnitStatusCard(
                     if (unit.isCloaked) {
                         StatPill("STEALTH", "CLOAKED 1T", TacticalCyan)
                     }
+                    if (unit.isMarked) {
+                        StatPill("MARKED", "+1 RANGED HIT", WarmAmber)
+                    }
                 }
 
                 HorizontalDivider(color = DividerIron, modifier = Modifier.padding(vertical = 5.dp))
@@ -1022,9 +1085,24 @@ private fun UnitStatusCard(
                                 .padding(horizontal = 5.dp, vertical = 1.dp)
                         )
                     }
+                    if (unit.template.mainSustainedHits > 0) {
+                        val tagShape = remember { CutCornerShape(3.dp) }
+                        Text(
+                            text = "SUSTAINED ${unit.template.mainSustainedHits}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = WarmAmber,
+                            modifier = Modifier
+                                .clip(tagShape)
+                                .background(InputDark)
+                                .border(0.8.dp, WarmAmber.copy(alpha = 0.65f), tagShape)
+                                .padding(horizontal = 5.dp, vertical = 1.dp)
+                        )
+                    }
                 }
                 Spacer(Modifier.height(3.dp))
-                val apLabel = if (unit.template.armorPen == 0) "0" else "-${unit.template.armorPen}"
+                val effectiveAp = unit.effectiveMainArmorPen
+                val apLabel = if (effectiveAp == 0) "0" else "-$effectiveAp"
+                val meleeChargeGlow = unit.meleeChargeBuffActive && !unit.template.isRangedMain
                 FlowRow(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -1037,27 +1115,52 @@ private fun UnitStatusCard(
                     } else {
                         StatPill("WS", "${unit.effectiveWeaponSkill}+", TextPrimary)
                     }
-                    StatPill("S", "${unit.template.strength}", TextPrimary)
-                    StatPill("AP", apLabel, TextPrimary)
+                    StatPill("S", "${unit.effectiveMainStrength}", if (meleeChargeGlow) WarmAmber else TextPrimary)
+                    StatPill("AP", apLabel, if (meleeChargeGlow) WarmAmber else TextPrimary)
                     StatPill("D", "${unit.effectiveDamage}", TextPrimary)
                 }
 
-                if (unit.hasCharged && unit.template.isRangedMain) {
-                    Spacer(Modifier.height(4.dp))
-                    val ccStr = TacticalRules.weaponStrength(unit, WeaponMode.MAIN, isMeleeOverride = true)
-                    val ccAp = TacticalRules.weaponAp(unit, WeaponMode.MAIN, isMeleeOverride = true)
+                if (unit.template.isRangedMain) {
+                    Spacer(Modifier.height(5.dp))
+                    val ccAp = unit.template.effectiveMeleeArmorPen
                     val ccApLabel = if (ccAp == 0) "0" else "-$ccAp"
-                    val ccDmg = if (unit.template.archetype == UnitArchetype.TERMINATOR ||
-                        unit.template.archetype == UnitArchetype.DREADNOUGHT
-                    ) unit.effectiveDamage else 1
+                    val ccDmg = unit.template.effectiveMeleeDamage + if (unit.buffTurnsLeft > 0) 1 else 0
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = "${unit.template.effectiveMeleeWeaponName.uppercase()} [MELEE]",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = CrimsonSoft,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
+                        )
+                        if (unit.template.effectiveMeleeSustainedHits > 0) {
+                            val tagShape = remember { CutCornerShape(3.dp) }
+                            Text(
+                                text = "SUSTAINED ${unit.template.effectiveMeleeSustainedHits}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = WarmAmber,
+                                modifier = Modifier
+                                    .clip(tagShape)
+                                    .background(InputDark)
+                                    .border(0.8.dp, WarmAmber.copy(alpha = 0.65f), tagShape)
+                                    .padding(horizontal = 5.dp, vertical = 1.dp)
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(2.dp))
                     FlowRow(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        StatPill("MELEE", "CHARGED", WarmAmber)
-                        StatPill("WS", "${unit.effectiveWeaponSkill}+", TextPrimary)
-                        StatPill("S", "$ccStr", TextPrimary)
+                        StatPill("RNG", "2 cm", TextPrimary)
+                        StatPill("A", "${unit.template.effectiveMeleeAttacks}", TextPrimary)
+                        StatPill("WS", "${unit.effectiveMeleeWeaponSkill}+", TextPrimary)
+                        StatPill("S", "${unit.template.effectiveMeleeStrength}", TextPrimary)
                         StatPill("AP", ccApLabel, TextPrimary)
                         StatPill("D", "$ccDmg", TextPrimary)
                     }
@@ -1066,8 +1169,9 @@ private fun UnitStatusCard(
                 if (unit.template.hasPistol) {
                     Spacer(Modifier.height(5.dp))
                     val pistolAp = if (unit.template.pistolArmorPen == 0) "0" else "-${unit.template.pistolArmorPen}"
+                    val pSusText = if (unit.template.pistolSustainedHits > 0) " [SUSTAINED ${unit.template.pistolSustainedHits}]" else ""
                     Text(
-                        text = "${unit.template.pistolWeaponName.uppercase()} [PISTOL]",
+                        text = "${unit.template.pistolWeaponName.uppercase()} [PISTOL]$pSusText",
                         style = MaterialTheme.typography.labelSmall,
                         color = TacticalCyan,
                         maxLines = 1,
@@ -1573,13 +1677,18 @@ private fun ActionDock(
             if (selected != null) {
                 val isTerminator = selected.template.archetype == UnitArchetype.TERMINATOR
                 val isLeaper = selected.template.archetype == UnitArchetype.VON_RYANS_LEAPER
+                val isAssaultMarine = selected.template.archetype == UnitArchetype.ASSAULT_MARINE
                 val isMeleeSkill = TacticalRules.modeUsesMelee(selected, WeaponMode.SKILL)
-                val isUtilitySkill = isTerminator || selected.template.archetype == UnitArchetype.HORMAGAUNT || isLeaper
+                val isUtilitySkill = isTerminator || selected.template.archetype == UnitArchetype.HORMAGAUNT || isLeaper || isAssaultMarine
                 val skillReady = enabled && TacticalRules.canUseMode(selected, WeaponMode.SKILL, allUnits)
                 val isSkillOn = weaponMode == WeaponMode.SKILL
                 val skillSubtitle = when {
-                    selected.isCloaked -> "ACTIVE 1T"
+                    selected.isCloaked || selected.meleeChargeBuffActive -> "ACTIVE 1T"
                     selected.skillCooldownLeft > 0 -> "CD ${selected.skillCooldownLeft}"
+                    isAssaultMarine && selected.hasFought -> "FOUGHT"
+                    isAssaultMarine && selected.hasAdvanced -> "NO ADV"
+                    isAssaultMarine && (!selected.hasCharged || !isEngaged) -> "NEED CHG"
+                    isAssaultMarine -> "+1S +1AP"
                     selected.hasCharged && !isMeleeSkill -> "MELEE"
                     isEngaged && !isMeleeSkill && !isLeaper && (isTerminator || !selected.template.mainWeaponPistol) -> "IN MELEE"
                     selected.hasAdvanced && !selected.template.mainWeaponAssault && !isUtilitySkill && !isMeleeSkill -> "NO ADV"
@@ -1593,10 +1702,10 @@ private fun ActionDock(
                     title = if (isTerminator) "Teleport" else "Skill",
                     subtitle = skillSubtitle,
                     icon = null,
-                    containerTop = if (isSkillOn || selected.isCloaked) ColorTokens.CyanSurface else ColorTokens.SkillSurface,
+                    containerTop = if (isSkillOn || selected.isCloaked || selected.meleeChargeBuffActive) ColorTokens.CyanSurface else ColorTokens.SkillSurface,
                     containerBottom = PanelIronBottom,
-                    borderColor = if (isSkillOn || selected.isCloaked) TacticalCyan else ColorTokens.SkillBorder,
-                    textColor = if (selected.isCloaked) TacticalCyan else WarmAmber,
+                    borderColor = if (isSkillOn || selected.isCloaked || selected.meleeChargeBuffActive) TacticalCyan else ColorTokens.SkillBorder,
+                    textColor = if (selected.isCloaked || selected.meleeChargeBuffActive) TacticalCyan else WarmAmber,
                     enabled = true,
                     onClick = {
                         if (skillReady) {
@@ -1712,7 +1821,11 @@ private fun TurnSplashCard(splash: TurnSplashData, onClick: () -> Unit) {
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
-                text = "ROUND ${splash.round} • ${splash.activeFaction.badgeTag}",
+                text = if (splash.round <= 0) {
+                    "DEPLOYMENT PHASE • ${splash.activeFaction.badgeTag}"
+                } else {
+                    "ROUND ${splash.round} • ${splash.activeFaction.badgeTag}"
+                },
                 style = MaterialTheme.typography.labelSmall,
                 color = pal.trimBorder
             )
@@ -1781,7 +1894,7 @@ private fun BattleSummaryDialog(
                 )
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    text = "${summary.winner.displayName} prevailed in ${summary.rounds} rounds.\n" +
+                    text = "${summary.winnerLabel.ifBlank { summary.winner.displayName }} prevailed in ${summary.rounds} rounds.\n" +
                         "Enemy Squads Eliminated: ${summary.playerKills}\n" +
                         "Squads Lost: ${summary.enemyKills}\n" +
                         "Total Damage Dealt: ${summary.totalDamageDealt}",
@@ -1854,4 +1967,192 @@ private fun SkillInfoDialog(
             }
         }
     )
+}
+
+@Composable
+private fun DeploymentPhaseBanner(
+    turnPlayerName: String,
+    teamIndex: Int,
+    isLocalTurn: Boolean,
+    remainingReserves: Int,
+    modifier: Modifier = Modifier
+) {
+    val teamAccent = if (teamIndex == 0) TacticalCyan else CrimsonSoft
+    val zoneLabel = if (teamIndex == 0) "TEAM 1 • WEST 3-TILE" else "TEAM 2 • EAST 3-TILE"
+    GrimdarkBevelPanel(
+        cut = 6.dp,
+        borderColor = if (isLocalTurn) ImperialGold else teamAccent,
+        topColor = PanelIronTop,
+        bottomColor = VoidObsidian,
+        accentBarColor = teamAccent,
+        showRivets = false,
+        modifier = modifier
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 3.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = "DEPLOY • $zoneLabel",
+                style = MaterialTheme.typography.labelSmall,
+                color = teamAccent,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                softWrap = false
+            )
+            Text(
+                text = "•",
+                style = MaterialTheme.typography.labelSmall,
+                color = DividerIron
+            )
+            Text(
+                text = if (isLocalTurn) {
+                    "YOUR TURN (${turnPlayerName.uppercase()}) — TAP HIGHLIGHTED BORDER TO PLACE ($remainingReserves LEFT)"
+                } else {
+                    "WAITING FOR ${turnPlayerName.uppercase()} TO DEPLOY ($remainingReserves LEFT)"
+                },
+                style = MaterialTheme.typography.labelSmall,
+                color = if (isLocalTurn) ImperialGold else TextMuted,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+@Composable
+private fun DeploymentTrayBar(
+    state: BattleUiState,
+    onSelectReserveUnit: (String) -> Unit
+) {
+    val activeOwnerId = state.deploymentTurnPlayerId
+    val isLocalTurn = state.isPlayerTurn
+    val trayUnits = remember(state.reserveUnits, activeOwnerId, state.localControlledPlayerId, isLocalTurn) {
+        if (isLocalTurn && activeOwnerId != null) {
+            state.reserveUnits.filter { it.ownerPlayerId == activeOwnerId }
+        } else {
+            val localId = state.localControlledPlayerId
+            val mine = if (localId != null) state.reserveUnits.filter { it.ownerPlayerId == localId } else emptyList()
+            mine.ifEmpty { state.reserveUnits.filter { it.ownerPlayerId == activeOwnerId } }
+        }
+    }
+    val teamAccent = if (state.deploymentTeamIndex == 0) TacticalCyan else CrimsonSoft
+
+    GrimdarkBevelPanel(
+        cut = 8.dp,
+        borderColor = if (isLocalTurn) ImperialGold else BorderSteel,
+        topColor = PanelIronTop,
+        bottomColor = VoidObsidian,
+        accentBarColor = teamAccent,
+        showRivets = false,
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("deployment_tray_bar")
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 10.dp, vertical = 7.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = if (isLocalTurn) {
+                        "RESERVE TRAY — SELECT SQUAD & TAP ${if (state.deploymentTeamIndex == 0) "WEST" else "EAST"} 3-TILE BORDER"
+                    } else {
+                        "RESERVE TRAY — ${state.deploymentTurnPlayerName.uppercase()} IS DEPLOYING..."
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (isLocalTurn) ImperialGold else TextMuted,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = "${state.reserveUnits.size} UNPLACED",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = teamAccent,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            LazyRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(trayUnits, key = { it.uid }) { unit ->
+                    val isSelected = unit.uid == state.selectedReserveUnitUid && isLocalTurn
+                    val pal = factionPalette(unit.faction)
+                    Column(
+                        modifier = Modifier
+                            .widthIn(min = 148.dp, max = 188.dp)
+                            .clip(CutCornerShape(6.dp))
+                            .background(
+                                Brush.verticalGradient(
+                                    colors = if (isSelected) {
+                                        listOf(pal.panelTop, PanelIronBottom)
+                                    } else {
+                                        listOf(InputDark, VoidObsidian)
+                                    }
+                                )
+                            )
+                            .border(
+                                width = if (isSelected) 1.8.dp else 1.dp,
+                                color = if (isSelected) ImperialGold else pal.trimBorder.copy(alpha = 0.6f),
+                                shape = CutCornerShape(6.dp)
+                            )
+                            .clickable(enabled = isLocalTurn) { onSelectReserveUnit(unit.uid) }
+                            .padding(horizontal = 10.dp, vertical = 7.dp)
+                            .testTag("reserve_card_${unit.uid}"),
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = unit.template.name.uppercase(),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = if (isSelected) ImperialGold else pal.headerText,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Text(
+                                text = "${unit.template.points}PT",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = ImperialGold,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        Text(
+                            text = "${unit.template.squadSize}x ${unit.template.woundsPerModel}W • M${unit.template.moveCm} • RNG ${unit.template.range}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = TextMuted,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = if (isSelected) "READY TO PLACE" else unit.ownerPlayerName.uppercase(),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (isSelected) EmeraldBuff else teamAccent,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1
+                        )
+                    }
+                }
+            }
+        }
+    }
 }

@@ -52,7 +52,8 @@ service cloud.firestore {
              data.actionType in [
                'TAP_WORLD', 'TOGGLE_MOVE', 'ADVANCE', 'SET_CM', 'WALK_CM',
                'CONFIRM_MOVE', 'CANCEL_MOVE', 'TOGGLE_CHARGE', 'CONFIRM_CHARGE',
-               'CANCEL_CHARGE', 'STRIKE', 'WEAPON_MODE', 'ROTATE', 'FIGHT_FIRST', 'END_TURN'
+               'CANCEL_CHARGE', 'STRIKE', 'WEAPON_MODE', 'ROTATE', 'FIGHT_FIRST', 'END_TURN',
+               'DEPLOY_UNIT'
              ] &&
              (!('wx' in data) || data.wx is number) &&
              (!('wy' in data) || data.wy is number) &&
@@ -129,6 +130,17 @@ service cloud.firestore {
                            !(request.auth.uid in incoming().memberUids) &&
                            incoming().diff(existing()).affectedKeys().hasOnly([
                              'memberUids', 'players', 'updatedAt'
+                           ])
+                         ) ||
+                         // Tier 4: Joined member customizes their own player slot and assigned units in LOBBY
+                         (
+                           existing().status == 'LOBBY' &&
+                           (request.auth.uid in existing().memberUids) &&
+                           incoming().memberUids == existing().memberUids &&
+                           incoming().hostUid == existing().hostUid &&
+                           incoming().status == existing().status &&
+                           incoming().diff(existing()).affectedKeys().hasOnly([
+                             'players', 'assignedUnits', 'updatedAt'
                            ])
                          )
                        );
