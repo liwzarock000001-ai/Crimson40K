@@ -16,6 +16,7 @@ sealed interface AiDecision {
     data class Charge(val unitUid: String, val preview: ChargePreview) : AiDecision
     data class SelfSkill(val unitUid: String) : AiDecision
     data class Teleport(val unitUid: String, val targetPos: GridPos) : AiDecision
+    data class SeedSporeMine(val unitUid: String, val targetPos: GridPos) : AiDecision
     data class Attack(val attackerUid: String, val targetUid: String, val mode: WeaponMode) : AiDecision
     data object TurnComplete : AiDecision
 }
@@ -62,6 +63,7 @@ object AiController {
                 val shouldTriggerSelf = when (unit.template.archetype) {
                     UnitArchetype.VON_RYANS_LEAPER -> distToNearest <= 7 && !unit.isCloaked
                     UnitArchetype.ASSAULT_MARINE, UnitArchetype.GENESTEALER -> true
+                    UnitArchetype.BLADEGUARD -> !unit.bladeguardRerollBuffActive && (isEngaged || distToNearest <= 5)
                     else -> distToNearest > 2
                 }
                 if (selfSkill != null && shouldTriggerSelf) {
@@ -75,6 +77,17 @@ object AiController {
                         }
                         if (bestTile != null) {
                             return AiDecision.Teleport(unit.uid, bestTile)
+                        }
+                    }
+                }
+                if (!isEngaged && unit.template.archetype == UnitArchetype.BIOVORE && !unit.hasShot) {
+                    val sTiles = TacticalRules.computeSeedSporeMineTiles(unit, map, units)
+                    if (sTiles.isNotEmpty()) {
+                        val bestTile = sTiles.minByOrNull { sPos ->
+                            enemies.minOfOrNull { maxOf(abs(sPos.x - it.x), abs(sPos.y - it.y)) } ?: 99
+                        }
+                        if (bestTile != null) {
+                            return AiDecision.SeedSporeMine(unit.uid, bestTile)
                         }
                     }
                 }

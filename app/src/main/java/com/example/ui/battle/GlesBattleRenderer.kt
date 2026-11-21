@@ -183,6 +183,7 @@ class GlesBattleRenderer(
         val rangeRingVbo = getOrUploadVbo(MeshCatalog3D.rangeRadiusRing)
         val cubeVbo = getOrUploadVbo(MeshCatalog3D.unitCube)
         val isTeleportMode = state.selectedUnit?.template?.archetype == UnitArchetype.TERMINATOR && state.weaponMode == WeaponMode.SKILL
+        val isSeedSporeMineMode = state.selectedUnit?.template?.archetype == UnitArchetype.BIOVORE && state.weaponMode == WeaponMode.SKILL
         val moveAlpha = if (state.moveModeActive) 0.14f + pulse * 0.08f else 0.08f + pulse * 0.05f
         if (state.isDeploymentPhase) {
             for (gy in 0 until MapGenerator.GRID_H) {
@@ -210,6 +211,9 @@ class GlesBattleRenderer(
             if (isTeleportMode) {
                 drawVbo(tileVbo, 0.22f, 0.82f, 0.98f, 0.28f + pulse * 0.15f, unlit = true)
                 drawVbo(ringVbo, 0.40f, 0.92f, 1.0f, 0.75f + pulse * 0.20f, unlit = true)
+            } else if (isSeedSporeMineMode) {
+                drawVbo(tileVbo, 0.78f, 0.28f, 0.92f, 0.32f + pulse * 0.18f, unlit = true)
+                drawVbo(ringVbo, 0.92f, 0.45f, 1.0f, 0.82f + pulse * 0.18f, unlit = true)
             } else if (state.moveModeActive) {
                 drawVbo(tileVbo, 0.24f, 0.58f, 0.72f, moveAlpha, unlit = true)
             }
@@ -235,6 +239,7 @@ class GlesBattleRenderer(
             if (state.canCommandUnit(selectedUnit, isRemoteClientAction = true) &&
                 selectedUnit.moveCmLeft >= 0.25f &&
                 !isTeleportMode &&
+                !isSeedSporeMineMode &&
                 (state.moveModeActive || state.movePreview != null)
             ) {
                 val radiusTiles = (selectedUnit.moveCmLeft / TacticalRules.CM_PER_TILE).coerceAtLeast(0.2f)

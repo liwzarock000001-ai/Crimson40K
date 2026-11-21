@@ -2,7 +2,9 @@ package com.example.engine
 
 import com.example.model.BattleUnit
 import com.example.model.ChargePreview
+import com.example.model.CombatLogEntry
 import com.example.model.CoverTag
+import com.example.model.DiceStepDetail
 import com.example.model.Facing
 import com.example.model.GridPos
 import com.example.model.TargetPreview
@@ -33,7 +35,8 @@ data class CombatOutcome(
     val killsCount: Int,
     val floatingTexts: List<Pair<GridPos, Pair<String, Long>>>,
     val isCritOrFlank: Boolean,
-    val isMelee: Boolean = false
+    val isMelee: Boolean = false,
+    val logEntries: List<CombatLogEntry> = emptyList()
 )
 
 data class CounterAttackOutcome(
@@ -42,7 +45,8 @@ data class CounterAttackOutcome(
     val hits: Int,
     val totalDamageDealt: Int,
     val modelsLost: Int,
-    val floatingTexts: List<Pair<GridPos, Pair<String, Long>>>
+    val floatingTexts: List<Pair<GridPos, Pair<String, Long>>>,
+    val logEntry: CombatLogEntry? = null
 )
 
 object TacticalRules {
@@ -390,7 +394,7 @@ object TacticalRules {
         WeaponMode.MAIN -> attacker.template.range
         WeaponMode.PISTOL -> attacker.template.pistolRange
         WeaponMode.SKILL -> when (attacker.template.archetype) {
-            UnitArchetype.CARNIFEX -> 4
+            UnitArchetype.CARNIFEX -> 3
             UnitArchetype.HIVE_TYRANT -> 4
             UnitArchetype.DREADNOUGHT -> 6
             else -> attacker.template.range
@@ -449,6 +453,8 @@ object TacticalRules {
                     !attacker.hasCharged
             WeaponMode.SKILL -> when (attacker.template.archetype) {
                 UnitArchetype.TERMINATOR -> attacker.skillCooldownLeft == 0 && !attacker.hasAdvanced && !attacker.hasCharged && !inMelee
+                UnitArchetype.BIOVORE -> attacker.skillCooldownLeft == 0 && !attacker.hasAdvanced && !attacker.hasCharged && !inMelee
+                UnitArchetype.SPORE_MINE -> attacker.isAlive
                 UnitArchetype.HORMAGAUNT -> attacker.skillCooldownLeft == 0 && !attacker.hasCharged
                 UnitArchetype.VON_RYANS_LEAPER -> attacker.skillCooldownLeft == 0 && !attacker.isCloaked
                 UnitArchetype.ASSAULT_MARINE ->
@@ -458,6 +464,8 @@ object TacticalRules {
                         attacker.hasCharged &&
                         !attacker.meleeChargeBuffActive &&
                         inMelee
+                UnitArchetype.BLADEGUARD ->
+                    attacker.skillCooldownLeft == 0 && !attacker.bladeguardRerollBuffActive
                 else -> {
                     val isMeleeSkill = weaponRange(attacker, mode) <= 1
                     if (isMeleeSkill) {
@@ -628,7 +636,7 @@ object TacticalRules {
             WeaponMode.PISTOL -> attacker.template.pistolStrength
             WeaponMode.SKILL -> when (attacker.template.archetype) {
                 UnitArchetype.HELLBLASTER -> attacker.template.strength + 1
-                UnitArchetype.CARNIFEX -> 8
+                UnitArchetype.CARNIFEX -> 7
                 UnitArchetype.HIVE_TYRANT -> 9
                 else -> attacker.template.strength + meleeBonus
             }
@@ -645,7 +653,7 @@ object TacticalRules {
             WeaponMode.PISTOL -> attacker.template.pistolArmorPen
             WeaponMode.SKILL -> when (attacker.template.archetype) {
                 UnitArchetype.HELLBLASTER -> (attacker.template.armorPen + 1).coerceAtMost(5)
-                UnitArchetype.CARNIFEX -> 3
+                UnitArchetype.CARNIFEX -> 2
                 UnitArchetype.HIVE_TYRANT -> 3
                 else -> (attacker.template.armorPen + meleeBonus).coerceAtMost(6)
             }
@@ -734,8 +742,37 @@ object TacticalRules {
         allUnits: List<BattleUnit>? = null
     ): TargetPreview? {
         if (!attacker.isAlive || !defender.isAlive || defender.isCloaked || attacker.isAllyOf(defender)) return null
-        if (mode == WeaponMode.SKILL && attacker.template.archetype == UnitArchetype.TERMINATOR) return null
+        if (mode == WeaponMode.SKILL && (attacker.template.archetype == UnitArchetype.TERMINATOR || attacker.template.archetype == UnitArchetype.BIOVORE)) return null
         if (!canUseMode(attacker, mode, allUnits)) return null
+
+        if (attacker.template.archetype == UnitArchetype.SPORE_MINE) {
+            val distTiles = hypot(atkX - defender.worldX, atkY - defender.worldY)
+            if (distTiles > MELEE_MAX_CENTER_TILES) return null
+            val hitProb = 2f / 6f
+            val expectedTotal = (defender.aliveModels * hitProb).roundToInt().coerceAtLeast(1)
+            return TargetPreview(
+                targetUid = defender.uid,
+                targetName = defender.template.name,
+                hitChance = (hitProb * 100f).roundToInt(),
+                hitRollNeeded = 2,
+                woundRollNeeded = 1,
+                saveRollNeeded = 7,
+                usingInvuln = false,
+                isMelee = true,
+                weaponStrength = 1,
+                weaponAp = 0,
+                targetToughness = defender.template.toughness,
+                expectedTotalDamage = expectedTotal,
+                attacksCount = defender.aliveModels,
+                coverTag = CoverTag.OPEN,
+                weaponMode = mode,
+                weaponName = "Bio-Self Destruct (1D6/model, <3 = 1W)",
+                sustainedHits = 0,
+                markedBonusApplied = false,
+                inRange = true,
+                hasLos = true
+            )
+        }
 
         val distTiles = hypot(atkX - defender.worldX, atkY - defender.worldY)
         val isMelee = effectiveIsMelee(attacker, mode, distTiles)
@@ -758,7 +795,8 @@ object TacticalRules {
             map
         )
 
-        val ignoreCover = mode == WeaponMode.SKILL && attacker.template.archetype == UnitArchetype.GENESTEALER
+        val ignoreCover = (mode == WeaponMode.SKILL && attacker.template.archetype == UnitArchetype.GENESTEALER) ||
+            (!isMelee && attacker.template.archetype == UnitArchetype.INCURSOR)
         val coverTag = evaluateCoverTag(atkX, atkY, defender, map, ignoreCover)
 
         val hitRollNeeded = computeHitRollNeeded(attacker, mode, coverTag, isMelee, defender)
@@ -865,8 +903,8 @@ object TacticalRules {
                 WeaponMode.MAIN -> attacker.effectiveDamage
                 WeaponMode.PISTOL -> attacker.template.pistolDamage
                 WeaponMode.SKILL -> when (attacker.template.archetype) {
-                    UnitArchetype.HELLBLASTER -> attacker.effectiveDamage + 1
-                    UnitArchetype.CARNIFEX -> 2
+                    UnitArchetype.HELLBLASTER -> attacker.effectiveDamage
+                    UnitArchetype.CARNIFEX -> 1
                     UnitArchetype.HIVE_TYRANT -> 2
                     else -> attacker.effectiveDamage
                 }
@@ -940,6 +978,79 @@ object TacticalRules {
         val preview = canTarget(attacker, primaryTarget, mode, map, allUnits)
             ?: return CombatOutcome(attacker, emptyList(), 0, 0, 0, emptyList(), false, false)
 
+        if (attacker.template.archetype == UnitArchetype.SPORE_MINE) {
+            val updatedAttacker = attacker.copy(
+                totalWounds = 0,
+                moveCmLeft = 0f,
+                hasFought = true,
+                hasShot = true
+            )
+            val modelsCount = primaryTarget.aliveModels
+            val detonateDice = ArrayList<Int>(modelsCount)
+            var mortalWounds = 0
+            repeat(modelsCount) {
+                val roll = rng.nextInt(1, 7)
+                detonateDice.add(roll)
+                if (roll < 3) {
+                    mortalWounds++
+                }
+            }
+            var runningWounds = primaryTarget.totalWounds
+            var dmgDealt = 0
+            repeat(mortalWounds) {
+                if (runningWounds > 0) {
+                    val applied = allocateWoundDamage(runningWounds, primaryTarget.template.woundsPerModel, 1)
+                    runningWounds = (runningWounds - applied).coerceAtLeast(0)
+                    dmgDealt += applied
+                }
+            }
+            val updatedTarget = primaryTarget.copy(totalWounds = runningWounds)
+            val killed = runningWounds == 0
+            val detonateStep = DiceStepDetail(
+                phaseName = "DETONATE",
+                stepLabel = "Self-Destruct (1D6/model vs <3)",
+                targetNeeded = 2,
+                rolled = modelsCount,
+                passed = mortalWounds,
+                failed = modelsCount - mortalWounds,
+                diceValues = detonateDice,
+                note = "$mortalWounds Mortal Wounds inflicted on rolls < 3 (${detonateDice.count { it < 3 }}/$modelsCount)"
+            )
+            val log = CombatLogEntry(
+                id = 0L,
+                round = 1,
+                faction = attacker.faction,
+                title = "💥 ${attacker.template.name} Detonates on ${primaryTarget.template.name}",
+                subtitle = "SELF-DESTRUCT • 1D6 per model (<3 = 1W)",
+                steps = listOf(detonateStep),
+                resultSummary = if (dmgDealt > 0) {
+                    "Dealt ${dmgDealt}W mortal damage! ${primaryTarget.template.name} has ${runningWounds}W remaining (${updatedTarget.aliveModels} models)"
+                } else {
+                    "Detonation failed to inflict wounds (no rolls < 3)"
+                },
+                isCounterOrFightFirst = false,
+                isSuccess = dmgDealt > 0
+            )
+            val floats = ArrayList<Pair<GridPos, Pair<String, Long>>>()
+            floats.add(attacker.pos to Pair("💥 SELF-DESTRUCT!", 0xFFFF7B00L))
+            if (dmgDealt > 0) {
+                floats.add(primaryTarget.pos to Pair("-${dmgDealt}W MORTAL!", 0xFFFF4D58L))
+            } else {
+                floats.add(primaryTarget.pos to Pair("BLAST RESISTED", 0xFFFFD166L))
+            }
+            return CombatOutcome(
+                updatedAttacker = updatedAttacker,
+                updatedTargets = listOf(updatedTarget),
+                hits = mortalWounds,
+                totalDamageDealt = dmgDealt,
+                killsCount = if (killed) 1 else 0,
+                floatingTexts = floats,
+                isCritOrFlank = false,
+                isMelee = true,
+                logEntries = listOf(log)
+            )
+        }
+
         val targetsToHit = mutableListOf(primaryTarget)
         if (mode == WeaponMode.SKILL) {
             when (attacker.template.archetype) {
@@ -955,6 +1066,7 @@ object TacticalRules {
 
         val updatedTargets = ArrayList<BattleUnit>(targetsToHit.size)
         val floats = ArrayList<Pair<GridPos, Pair<String, Long>>>(targetsToHit.size * 2)
+        val combatLogs = ArrayList<CombatLogEntry>(targetsToHit.size)
         var totalHits = 0
         var totalDmg = 0
         var totalKills = 0
@@ -966,21 +1078,35 @@ object TacticalRules {
             val perUnsavedDmg = damagePerUnsavedWound(attacker, tgt, mode, tgtPreview.isMelee)
             val sustainedX = weaponSustainedHits(attacker, mode, tgtPreview.isMelee)
 
+            var baseHits = 0
             var tgtHits = 0
             var sustainedBonusHits = 0
+            var hitRerolls = 0
             var tgtWounds = 0
+            var woundRerolls = 0
             var tgtSaved = 0
+            var tgtSaveRerolls = 0
             var tgtDmg = 0
             var runningWounds = tgt.totalWounds
+            val hitDice = ArrayList<Int>(attacks)
+            val woundDice = ArrayList<Int>(attacks)
+            val saveDice = ArrayList<Int>(attacks)
+
+            val rerollHitOnes = attacker.template.archetype == UnitArchetype.GENESTEALER ||
+                (attacker.template.archetype == UnitArchetype.BLADEGUARD && attacker.bladeguardRerollBuffActive)
+            val rerollSaveOnes = tgt.bladeguardRerollBuffActive
 
             repeat(attacks) {
                 if (runningWounds > 0) {
                     // Step 1: Hit Roll (d6 vs BS / WS; 1 always misses; 6 triggers Sustained Hits [X])
                     var hitRoll = rng.nextInt(1, 7)
-                    if (attacker.template.archetype == UnitArchetype.GENESTEALER && hitRoll == 1) {
+                    if (rerollHitOnes && hitRoll == 1) {
+                        hitRerolls++
                         hitRoll = rng.nextInt(1, 7)
                     }
+                    hitDice.add(hitRoll)
                     if (hitRoll > 1 && hitRoll >= tgtPreview.hitRollNeeded) {
+                        baseHits++
                         val extraHits = if (hitRoll == 6 && sustainedX > 0) sustainedX else 0
                         sustainedBonusHits += extraHits
                         val hitsFromAttack = 1 + extraHits
@@ -990,13 +1116,24 @@ object TacticalRules {
                                 // Step 2: Wound Roll (d6 comparing S vs T; 1 always fails unless re-rolled)
                                 var woundRoll = rng.nextInt(1, 7)
                                 if (attacker.template.archetype == UnitArchetype.GENESTEALER && woundRoll == 1) {
+                                    woundRerolls++
                                     woundRoll = rng.nextInt(1, 7)
                                 }
+                                woundDice.add(woundRoll)
                                 if (woundRoll > 1 && woundRoll >= tgtPreview.woundRollNeeded) {
                                     tgtWounds++
                                     // Step 3: Saving Throw (d6 vs Sv+AP or Invuln; 1 always fails; 7+ auto-fails)
-                                    val saveRoll = rng.nextInt(1, 7)
-                                    val isSaved = tgtPreview.saveRollNeeded <= 6 && saveRoll > 1 && saveRoll >= tgtPreview.saveRollNeeded
+                                    val isSaved = if (tgtPreview.saveRollNeeded <= 6) {
+                                        var saveRoll = rng.nextInt(1, 7)
+                                        if (rerollSaveOnes && saveRoll == 1) {
+                                            tgtSaveRerolls++
+                                            saveRoll = rng.nextInt(1, 7)
+                                        }
+                                        saveDice.add(saveRoll)
+                                        saveRoll > 1 && saveRoll >= tgtPreview.saveRollNeeded
+                                    } else {
+                                        false
+                                    }
                                     if (isSaved) {
                                         tgtSaved++
                                     } else {
@@ -1036,6 +1173,48 @@ object TacticalRules {
             totalKills += if (newWounds == 0) 1 else 0
             totalHits += tgtHits
             totalDmg += tgtDmg
+
+            val steps = buildCombatLogSteps(
+                hitSkillLabel = if (tgtPreview.isMelee) "WS" else "BS",
+                hitRollNeeded = tgtPreview.hitRollNeeded,
+                hitDice = hitDice,
+                baseHits = baseHits,
+                sustainedBonusHits = sustainedBonusHits,
+                totalHits = tgtHits,
+                hitRerolls = hitRerolls,
+                weaponStrength = tgtPreview.weaponStrength,
+                targetToughness = tgt.template.toughness,
+                woundRollNeeded = tgtPreview.woundRollNeeded,
+                woundDice = woundDice,
+                woundsSucceeded = tgtWounds,
+                woundRerolls = woundRerolls,
+                saveRollNeeded = tgtPreview.saveRollNeeded,
+                usingInvuln = tgtPreview.usingInvuln,
+                weaponAp = tgtPreview.weaponAp,
+                coverTag = tgtPreview.coverTag,
+                saveDice = saveDice,
+                savesSucceeded = tgtSaved,
+                saveRerolls = tgtSaveRerolls
+            )
+            val resultSummary = formatCombatResultSummary(
+                hits = tgtHits,
+                wounds = tgtWounds,
+                saved = tgtSaved,
+                dmg = tgtDmg,
+                modelsLost = modelsLost,
+                eliminated = newWounds == 0
+            )
+            combatLogs.add(
+                CombatLogEntry(
+                    faction = attacker.faction,
+                    title = "${attacker.template.name.uppercase()} ▸ ${tgt.template.name.uppercase()}",
+                    subtitle = "${tgtPreview.weaponName.uppercase()} • ${if (tgtPreview.isMelee) "MELEE" else "RANGED"}",
+                    steps = steps,
+                    resultSummary = resultSummary,
+                    isCounterOrFightFirst = false,
+                    isSuccess = tgtDmg > 0 || newWounds == 0
+                )
+            )
 
             val tagPrefix = when {
                 tgtHits == 0 -> "MISS"
@@ -1099,7 +1278,8 @@ object TacticalRules {
             killsCount = totalKills,
             floatingTexts = floats,
             isCritOrFlank = anyFlank,
-            isMelee = isMelee
+            isMelee = isMelee,
+            logEntries = combatLogs
         )
     }
 
@@ -1126,28 +1306,59 @@ object TacticalRules {
 
         val attacks = attacksCount(counterAttacker, WeaponMode.MAIN, isMelee = true)
 
+        var baseHits = 0
         var tgtHits = 0
         var sustainedBonusHits = 0
+        var hitRerolls = 0
         var tgtWounds = 0
+        var woundRerolls = 0
         var tgtSaved = 0
+        var saveRerolls = 0
         var tgtDmg = 0
         var runningWounds = target.totalWounds
+        val hitDice = ArrayList<Int>(attacks)
+        val woundDice = ArrayList<Int>(attacks)
+        val saveDice = ArrayList<Int>(attacks)
+
+        val rerollCounterHitOnes = counterAttacker.template.archetype == UnitArchetype.GENESTEALER ||
+            (counterAttacker.template.archetype == UnitArchetype.BLADEGUARD && counterAttacker.bladeguardRerollBuffActive)
+        val rerollTargetSaveOnes = target.bladeguardRerollBuffActive
 
         repeat(attacks) {
             if (runningWounds > 0) {
-                val hitRoll = rng.nextInt(1, 7)
+                var hitRoll = rng.nextInt(1, 7)
+                if (rerollCounterHitOnes && hitRoll == 1) {
+                    hitRerolls++
+                    hitRoll = rng.nextInt(1, 7)
+                }
+                hitDice.add(hitRoll)
                 if (hitRoll > 1 && hitRoll >= hitRollNeeded) {
+                    baseHits++
                     val extraHits = if (hitRoll == 6 && sustainedX > 0) sustainedX else 0
                     sustainedBonusHits += extraHits
                     val hitsFromAttack = 1 + extraHits
                     tgtHits += hitsFromAttack
                     repeat(hitsFromAttack) {
                         if (runningWounds > 0) {
-                            val woundRoll = rng.nextInt(1, 7)
+                            var woundRoll = rng.nextInt(1, 7)
+                            if (counterAttacker.template.archetype == UnitArchetype.GENESTEALER && woundRoll == 1) {
+                                woundRerolls++
+                                woundRoll = rng.nextInt(1, 7)
+                            }
+                            woundDice.add(woundRoll)
                             if (woundRoll > 1 && woundRoll >= woundRollNeeded) {
                                 tgtWounds++
-                                val saveRoll = rng.nextInt(1, 7)
-                                val isSaved = saveRollNeeded <= 6 && saveRoll > 1 && saveRoll >= saveRollNeeded
+                                val isSaved = if (saveRollNeeded <= 6) {
+                                    var saveRoll = rng.nextInt(1, 7)
+                                    if (rerollTargetSaveOnes && saveRoll == 1) {
+                                        saveRerolls++
+                                        saveRoll = rng.nextInt(1, 7)
+                                    }
+                                    saveDice.add(saveRoll)
+                                    saveRoll > 1 && saveRoll >= saveRollNeeded
+                                } else {
+                                    false
+                                }
                                 if (isSaved) {
                                     tgtSaved++
                                 } else {
@@ -1169,6 +1380,46 @@ object TacticalRules {
             markedByTeam = if (newWounds > 0) target.markedByTeam else null
         )
         val modelsLost = (modelsBefore - updatedTarget.aliveModels).coerceAtLeast(0)
+
+        val weaponName = weaponDisplayName(counterAttacker, WeaponMode.MAIN, isMelee = true)
+        val steps = buildCombatLogSteps(
+            hitSkillLabel = "WS",
+            hitRollNeeded = hitRollNeeded,
+            hitDice = hitDice,
+            baseHits = baseHits,
+            sustainedBonusHits = sustainedBonusHits,
+            totalHits = tgtHits,
+            hitRerolls = hitRerolls,
+            weaponStrength = s,
+            targetToughness = target.template.toughness,
+            woundRollNeeded = woundRollNeeded,
+            woundDice = woundDice,
+            woundsSucceeded = tgtWounds,
+            woundRerolls = woundRerolls,
+            saveRollNeeded = saveRollNeeded,
+            usingInvuln = usingInvuln,
+            weaponAp = ap,
+            coverTag = CoverTag.OPEN,
+            saveDice = saveDice,
+            savesSucceeded = tgtSaved,
+            saveRerolls = saveRerolls
+        )
+        val counterLog = CombatLogEntry(
+            faction = counterAttacker.faction,
+            title = "${counterAttacker.template.name.uppercase()} ▸ ${target.template.name.uppercase()}",
+            subtitle = "⚔️ COUNTER-ATTACK • ${weaponName.uppercase()}",
+            steps = steps,
+            resultSummary = formatCombatResultSummary(
+                hits = tgtHits,
+                wounds = tgtWounds,
+                saved = tgtSaved,
+                dmg = tgtDmg,
+                modelsLost = modelsLost,
+                eliminated = newWounds == 0
+            ),
+            isCounterOrFightFirst = true,
+            isSuccess = tgtDmg > 0 || newWounds == 0
+        )
 
         val floats = ArrayList<Pair<GridPos, Pair<String, Long>>>(4)
         val tag = when {
@@ -1204,8 +1455,113 @@ object TacticalRules {
             hits = tgtHits,
             totalDamageDealt = tgtDmg,
             modelsLost = modelsLost,
-            floatingTexts = floats
+            floatingTexts = floats,
+            logEntry = counterLog
         )
+    }
+
+    private fun buildCombatLogSteps(
+        hitSkillLabel: String,
+        hitRollNeeded: Int,
+        hitDice: List<Int>,
+        baseHits: Int,
+        sustainedBonusHits: Int,
+        totalHits: Int,
+        hitRerolls: Int,
+        weaponStrength: Int,
+        targetToughness: Int,
+        woundRollNeeded: Int,
+        woundDice: List<Int>,
+        woundsSucceeded: Int,
+        woundRerolls: Int,
+        saveRollNeeded: Int,
+        usingInvuln: Boolean,
+        weaponAp: Int,
+        coverTag: CoverTag,
+        saveDice: List<Int>,
+        savesSucceeded: Int,
+        saveRerolls: Int = 0
+    ): List<DiceStepDetail> {
+        val steps = ArrayList<DiceStepDetail>(3)
+        val hitNote = buildList {
+            if (sustainedBonusHits > 0) add("SUSTAINED +$sustainedBonusHits → $totalHits HITS")
+            if (hitRerolls > 0) add("RE-ROLL 1s (${hitRerolls}x)")
+        }.joinToString(" • ")
+        steps.add(
+            DiceStepDetail(
+                phaseName = "HIT",
+                stepLabel = "$hitSkillLabel ${hitRollNeeded}+",
+                targetNeeded = hitRollNeeded,
+                rolled = hitDice.size,
+                passed = baseHits,
+                failed = (hitDice.size - baseHits).coerceAtLeast(0),
+                diceValues = hitDice,
+                note = hitNote
+            )
+        )
+
+        if (woundDice.isNotEmpty()) {
+            val woundNote = if (woundRerolls > 0) "RE-ROLL 1s (${woundRerolls}x)" else ""
+            steps.add(
+                DiceStepDetail(
+                    phaseName = "WOUND",
+                    stepLabel = "S$weaponStrength vs T$targetToughness (${woundRollNeeded}+)",
+                    targetNeeded = woundRollNeeded,
+                    rolled = woundDice.size,
+                    passed = woundsSucceeded,
+                    failed = (woundDice.size - woundsSucceeded).coerceAtLeast(0),
+                    diceValues = woundDice,
+                    note = woundNote
+                )
+            )
+        }
+
+        if (woundsSucceeded > 0) {
+            val svLabel = when {
+                saveRollNeeded > 6 -> "NO SAVE (7+)"
+                usingInvuln -> "INV ${saveRollNeeded}++"
+                else -> "SV ${saveRollNeeded}+"
+            }
+            val saveRolled = if (saveRollNeeded > 6) woundsSucceeded else saveDice.size
+            val svNote = buildList {
+                if (saveRollNeeded > 6) {
+                    if (weaponAp > 0) add("AP-$weaponAp OVERWHELMED") else add("AUTO-FAIL")
+                } else {
+                    if (!usingInvuln && weaponAp > 0) add("AP-$weaponAp")
+                    if (!usingInvuln && coverTag == CoverTag.COVER) add("COVER")
+                    if (saveRerolls > 0) add("RE-ROLL 1s (${saveRerolls}x)")
+                }
+            }.joinToString(" • ")
+            steps.add(
+                DiceStepDetail(
+                    phaseName = "SAVE",
+                    stepLabel = svLabel,
+                    targetNeeded = saveRollNeeded,
+                    rolled = saveRolled,
+                    passed = savesSucceeded,
+                    failed = (saveRolled - savesSucceeded).coerceAtLeast(0),
+                    diceValues = saveDice,
+                    note = svNote
+                )
+            )
+        }
+        return steps
+    }
+
+    private fun formatCombatResultSummary(
+        hits: Int,
+        wounds: Int,
+        saved: Int,
+        dmg: Int,
+        modelsLost: Int,
+        eliminated: Boolean
+    ): String = when {
+        eliminated -> "-${dmg}W • ELIMINATED!"
+        hits == 0 -> "ALL MISSED • 0 DMG"
+        wounds == 0 -> "0 WOUNDS • 0 DMG"
+        dmg == 0 && saved > 0 -> "ALL SAVED ($saved/$wounds) • 0 DMG"
+        modelsLost > 0 -> "-${dmg}W • -$modelsLost MODEL${if (modelsLost > 1) "S" else ""}"
+        else -> "-${dmg}W APPLIED"
     }
 
     fun activateSelfSkillIfApplicable(unit: BattleUnit, allUnits: List<BattleUnit>? = null): BattleUnit? {
@@ -1231,6 +1587,17 @@ object TacticalRules {
                         skillCooldownLeft = unit.template.skillCooldown,
                         meleeChargeBuffActive = true,
                         activeBuffLabel = "+1S +1AP MELEE"
+                    )
+                }
+            }
+            UnitArchetype.BLADEGUARD -> {
+                if (unit.bladeguardRerollBuffActive) {
+                    null
+                } else {
+                    unit.copy(
+                        skillCooldownLeft = unit.template.skillCooldown,
+                        bladeguardRerollBuffActive = true,
+                        activeBuffLabel = "REROLL 1s (HIT & SAVE)"
                     )
                 }
             }
@@ -1280,6 +1647,52 @@ object TacticalRules {
                     val e = enemies[i]
                     val dToEnemy = maxOf(abs(x - e.x), abs(y - e.y))
                     if (dToEnemy < minEnemyDist) {
+                        tooCloseToEnemy = true
+                        break
+                    }
+                }
+                if (!tooCloseToEnemy) {
+                    valid.add(pos)
+                }
+            }
+        }
+        return valid
+    }
+
+    /**
+     * Biovore Seed Spore Mine:
+     * - Launches a living Spore Mine onto a selected tile up to 8 tiles away
+     * - Must be at least 8 cm away from all alive enemy models
+     * - Destination must be walkable and unoccupied
+     */
+    fun computeSeedSporeMineTiles(
+        biovore: BattleUnit,
+        map: Array<Array<TerrainType>>,
+        allUnits: List<BattleUnit>,
+        maxDist: Int = 8,
+        minEnemyDistCm: Float = 8.0f
+    ): Set<GridPos> {
+        if (!biovore.isAlive || biovore.skillCooldownLeft > 0 || isEngagedInMelee(biovore, allUnits)) return emptySet()
+        val valid = mutableSetOf<GridPos>()
+        val enemies = allUnits.filter { it.isAlive && it.isEnemyOf(biovore) }
+        val occupied = allUnits.filter { it.isAlive }.map { it.pos }.toSet()
+
+        val h = map.size
+        val w = map[0].size
+        for (y in 0 until h) {
+            for (x in 0 until w) {
+                val pos = GridPos(x, y)
+                if (pos == biovore.pos) continue
+                val dist = maxOf(abs(x - biovore.x), abs(y - biovore.y))
+                if (dist > maxDist) continue
+                if (!MapGenerator.isWalkable(map[y][x])) continue
+                if (pos in occupied) continue
+
+                var tooCloseToEnemy = false
+                for (i in enemies.indices) {
+                    val e = enemies[i]
+                    val distCm = hypot(x - e.worldX, y - e.worldY) * CM_PER_TILE
+                    if (distCm < minEnemyDistCm - 0.05f) {
                         tooCloseToEnemy = true
                         break
                     }

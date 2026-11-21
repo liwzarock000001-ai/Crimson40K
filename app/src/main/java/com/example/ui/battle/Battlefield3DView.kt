@@ -60,6 +60,7 @@ fun Battlefield3DView(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    remember(context) { MeshCatalog3D.init(context.applicationContext) }
     val lifecycleOwner = LocalLifecycleOwner.current
     val density = LocalDensity.current.density
     val textMeasurer = rememberTextMeasurer()

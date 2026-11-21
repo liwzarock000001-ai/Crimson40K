@@ -6,10 +6,12 @@ import com.example.engine.DefaultCatalog
 import com.example.engine.MapGenerator
 import com.example.model.BattleSummary
 import com.example.model.BattleUnit
+import com.example.model.CombatLogEntry
 import com.example.model.CoopPlayer
 import com.example.model.CoopRosterUnit
 import com.example.model.CoopSlotMode
 import com.example.model.CoopState
+import com.example.model.DiceStepDetail
 import com.example.model.Facing
 import com.example.model.Faction
 import com.example.model.GridPos
@@ -651,7 +653,8 @@ class OnlineCoopRepository(
         "ownerPlayerId" to u.ownerPlayerId,
         "ownerPlayerName" to u.ownerPlayerName,
         "markedByTeam" to (u.markedByTeam ?: -1),
-        "meleeChargeBuffActive" to u.meleeChargeBuffActive
+        "meleeChargeBuffActive" to u.meleeChargeBuffActive,
+        "bladeguardRerollBuffActive" to u.bladeguardRerollBuffActive
     )
 
     private fun serializeBattleToNativeMap(
@@ -703,7 +706,69 @@ class OnlineCoopRepository(
             put("deploymentTeamIndex", state.deploymentTeamIndex)
             put("coopTurnOrder", orderList)
             put("templates", tplList)
+            put("combatLogs", combatLogsToMapList(state.combatLogs.take(25)))
             summaryMap?.let { put("summary", it) }
+        }
+    }
+
+    private fun combatLogsToMapList(logs: List<CombatLogEntry>): List<Map<String, Any>> {
+        return logs.map { entry ->
+            mapOf(
+                "id" to entry.id,
+                "round" to entry.round,
+                "faction" to entry.faction.name,
+                "title" to entry.title,
+                "subtitle" to entry.subtitle,
+                "resultSummary" to entry.resultSummary,
+                "isCounterOrFightFirst" to entry.isCounterOrFightFirst,
+                "isSuccess" to entry.isSuccess,
+                "steps" to entry.steps.map { s ->
+                    mapOf(
+                        "phaseName" to s.phaseName,
+                        "stepLabel" to s.stepLabel,
+                        "targetNeeded" to s.targetNeeded,
+                        "rolled" to s.rolled,
+                        "passed" to s.passed,
+                        "failed" to s.failed,
+                        "diceValues" to s.diceValues,
+                        "note" to s.note
+                    )
+                }
+            )
+        }
+    }
+
+    private fun parseCombatLogs(rawList: List<*>?): List<CombatLogEntry> {
+        if (rawList == null) return emptyList()
+        return rawList.mapNotNull { item ->
+            val m = item as? Map<*, *> ?: return@mapNotNull null
+            val stepRows = (m["steps"] as? List<*>)?.mapNotNull { it as? Map<*, *> } ?: emptyList()
+            val steps = stepRows.map { s ->
+                val rawDice = (s["diceValues"] as? List<*>) ?: emptyList<Any>()
+                val dice = rawDice.mapNotNull { (it as? Number)?.toInt() }
+                DiceStepDetail(
+                    phaseName = (s["phaseName"] as? String) ?: "ROLL",
+                    stepLabel = (s["stepLabel"] as? String) ?: "",
+                    targetNeeded = (s["targetNeeded"] as? Number)?.toInt() ?: 1,
+                    rolled = (s["rolled"] as? Number)?.toInt() ?: 0,
+                    passed = (s["passed"] as? Number)?.toInt() ?: 0,
+                    failed = (s["failed"] as? Number)?.toInt() ?: 0,
+                    diceValues = dice,
+                    note = (s["note"] as? String) ?: ""
+                )
+            }
+            val facRaw = (m["faction"] as? String) ?: Faction.MARINES.name
+            CombatLogEntry(
+                id = (m["id"] as? Number)?.toLong() ?: 0L,
+                round = (m["round"] as? Number)?.toInt() ?: 1,
+                faction = enumValues<Faction>().firstOrNull { it.name == facRaw } ?: Faction.MARINES,
+                title = (m["title"] as? String) ?: "",
+                subtitle = (m["subtitle"] as? String) ?: "",
+                steps = steps,
+                resultSummary = (m["resultSummary"] as? String) ?: "",
+                isCounterOrFightFirst = (m["isCounterOrFightFirst"] as? Boolean) ?: false,
+                isSuccess = (m["isSuccess"] as? Boolean) ?: true
+            )
         }
     }
 
@@ -729,6 +794,8 @@ class OnlineCoopRepository(
                 "range" to t.range,
                 "ballisticSkill" to t.ballisticSkill,
                 "weaponSkill" to t.weaponSkill,
+                "leadership" to t.leadership,
+                "objectiveControl" to t.objectiveControl,
                 "mainWeaponName" to t.mainWeaponName,
                 "mainWeaponAssault" to t.mainWeaponAssault,
                 "mainWeaponPistol" to t.mainWeaponPistol,
@@ -820,7 +887,7 @@ class OnlineCoopRepository(
                 archetype = enumValues<UnitArchetype>().firstOrNull { it.name == archRaw } ?: base.archetype,
                 role = (row["role"] as? String) ?: base.role,
                 points = (row["points"] as? Number)?.toInt() ?: base.points,
-                squadSize = (row["squadSize"] as? Number)?.toInt() ?: base.squadSize,
+                squadSize = ((row["squadSize"] as? Number)?.toInt() ?: base.squadSize).coerceIn(1, 10),
                 woundsPerModel = (row["woundsPerModel"] as? Number)?.toInt() ?: base.woundsPerModel,
                 moveCm = (row["moveCm"] as? Number)?.toInt() ?: base.moveCm,
                 toughness = (row["toughness"] as? Number)?.toInt() ?: base.toughness,
@@ -833,6 +900,8 @@ class OnlineCoopRepository(
                 range = (row["range"] as? Number)?.toInt() ?: base.range,
                 ballisticSkill = (row["ballisticSkill"] as? Number)?.toInt() ?: base.ballisticSkill,
                 weaponSkill = (row["weaponSkill"] as? Number)?.toInt() ?: base.weaponSkill,
+                leadership = ((row["leadership"] as? Number)?.toInt() ?: base.leadership).coerceIn(4, 10),
+                objectiveControl = ((row["objectiveControl"] as? Number)?.toInt() ?: base.objectiveControl).coerceIn(0, 8),
                 mainWeaponName = (row["mainWeaponName"] as? String) ?: base.mainWeaponName,
                 mainWeaponAssault = (row["mainWeaponAssault"] as? Boolean) ?: base.mainWeaponAssault,
                 mainWeaponPistol = (row["mainWeaponPistol"] as? Boolean) ?: base.mainWeaponPistol,
@@ -908,7 +977,8 @@ class OnlineCoopRepository(
             ownerPlayerId = (row["ownerPlayerId"] as? String) ?: "PLAYER",
             ownerPlayerName = (row["ownerPlayerName"] as? String) ?: "",
             markedByTeam = (row["markedByTeam"] as? Number)?.toInt()?.let { if (it >= 0) it else null },
-            meleeChargeBuffActive = (row["meleeChargeBuffActive"] as? Boolean) ?: false
+            meleeChargeBuffActive = (row["meleeChargeBuffActive"] as? Boolean) ?: false,
+            bladeguardRerollBuffActive = (row["bladeguardRerollBuffActive"] as? Boolean) ?: false
         )
     }
 
@@ -973,6 +1043,8 @@ class OnlineCoopRepository(
                 GridPos(if (deployTeam == 0) 1 else MapGenerator.GRID_W - 2, MapGenerator.GRID_H / 2)
             } else null
 
+            val parsedLogs = parseCombatLogs(battleMap["combatLogs"] as? List<*>)
+
             current.copy(
                 active = (battleMap["active"] as? Boolean) ?: true,
                 round = (battleMap["round"] as? Number)?.toInt() ?: 1,
@@ -996,6 +1068,7 @@ class OnlineCoopRepository(
                 enemyKills = (battleMap["enemyKills"] as? Number)?.toInt() ?: 0,
                 coopTurnOrder = turnOrder,
                 summary = parsedSummary,
+                combatLogs = parsedLogs,
                 focusGridPos = when {
                     isDeploy && (!current.isDeploymentPhase || current.deploymentTeamIndex != deployTeam) -> deployFocus
                     current.autoFocusCamera && selPos != null -> selPos

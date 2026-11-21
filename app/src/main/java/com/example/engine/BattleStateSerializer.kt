@@ -2,10 +2,12 @@ package com.example.engine
 
 import com.example.model.BattleSummary
 import com.example.model.BattleUnit
+import com.example.model.CombatLogEntry
 import com.example.model.CoopPlayer
 import com.example.model.CoopRosterUnit
 import com.example.model.CoopSlotMode
 import com.example.model.CoopState
+import com.example.model.DiceStepDetail
 import com.example.model.Facing
 import com.example.model.Faction
 import com.example.model.GridPos
@@ -50,6 +52,7 @@ object BattleStateSerializer {
                 put("ownerPlayerName", u.ownerPlayerName)
                 put("markedByTeam", u.markedByTeam ?: -1)
                 put("meleeChargeBuffActive", u.meleeChargeBuffActive)
+                put("bladeguardRerollBuffActive", u.bladeguardRerollBuffActive)
             })
         }
         return arr.toString()
@@ -99,7 +102,8 @@ object BattleStateSerializer {
                         ownerPlayerId = o.optString("ownerPlayerId", "PLAYER"),
                         ownerPlayerName = o.optString("ownerPlayerName", ""),
                         markedByTeam = o.optInt("markedByTeam", -1).let { if (it >= 0) it else null },
-                        meleeChargeBuffActive = o.optBoolean("meleeChargeBuffActive", false)
+                        meleeChargeBuffActive = o.optBoolean("meleeChargeBuffActive", false),
+                        bladeguardRerollBuffActive = o.optBoolean("bladeguardRerollBuffActive", false)
                     )
                 )
             }
@@ -147,7 +151,85 @@ object BattleStateSerializer {
                 put("totalDamageDealt", sum.totalDamageDealt)
             })
         }
+        obj.put("combatLogs", serializeCombatLogs(state.combatLogs.take(25)))
         return obj.toString()
+    }
+
+    private fun serializeCombatLogs(logs: List<CombatLogEntry>): JSONArray {
+        val arr = JSONArray()
+        for (entry in logs) {
+            val stepsArr = JSONArray()
+            for (s in entry.steps) {
+                val diceArr = JSONArray()
+                for (d in s.diceValues) diceArr.put(d)
+                stepsArr.put(JSONObject().apply {
+                    put("phaseName", s.phaseName)
+                    put("stepLabel", s.stepLabel)
+                    put("targetNeeded", s.targetNeeded)
+                    put("rolled", s.rolled)
+                    put("passed", s.passed)
+                    put("failed", s.failed)
+                    put("diceValues", diceArr)
+                    put("note", s.note)
+                })
+            }
+            arr.put(JSONObject().apply {
+                put("id", entry.id)
+                put("round", entry.round)
+                put("faction", entry.faction.name)
+                put("title", entry.title)
+                put("subtitle", entry.subtitle)
+                put("steps", stepsArr)
+                put("resultSummary", entry.resultSummary)
+                put("isCounterOrFightFirst", entry.isCounterOrFightFirst)
+                put("isSuccess", entry.isSuccess)
+            })
+        }
+        return arr
+    }
+
+    private fun deserializeCombatLogs(arr: JSONArray?): List<CombatLogEntry> {
+        if (arr == null) return emptyList()
+        val out = ArrayList<CombatLogEntry>(arr.length())
+        for (i in 0 until arr.length()) {
+            val lo = arr.optJSONObject(i) ?: continue
+            val stepsArr = lo.optJSONArray("steps") ?: JSONArray()
+            val steps = ArrayList<DiceStepDetail>(stepsArr.length())
+            for (j in 0 until stepsArr.length()) {
+                val so = stepsArr.optJSONObject(j) ?: continue
+                val diceArr = so.optJSONArray("diceValues") ?: JSONArray()
+                val dice = ArrayList<Int>(diceArr.length())
+                for (k in 0 until diceArr.length()) {
+                    dice.add(diceArr.optInt(k, 1))
+                }
+                steps.add(
+                    DiceStepDetail(
+                        phaseName = so.optString("phaseName", "ROLL"),
+                        stepLabel = so.optString("stepLabel", ""),
+                        targetNeeded = so.optInt("targetNeeded", 1),
+                        rolled = so.optInt("rolled", 0),
+                        passed = so.optInt("passed", 0),
+                        failed = so.optInt("failed", 0),
+                        diceValues = dice,
+                        note = so.optString("note", "")
+                    )
+                )
+            }
+            out.add(
+                CombatLogEntry(
+                    id = lo.optLong("id", 0L),
+                    round = lo.optInt("round", 1),
+                    faction = runCatching { Faction.valueOf(lo.optString("faction", Faction.MARINES.name)) }.getOrDefault(Faction.MARINES),
+                    title = lo.optString("title", ""),
+                    subtitle = lo.optString("subtitle", ""),
+                    steps = steps,
+                    resultSummary = lo.optString("resultSummary", ""),
+                    isCounterOrFightFirst = lo.optBoolean("isCounterOrFightFirst", false),
+                    isSuccess = lo.optBoolean("isSuccess", true)
+                )
+            )
+        }
+        return out
     }
 
     fun applyCoopBattleSnapshot(
@@ -189,6 +271,7 @@ object BattleStateSerializer {
                     totalDamageDealt = summaryObj.optInt("totalDamageDealt", 0)
                 )
             } else null
+            val parsedLogs = deserializeCombatLogs(o.optJSONArray("combatLogs"))
             val selPos = units.firstOrNull { it.uid == selUid }?.pos
             current.copy(
                 active = o.optBoolean("active", true),
@@ -207,6 +290,7 @@ object BattleStateSerializer {
                 playerKills = o.optInt("playerKills", 0),
                 enemyKills = o.optInt("enemyKills", 0),
                 summary = parsedSummary,
+                combatLogs = parsedLogs,
                 focusGridPos = if (current.autoFocusCamera && selPos != null) selPos else current.focusGridPos,
                 moveModeActive = false,
                 movePreview = null,

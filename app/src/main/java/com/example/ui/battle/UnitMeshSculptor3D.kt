@@ -33,6 +33,7 @@ object UnitMeshSculptor3D {
             UnitArchetype.DREADNOUGHT -> buildUltramarineDreadnought(m)
             UnitArchetype.TERMINATOR -> buildAssaultTerminator(m, useLightningClaws = variant == "CLAWS")
             UnitArchetype.INCURSOR -> buildUltramarineIncursor(m)
+            UnitArchetype.BLADEGUARD -> buildBladeguardVeteran(m)
             UnitArchetype.INTERCESSOR,
             UnitArchetype.HELLBLASTER,
             UnitArchetype.ASSAULT_MARINE,
@@ -45,6 +46,8 @@ object UnitMeshSculptor3D {
             UnitArchetype.GENESTEALER -> buildGenestealer(m)
             UnitArchetype.CARNIFEX -> buildCarnifex(m)
             UnitArchetype.HIVE_TYRANT -> buildHiveTyrant(m)
+            UnitArchetype.BIOVORE -> buildBiovore(m)
+            UnitArchetype.SPORE_MINE -> buildSporeMine(m)
         }
         return m.build()
     }
@@ -1392,4 +1395,441 @@ object UnitMeshSculptor3D {
         m.addOrientedCylinder(0.03f * s, by + 0.45f * s, -0.15f * s, 0.15f * s, by + 0.38f * s, -0.19f * s, 0.032f * s, 0.024f * s, 8, r = FLESH_R, g = FLESH_G, b = FLESH_B)
         m.addArcTube(0.24f * s, by + 0.35f * s, -0.22f * s, 0.11f * s, 0.09f * s, 0.014f * s, rotXDeg = 22f, startDeg = -130f, endDeg = 130f, arcSegs = 10, tubeSegs = 5, r = TENDRIL_R, g = TENDRIL_G, b = TENDRIL_B)
     }
+
+    private fun buildBiovore(m: MeshAccumulator) {
+        val s = 1.30f
+        // 1. Broad Textured Rocky Plinth Base
+        m.addCylinder(0f, 0.002f, 0f, 0.26f * s, 0.245f * s, 0.026f, 14, 0.12f, 0.10f, 0.12f)
+        m.addOrientedEllipsoid(0.08f * s, 0.022f, -0.06f * s, 0.07f * s, 0.018f, 0.06f * s, latSegs = 3, lonSegs = 6, phiEndDeg = 90f, r = 0.19f, g = 0.17f, b = 0.16f)
+        val by = 0.026f
+
+        // 2. Six Chitinous Artillery Bracing Legs (Arachnid / Crustacean Low Stance)
+        // 2a. Heavy Front Anchor Pincers (curves downward into ground for recoil stability)
+        for (side in floatArrayOf(-1f, 1f)) {
+            val z = side * 0.12f * s
+            // Upper limb (thigh)
+            m.addOrientedCylinder(0.04f * s, by + 0.15f * s, z, 0.14f * s, by + 0.19f * s, side * 0.18f * s, 0.038f * s, 0.032f * s, 8, r = FLESH_R, g = FLESH_G, b = FLESH_B)
+            // Carapace plate over thigh
+            m.addOrientedBox(0.09f * s, by + 0.18f * s, side * 0.15f * s, 0.11f * s, 0.022f * s, 0.036f * s, rotZDeg = -18f, rotYDeg = -side * 25f, r = CHITIN_R, g = CHITIN_G, b = CHITIN_B)
+            // Lower limb (heavy curved talon curving down to ground)
+            m.addOrientedCylinder(0.14f * s, by + 0.19f * s, side * 0.18f * s, 0.21f * s, by + 0.015f * s, side * 0.16f * s, 0.032f * s, 0.012f * s, 8, r = TALON_DK_R, g = TALON_DK_G, b = TALON_DK_B)
+            // Sharp scything talon tip
+            m.addOrientedCylinder(0.20f * s, by + 0.020f * s, side * 0.16f * s, 0.26f * s, by + 0.008f * s, side * 0.15f * s, 0.014f * s, 0.004f * s, 6, r = TALON_TIP_R, g = TALON_TIP_G, b = TALON_TIP_B)
+        }
+
+        // 2b. Middle Outward-Splayed Stabilizer Legs
+        for (side in floatArrayOf(-1f, 1f)) {
+            val z = side * 0.10f * s
+            m.addOrientedCylinder(-0.02f * s, by + 0.14f * s, z, -0.01f * s, by + 0.17f * s, side * 0.21f * s, 0.032f * s, 0.026f * s, 8, r = FLESH_R, g = FLESH_G, b = FLESH_B)
+            m.addOrientedCylinder(-0.01f * s, by + 0.17f * s, side * 0.21f * s, 0.02f * s, by + 0.012f * s, side * 0.23f * s, 0.026f * s, 0.010f * s, 8, r = TALON_DK_R, g = TALON_DK_G, b = TALON_DK_B)
+        }
+
+        // 2c. Rear Heavy Recoil Brakes (backwards-angled thighs)
+        for (side in floatArrayOf(-1f, 1f)) {
+            val z = side * 0.09f * s
+            m.addOrientedCylinder(-0.10f * s, by + 0.13f * s, z, -0.19f * s, by + 0.16f * s, side * 0.18f * s, 0.038f * s, 0.030f * s, 8, r = FLESH_SHADE_R, g = FLESH_SHADE_G, b = FLESH_SHADE_B)
+            m.addOrientedBox(-0.15f * s, by + 0.16f * s, side * 0.14f * s, 0.10f * s, 0.024f * s, 0.038f * s, rotZDeg = 16f, rotYDeg = side * 28f, r = CHITIN_R, g = CHITIN_G, b = CHITIN_B)
+            m.addOrientedCylinder(-0.19f * s, by + 0.16f * s, side * 0.18f * s, -0.25f * s, by + 0.012f * s, side * 0.19f * s, 0.030f * s, 0.012f * s, 8, r = TALON_DK_R, g = TALON_DK_G, b = TALON_DK_B)
+        }
+
+        // 3. Low-Slung Squat Thorax & Underbelly (fleshy pink/peach body)
+        m.addOrientedEllipsoid(0.01f * s, by + 0.18f * s, 0f, 0.17f * s, 0.09f * s, 0.13f * s, rotZDeg = -6f, latSegs = 5, lonSegs = 10, r = FLESH_R, g = FLESH_G, b = FLESH_B)
+        // Ventral organic ribs
+        for (rib in -1..2) {
+            val rx = rib * 0.05f * s
+            m.addOrientedCylinder(rx, by + 0.13f * s, -0.09f * s, rx, by + 0.13f * s, 0.09f * s, 0.012f * s, 0.012f * s, 6, r = FLESH_SHADE_R, g = FLESH_SHADE_G, b = FLESH_SHADE_B)
+        }
+
+        // 4. Low Armored Head (slung forward between front shoulders)
+        val hx = 0.18f * s
+        val hy = by + 0.145f * s
+        m.addOrientedEllipsoid(hx, hy, 0f, 0.085f * s, 0.052f * s, 0.065f * s, rotZDeg = -12f, latSegs = 4, lonSegs = 8, r = FLESH_R, g = FLESH_G, b = FLESH_B)
+        // Dorsal Cranial Crest Armor Plate (purple chitin)
+        m.addOrientedEllipsoid(hx + 0.01f * s, hy + 0.022f * s, 0f, 0.092f * s, 0.035f * s, 0.068f * s, phiEndDeg = 95f, rotZDeg = -14f, latSegs = 4, lonSegs = 8, r = CHITIN_R, g = CHITIN_G, b = CHITIN_B)
+        // Magenta Crest Edge Trim
+        m.addOrientedBox(hx + 0.02f * s, hy + 0.035f * s, 0f, 0.085f * s, 0.012f * s, 0.066f * s, rotZDeg = -14f, r = CHITIN_HI_R, g = CHITIN_HI_G, b = CHITIN_HI_B)
+        // Glowing Amber Sensory Eyes
+        m.addOrientedEllipsoid(hx + 0.045f * s, hy + 0.012f * s, -0.036f * s, 0.012f * s, 0.010f * s, 0.010f * s, latSegs = 3, lonSegs = 6, r = 1.0f, g = 0.55f, b = 0.08f, a = E)
+        m.addOrientedEllipsoid(hx + 0.045f * s, hy + 0.012f * s, 0.036f * s, 0.012f * s, 0.010f * s, 0.010f * s, latSegs = 3, lonSegs = 6, r = 1.0f, g = 0.55f, b = 0.08f, a = E)
+        // Downward Curved Feeding Mandibles / Jaws
+        for (side in floatArrayOf(-1f, 1f)) {
+            m.addOrientedCylinder(hx + 0.06f * s, hy - 0.01f * s, side * 0.028f * s, hx + 0.08f * s, hy - 0.045f * s, side * 0.018f * s, 0.014f * s, 0.005f * s, 6, r = TALON_DK_R, g = TALON_DK_G, b = TALON_DK_B)
+        }
+
+        // 5. Massive Dorsal Symbiote Spore Cannon (Launcher Barrel angled forward-upward ~18 degrees)
+        val cannonStartX = -0.15f * s
+        val cannonStartY = by + 0.22f * s
+        val cannonEndX = 0.16f * s
+        val cannonEndY = by + 0.32f * s
+
+        // Heavy Main Barrel Tube
+        m.addOrientedCylinder(cannonStartX, cannonStartY, 0f, cannonEndX, cannonEndY, 0f, 0.075f * s, 0.068f * s, 10, r = CHITIN_R, g = CHITIN_G, b = CHITIN_B)
+        // Stepped Purple Carapace Ribs along Cannon Top
+        for (i in 0 until 4) {
+            val t = i / 3.0f
+            val cx = cannonStartX + (cannonEndX - cannonStartX) * t
+            val cy = cannonStartY + (cannonEndY - cannonStartY) * t
+            m.addOrientedBox(cx, cy + 0.035f * s, 0f, 0.065f * s, 0.022f * s, 0.13f * s - i * 0.015f * s, rotZDeg = 18f, r = CHITIN_HI_R, g = CHITIN_HI_G, b = CHITIN_HI_B)
+            // Glowing Bio-Magma Fissure / Vent Dots along the Cannon Spine
+            m.addOrientedEllipsoid(cx, cy + 0.048f * s, 0f, 0.014f * s, 0.008f * s, 0.014f * s, latSegs = 3, lonSegs = 6, r = 1.0f, g = 0.40f, b = 0.05f, a = E)
+        }
+
+        // Organic Spore Cannon Muzzle (Circular fleshy lip + glowing orange spore launch aperture)
+        m.addOrientedCylinder(cannonEndX, cannonEndY, 0f, cannonEndX + 0.035f * s, cannonEndY + 0.012f * s, 0f, 0.068f * s, 0.072f * s, 10, r = TALON_TIP_R, g = TALON_TIP_G, b = TALON_TIP_B)
+        // Glowing Interior Spore Launch Orifice
+        m.addOrientedEllipsoid(cannonEndX + 0.036f * s, cannonEndY + 0.012f * s, 0f, 0.022f * s, 0.045f * s, 0.045f * s, rotZDeg = 18f, latSegs = 4, lonSegs = 8, r = 1.0f, g = 0.45f, b = 0.06f, a = E)
+
+        // 6. Bulging Veined Spore Sacs (Egg / Spore Incubators on Cannon Flanks)
+        for (side in floatArrayOf(-1f, 1f)) {
+            val sz = side * 0.095f * s
+            // Bulbous spore sac
+            m.addOrientedEllipsoid(0.01f * s, by + 0.25f * s, sz, 0.095f * s, 0.068f * s, 0.055f * s, rotZDeg = 14f, rotYDeg = -side * 10f, latSegs = 5, lonSegs = 10, r = 0.90f, g = 0.65f, b = 0.62f)
+            // Translucent organic veins running across the sac
+            m.addOrientedCylinder(-0.04f * s, by + 0.27f * s, sz * 1.15f, 0.05f * s, by + 0.23f * s, sz * 1.15f, 0.008f * s, 0.008f * s, 6, r = FLESH_SHADE_R, g = FLESH_SHADE_G, b = FLESH_SHADE_B)
+            m.addOrientedCylinder(-0.02f * s, by + 0.22f * s, sz * 1.12f, 0.04f * s, by + 0.28f * s, sz * 1.12f, 0.007f * s, 0.007f * s, 6, r = 0.72f, g = 0.25f, b = 0.35f)
+        }
+
+        // 7. Short Armor Anchor Pod at Tail
+        m.addOrientedCylinder(-0.15f * s, by + 0.18f * s, 0f, -0.24f * s, by + 0.13f * s, 0f, 0.055f * s, 0.032f * s, 8, r = CHITIN_R, g = CHITIN_G, b = CHITIN_B)
+        m.addOrientedEllipsoid(-0.25f * s, by + 0.13f * s, 0f, 0.045f * s, 0.030f * s, 0.042f * s, latSegs = 3, lonSegs = 6, r = TALON_DK_R, g = TALON_DK_G, b = TALON_DK_B)
+    }
+
+    private fun buildSporeMine(m: MeshAccumulator) {
+        val s = 0.88f
+        // 1. Small Ash Tactical Base Plinth + Flight Stalk
+        m.addCylinder(0f, 0.002f, 0f, 0.13f * s, 0.115f * s, 0.018f, 10, 0.12f, 0.10f, 0.12f)
+        m.addCylinder(0f, 0.018f, 0f, 0.007f * s, 0.007f * s, 0.14f * s, 6, 0.25f, 0.25f, 0.28f)
+        val cy = 0.018f + 0.14f * s + 0.075f * s
+
+        // 2. Central Pulsating Bio-Gasbag Bulb (peach/pink flesh)
+        m.addOrientedEllipsoid(0f, cy, 0f, 0.098f * s, 0.112f * s, 0.098f * s, latSegs = 6, lonSegs = 12, r = 0.88f, g = 0.68f, b = 0.65f)
+        // Darker fleshy underside
+        m.addOrientedEllipsoid(0f, cy - 0.045f * s, 0f, 0.075f * s, 0.045f * s, 0.075f * s, latSegs = 4, lonSegs = 8, r = FLESH_SHADE_R, g = FLESH_SHADE_G, b = FLESH_SHADE_B)
+
+        // 3. Domed Top Purple Carapace Cap (chitin armor)
+        m.addOrientedEllipsoid(0f, cy + 0.038f * s, 0f, 0.102f * s, 0.082f * s, 0.102f * s, phiEndDeg = 85f, latSegs = 5, lonSegs = 10, r = CHITIN_R, g = CHITIN_G, b = CHITIN_B)
+        // Magenta Highlight Ring on Cap Rim
+        m.addOrientedEllipsoid(0f, cy + 0.035f * s, 0f, 0.105f * s, 0.015f * s, 0.105f * s, latSegs = 3, lonSegs = 10, r = CHITIN_HI_R, g = CHITIN_HI_G, b = CHITIN_HI_B)
+        // Dorsal Bio-Vents / Exhaust Chimneys on Top Cap
+        m.addOrientedCylinder(0f, cy + 0.10f * s, 0f, 0f, cy + 0.145f * s, 0f, 0.024f * s, 0.018f * s, 6, r = TALON_DK_R, g = TALON_DK_G, b = TALON_DK_B)
+        m.addOrientedEllipsoid(0f, cy + 0.145f * s, 0f, 0.012f * s, 0.006f * s, 0.012f * s, latSegs = 3, lonSegs = 6, r = 1.0f, g = 0.45f, b = 0.08f, a = E)
+        for (i in 0 until 3) {
+            val ang = i * 120.0
+            val rad = Math.toRadians(ang)
+            val vx = (kotlin.math.cos(rad) * 0.042f * s).toFloat()
+            val vz = (kotlin.math.sin(rad) * 0.042f * s).toFloat()
+            m.addOrientedCylinder(vx * 0.7f, cy + 0.09f * s, vz * 0.7f, vx, cy + 0.125f * s, vz, 0.014f * s, 0.009f * s, 6, r = TALON_DK_R, g = TALON_DK_G, b = TALON_DK_B)
+        }
+
+        // 4. Glowing Amber Sensory Eyes around Midriff
+        for (i in 0 until 4) {
+            val ang = i * 90.0 + 45.0
+            val rad = Math.toRadians(ang)
+            val ex = (kotlin.math.cos(rad) * 0.092f * s).toFloat()
+            val ez = (kotlin.math.sin(rad) * 0.092f * s).toFloat()
+            m.addOrientedEllipsoid(ex, cy + 0.005f * s, ez, 0.014f * s, 0.012f * s, 0.014f * s, latSegs = 3, lonSegs = 6, r = 1.0f, g = 0.60f, b = 0.10f, a = E)
+        }
+
+        // 5. Trailing Drooping Organic Tendrils / Tentacles Hanging Below Gasbag
+        val tentacleConfigs = arrayOf(
+            floatArrayOf(0.04f, 0.03f, 0.07f, -0.06f),
+            floatArrayOf(-0.04f, 0.04f, -0.08f, 0.05f),
+            floatArrayOf(0.03f, -0.04f, 0.05f, -0.07f),
+            floatArrayOf(-0.03f, -0.03f, -0.06f, -0.05f)
+        )
+        for (cfg in tentacleConfigs) {
+            val x0 = cfg[0] * s
+            val z0 = cfg[1] * s
+            val x1 = (cfg[0] + cfg[2] * 0.5f) * s
+            val z1 = (cfg[1] + cfg[3] * 0.5f) * s
+            val x2 = (cfg[0] + cfg[2]) * s
+            val z2 = (cfg[1] + cfg[3]) * s
+            m.addOrientedCylinder(x0, cy - 0.07f * s, z0, x1, cy - 0.13f * s, z1, 0.014f * s, 0.010f * s, 6, r = FLESH_SHADE_R, g = FLESH_SHADE_G, b = FLESH_SHADE_B)
+            m.addOrientedCylinder(x1, cy - 0.13f * s, z1, x2, cy - 0.19f * s, z2, 0.010f * s, 0.004f * s, 6, r = TENDRIL_R, g = TENDRIL_G, b = TENDRIL_B)
+        }
+    }
+
+    private fun buildBladeguardVeteran(m: MeshAccumulator) {
+        val s = 1.05f
+        val ivoryR = 0.91f; val ivoryG = 0.88f; val ivoryB = 0.80f
+        val tabardR = 0.82f; val tabardG = 0.74f; val tabardB = 0.59f
+        val tabardHemR = 0.65f; val tabardHemG = 0.53f; val tabardHemB = 0.39f
+        val leatherR = 0.25f; val leatherG = 0.15f; val leatherB = 0.10f
+
+        fun rotateLocal(lx: Float, ly: Float, lz: Float, rxDeg: Float, ryDeg: Float, rzDeg: Float): FloatArray {
+            var x = lx; var y = ly; var z = lz
+            if (rzDeg != 0f) {
+                val rad = Math.toRadians(rzDeg.toDouble())
+                val c = kotlin.math.cos(rad).toFloat(); val sn = kotlin.math.sin(rad).toFloat()
+                val nx = x * c - y * sn; val ny = x * sn + y * c
+                x = nx; y = ny
+            }
+            if (rxDeg != 0f) {
+                val rad = Math.toRadians(rxDeg.toDouble())
+                val c = kotlin.math.cos(rad).toFloat(); val sn = kotlin.math.sin(rad).toFloat()
+                val ny = y * c - z * sn; val nz = y * sn + z * c
+                y = ny; z = nz
+            }
+            if (ryDeg != 0f) {
+                val rad = Math.toRadians(ryDeg.toDouble())
+                val c = kotlin.math.cos(rad).toFloat(); val sn = kotlin.math.sin(rad).toFloat()
+                val nx = x * c + z * sn; val nz = -x * sn + z * c
+                x = nx; z = nz
+            }
+            return floatArrayOf(x, y, z)
+        }
+
+        // 1. Tactical Dark Ash Base Plinth
+        m.addCylinder(0f, 0.002f, 0f, 0.195f * s, 0.185f * s, 0.028f, 14, 0.13f, 0.12f, 0.13f)
+        m.addOrientedEllipsoid(0.05f * s, 0.024f, -0.05f * s, 0.08f * s, 0.022f, 0.07f * s, latSegs = 3, lonSegs = 6, phiEndDeg = 90f, r = 0.21f, g = 0.19f, b = 0.18f)
+        m.addOrientedBox(-0.07f * s, 0.030f, 0.07f * s, 0.05f * s, 0.024f, 0.05f * s, rotYDeg = 25f, r = 0.24f, g = 0.21f, b = 0.19f)
+        val by = 0.030f
+
+        // 2. Wide Braced Heroic Stance Legs (matching Bladeguard Veteran 03 photo)
+        // Right Leg (+Z): stepped wide outward-forward with Golden Skull on right kneecap
+        // Left Leg (-Z): braced wide outward with gold knee trim & crimson shin purity seal
+        for (isLeft in booleanArrayOf(false, true)) {
+            val side = if (isLeft) -1f else 1f
+            val footX = if (isLeft) -0.020f * s else 0.036f * s
+            val footZ = side * (if (isLeft) 0.128f else 0.124f) * s
+            val yawDeg = if (isLeft) 22f else -20f
+
+            // Sabaton Boot
+            m.addOrientedBox(footX, by + 0.016f * s, footZ, 0.128f * s, 0.032f * s, 0.084f * s, rotYDeg = yawDeg, r = IRON_R, g = IRON_G, b = IRON_B)
+            m.addOrientedEllipsoid(footX + 0.018f * s, by + 0.028f * s, footZ, 0.068f * s, 0.042f * s, 0.048f * s, rotYDeg = yawDeg, phiEndDeg = 90f, latSegs = 4, lonSegs = 8, r = BLUE_R, g = BLUE_G, b = BLUE_B)
+
+            // Flared Mk X Greave angled outward into braced combat stance
+            val kneeX = footX * 0.55f + 0.016f * s
+            val kneeY = by + 0.196f * s
+            val kneeZ = side * 0.102f * s
+            m.addOrientedCylinder(footX, by + 0.042f * s, footZ, kneeX, kneeY, kneeZ, 0.062f * s, 0.047f * s, 10, r = BLUE_R, g = BLUE_G, b = BLUE_B)
+
+            // Poleyn Kneecap + Gold Arch Trim
+            m.addOrientedEllipsoid(kneeX + 0.034f * s, kneeY, kneeZ, 0.032f * s, 0.040f * s, 0.038f * s, rotYDeg = yawDeg, latSegs = 4, lonSegs = 8, r = BLUE_HI_R, g = BLUE_HI_G, b = BLUE_HI_B)
+            m.addArcTube(kneeX + 0.034f * s, kneeY + 0.012f * s, kneeZ, 0.034f * s, 0.038f * s, 0.008f * s, rotYDeg = yawDeg, rotZDeg = 68f, startDeg = -90f, endDeg = 90f, arcSegs = 8, tubeSegs = 4, r = GOLD_R, g = GOLD_G, b = GOLD_B)
+
+            if (!isLeft) {
+                // Prominent 3D Golden Skull Badge on Right Kneecap (exact match to photo!)
+                m.addOrientedEllipsoid(kneeX + 0.062f * s, kneeY + 0.002f * s, kneeZ + 0.004f * s, 0.015f * s, 0.018f * s, 0.015f * s, rotYDeg = yawDeg, latSegs = 3, lonSegs = 6, r = GOLD_R, g = GOLD_G, b = GOLD_B)
+                m.addOrientedBox(kneeX + 0.062f * s, kneeY - 0.014f * s, kneeZ + 0.004f * s, 0.012f * s, 0.012f * s, 0.014f * s, rotYDeg = yawDeg, r = GOLD_DK_R, g = GOLD_DK_G, b = GOLD_DK_B)
+            } else {
+                // Crimson Purity Seal + Parchment Strip on outer Left Shin
+                m.addOrientedCylinder(footX + 0.02f * s, by + 0.125f * s, footZ - 0.048f * s, footX + 0.02f * s, by + 0.125f * s, footZ - 0.062f * s, 0.016f * s, 0.014f * s, 8, r = WAX_R, g = WAX_G, b = WAX_B)
+                m.addOrientedBox(footX + 0.008f * s, by + 0.088f * s, footZ - 0.056f * s, 0.018f * s, 0.058f * s, 0.006f * s, rotXDeg = -8f, r = PARCH_R, g = PARCH_G, b = PARCH_B)
+            }
+
+            // Thigh Plate + Dark Undersuit Joint + Hip Tasset
+            val hipY = by + 0.305f * s
+            val hipZ = side * 0.070f * s
+            m.addOrientedCylinder(kneeX, kneeY + 0.01f * s, kneeZ, 0f, hipY, hipZ, 0.044f * s, 0.052f * s, 10, r = BLUE_R, g = BLUE_G, b = BLUE_B)
+            m.addOrientedBox(0.018f * s, by + 0.315f * s, side * 0.098f * s, 0.084f * s, 0.082f * s, 0.024f * s, rotXDeg = side * 14f, r = BLUE_DK_R, g = BLUE_DK_G, b = BLUE_DK_B)
+        }
+
+        // 3. Pelvis, Flowing Cream/Bone Tabard Cloth, Leather Belt, Pouches & Golden Cross Reliquary
+        m.addOrientedEllipsoid(0f, by + 0.305f * s, 0f, 0.076f * s, 0.058f * s, 0.098f * s, latSegs = 4, lonSegs = 8, r = IRON_R, g = IRON_G, b = IRON_B)
+        m.addOrientedCylinder(0f, by + 0.31f * s, 0f, 0f, by + 0.40f * s, 0f, 0.074f * s, 0.086f * s, 10, r = tabardR, g = tabardG, b = tabardB)
+
+        // Front Cream-Bone Tabard Cloth Draping Between Legs Past Knees (folded layers + weathered tan hem)
+        m.addOrientedBox(0.076f * s, by + 0.255f * s, 0f, 0.026f * s, 0.165f * s, 0.128f * s, rotZDeg = 4f, r = tabardR, g = tabardG, b = tabardB)
+        m.addOrientedBox(0.068f * s, by + 0.135f * s, 0f, 0.022f * s, 0.105f * s, 0.146f * s, rotZDeg = 6f, r = tabardHemR, g = tabardHemG, b = tabardHemB)
+        // Rear Tabard Skirt
+        m.addOrientedBox(-0.078f * s, by + 0.215f * s, 0f, 0.022f * s, 0.220f * s, 0.136f * s, rotZDeg = -6f, r = tabardHemR, g = tabardHemG, b = tabardHemB)
+
+        // Dark Brown Leather Waist Belt + Gunmetal Buckle + Hip Pouches
+        m.addCylinder(0f, by + 0.332f * s, 0f, 0.086f * s, 0.088f * s, 0.036f * s, 12, leatherR, leatherG, leatherB)
+        m.addOrientedBox(0.090f * s, by + 0.350f * s, 0f, 0.020f * s, 0.038f * s, 0.044f * s, r = STEEL_R * 0.9f, g = STEEL_G * 0.9f, b = STEEL_B * 0.9f)
+        m.addOrientedBox(0.094f * s, by + 0.350f * s, 0f, 0.014f * s, 0.022f * s, 0.024f * s, r = IRON_R, g = IRON_G, b = IRON_B)
+        // Twin Leather Belt Pouches on Right Hip (+Z)
+        m.addOrientedBox(0.030f * s, by + 0.348f * s, 0.095f * s, 0.056f * s, 0.050f * s, 0.036f * s, rotYDeg = -18f, r = leatherR * 1.15f, g = leatherG * 1.15f, b = leatherB * 1.15f)
+        m.addOrientedBox(-0.032f * s, by + 0.348f * s, 0.092f * s, 0.048f * s, 0.046f * s, 0.034f * s, rotYDeg = 10f, r = leatherR, g = leatherG, b = leatherB)
+
+        // Hanging Golden Cross Reliquary on Silver Ring at Belt Front
+        m.addOrientedEllipsoid(0.095f * s, by + 0.326f * s, 0f, 0.010f * s, 0.014f * s, 0.010f * s, latSegs = 3, lonSegs = 6, r = STEEL_R * 1.2f, g = STEEL_G * 1.2f, b = STEEL_B * 1.2f)
+        m.addOrientedBox(0.092f * s, by + 0.270f * s, 0f, 0.016f * s, 0.088f * s, 0.018f * s, rotZDeg = 4f, r = GOLD_R, g = GOLD_G, b = GOLD_B)
+        m.addOrientedBox(0.094f * s, by + 0.292f * s, 0f, 0.016f * s, 0.018f * s, 0.052f * s, rotZDeg = 4f, r = GOLD_R, g = GOLD_G, b = GOLD_B)
+        m.addOrientedEllipsoid(0.100f * s, by + 0.292f * s, 0f, 0.010f * s, 0.011f * s, 0.010f * s, latSegs = 3, lonSegs = 6, r = GOLD_DK_R, g = GOLD_DK_G, b = GOLD_DK_B)
+
+        // 4. Macragge Blue Chest Cuirass + Raised Gorget Collar + Golden Winged Aquila
+        m.addOrientedEllipsoid(0.012f * s, by + 0.458f * s, 0f, 0.104f * s, 0.105f * s, 0.132f * s, latSegs = 6, lonSegs = 10, r = BLUE_R, g = BLUE_G, b = BLUE_B)
+        m.addArcTube(0.012f * s, by + 0.544f * s, 0f, 0.078f * s, 0.088f * s, 0.020f * s, startDeg = -75f, endDeg = 75f, arcSegs = 8, tubeSegs = 5, r = BLUE_HI_R, g = BLUE_HI_G, b = BLUE_HI_B)
+        // Golden Winged Chest Aquila
+        m.addOrientedEllipsoid(0.115f * s, by + 0.474f * s, 0f, 0.020f * s, 0.022f * s, 0.018f * s, latSegs = 3, lonSegs = 6, r = GOLD_R, g = GOLD_G, b = GOLD_B)
+        m.addOrientedBox(0.105f * s, by + 0.486f * s, -0.048f * s, 0.022f * s, 0.032f * s, 0.072f * s, rotXDeg = 20f, rotYDeg = 18f, r = GOLD_R, g = GOLD_G, b = GOLD_B)
+        m.addOrientedBox(0.105f * s, by + 0.486f * s, 0.048f * s, 0.022f * s, 0.032f * s, 0.072f * s, rotXDeg = -20f, rotYDeg = -18f, r = GOLD_R, g = GOLD_G, b = GOLD_B)
+        m.addOrientedBox(0.095f * s, by + 0.468f * s, -0.044f * s, 0.018f * s, 0.018f * s, 0.056f * s, rotXDeg = 14f, rotYDeg = 18f, r = GOLD_DK_R, g = GOLD_DK_G, b = GOLD_DK_B)
+        m.addOrientedBox(0.095f * s, by + 0.468f * s, 0.044f * s, 0.018f * s, 0.018f * s, 0.056f * s, rotXDeg = -14f, rotYDeg = -18f, r = GOLD_DK_R, g = GOLD_DK_G, b = GOLD_DK_B)
+
+        // Checkered Yellow/Black & Omega Heraldic Tilting Shield on Upper-Right Chest (+Z, exact match to photo!)
+        val tsCx = 0.114f * s; val tsCy = by + 0.514f * s; val tsCz = 0.086f * s
+        val tsRx = 10f; val tsRy = -24f; val tsRz = -8f
+        fun tiltBox(lx: Float, ly: Float, lz: Float, sx: Float, sy: Float, sz: Float, r: Float, g: Float, b: Float) {
+            val p = rotateLocal(lx, ly, lz, tsRx, tsRy, tsRz)
+            m.addOrientedBox(tsCx + p[0], tsCy + p[1], tsCz + p[2], sx, sy, sz, rotXDeg = tsRx, rotYDeg = tsRy, rotZDeg = tsRz, r = r, g = g, b = b)
+        }
+        tiltBox(0f, 0f, 0f, 0.016f * s, 0.070f * s, 0.056f * s, BLUE_DK_R, BLUE_DK_G, BLUE_DK_B)
+        // Yellow & Black top checker bar (2 rows x 4 columns)
+        for (row in 0..1) {
+            for (col in 0..3) {
+                val isYellow = (row + col) % 2 == 0
+                val cyOff = (0.025f - row * 0.010f) * s
+                val czOff = (-0.018f + col * 0.012f) * s
+                tiltBox(
+                    0.008f * s, cyOff, czOff,
+                    0.006f * s, 0.010f * s, 0.012f * s,
+                    if (isYellow) 0.94f else 0.08f,
+                    if (isYellow) 0.78f else 0.08f,
+                    if (isYellow) 0.14f else 0.10f
+                )
+            }
+        }
+        // Red center badge + white dot on lower shield field
+        tiltBox(0.008f * s, -0.012f * s, 0f, 0.006f * s, 0.030f * s, 0.030f * s, WAX_R, WAX_G, WAX_B)
+        tiltBox(0.011f * s, -0.012f * s, 0f, 0.005f * s, 0.016f * s, 0.016f * s, WHITE_R, WHITE_G, WHITE_B)
+
+        // 5. Massive Gold-Trimmed Pauldrons (Left & Right)
+        buildPauldron(m, s, cy = baseYOr(by) + 0.502f * s, cz = -0.150f * s, isLeft = true, hasOmega = true)
+        buildPauldron(m, s, cy = baseYOr(by) + 0.502f * s, cz = 0.150f * s, isLeft = false, hasOmega = false)
+
+        // 6. Pure White Mk X Bladeguard Veteran Helmet (White Dome, Silver Skull Stud, Crimson Eyes, Dark Vertical Slits)
+        val helmY = by + 0.602f * s
+        val helmX = 0.014f * s
+        m.addCylinder(helmX, helmY - 0.052f * s, 0f, 0.042f * s, 0.040f * s, 0.045f * s, 8, IRON_R, IRON_G, IRON_B)
+        m.addOrientedEllipsoid(helmX, helmY, 0f, 0.076f * s, 0.078f * s, 0.068f * s, latSegs = 5, lonSegs = 10, r = WHITE_R, g = WHITE_G, b = WHITE_B)
+        m.addOrientedBox(helmX - 0.005f * s, helmY + 0.072f * s, 0f, 0.096f * s, 0.022f * s, 0.024f * s, r = WHITE_R * 0.94f, g = WHITE_G * 0.94f, b = WHITE_B * 0.94f)
+        // Silver forehead skull stud
+        m.addOrientedEllipsoid(helmX + 0.070f * s, helmY + 0.036f * s, 0f, 0.014f * s, 0.016f * s, 0.014f * s, latSegs = 3, lonSegs = 6, r = STEEL_R * 1.35f, g = STEEL_G * 1.35f, b = STEEL_B * 1.35f)
+        // Glowing Crimson Eye Lenses
+        m.addOrientedBox(helmX + 0.066f * s, helmY + 0.008f * s, -0.024f * s, 0.022f * s, 0.016f * s, 0.026f * s, rotXDeg = -14f, rotYDeg = 18f, r = 0.98f, g = 0.16f, b = 0.14f, a = E)
+        m.addOrientedBox(helmX + 0.066f * s, helmY + 0.008f * s, 0.024f * s, 0.022f * s, 0.016f * s, 0.026f * s, rotXDeg = 14f, rotYDeg = -18f, r = 0.98f, g = 0.16f, b = 0.14f, a = E)
+        // White Mk X Respirator Faceplate with Dark Vertical Vent Slits + White Ear Pods
+        m.addOrientedBox(helmX + 0.056f * s, helmY - 0.026f * s, 0f, 0.048f * s, 0.044f * s, 0.056f * s, rotZDeg = -14f, r = WHITE_R * 0.92f, g = WHITE_G * 0.92f, b = WHITE_B * 0.92f)
+        for (slitZ in floatArrayOf(-0.018f, -0.006f, 0.006f, 0.018f)) {
+            m.addOrientedBox(helmX + 0.079f * s, helmY - 0.026f * s, slitZ * s, 0.010f * s, 0.030f * s, 0.005f * s, rotZDeg = -14f, r = IRON_R, g = IRON_G, b = IRON_B)
+        }
+        m.addOrientedCylinder(helmX, helmY - 0.012f * s, -0.068f * s, helmX, helmY - 0.012f * s, -0.078f * s, 0.024f * s, 0.020f * s, 8, r = WHITE_R * 0.88f, g = WHITE_G * 0.88f, b = WHITE_B * 0.88f)
+        m.addOrientedCylinder(helmX, helmY - 0.012f * s, 0.068f * s, helmX, helmY - 0.012f * s, 0.078f * s, 0.024f * s, 0.020f * s, 8, r = WHITE_R * 0.88f, g = WHITE_G * 0.88f, b = WHITE_B * 0.88f)
+
+        // 7. Mk X Power Backpack + Towering Golden Iron Halo with 7 Radiating Spikes
+        m.addOrientedBox(-0.105f * s, by + 0.46f * s, 0f, 0.095f * s, 0.165f * s, 0.145f * s, r = BLUE_DK_R, g = BLUE_DK_G, b = BLUE_DK_B)
+        m.addOrientedEllipsoid(-0.115f * s, by + 0.555f * s, 0f, 0.045f * s, 0.045f * s, 0.045f * s, latSegs = 4, lonSegs = 8, r = BLUE_R, g = BLUE_G, b = BLUE_B)
+        for (side in floatArrayOf(-1f, 1f)) {
+            m.addOrientedCylinder(-0.112f * s, by + 0.51f * s, side * 0.048f * s, -0.124f * s, by + 0.585f * s, side * 0.118f * s, 0.026f * s, 0.032f * s, 8, r = BLUE_R, g = BLUE_G, b = BLUE_B)
+            m.addOrientedEllipsoid(-0.126f * s, by + 0.595f * s, side * 0.126f * s, 0.044f * s, 0.044f * s, 0.044f * s, latSegs = 4, lonSegs = 8, r = BLUE_HI_R, g = BLUE_HI_G, b = BLUE_HI_B)
+            m.addOrientedCylinder(-0.126f * s, by + 0.595f * s, side * 0.126f * s, -0.142f * s, by + 0.625f * s, side * 0.156f * s, 0.024f * s, 0.028f * s, 8, r = IRON_R, g = IRON_G, b = IRON_B)
+        }
+        // Blue Halo Mounting Pedestal + Golden Iron Halo Ring + 7 Pointed Rays
+        val haloX = -0.090f * s
+        val haloY = by + 0.778f * s
+        val haloR = 0.090f * s
+        m.addOrientedBox(haloX, by + 0.635f * s, 0f, 0.036f * s, 0.095f * s, 0.036f * s, r = BLUE_R, g = BLUE_G, b = BLUE_B)
+        m.addArcTube(haloX, haloY, 0f, haloR, haloR, 0.014f * s, rotZDeg = 90f, startDeg = 0f, endDeg = 360f, arcSegs = 16, tubeSegs = 5, r = GOLD_R, g = GOLD_G, b = GOLD_B)
+        val spikeAngles = floatArrayOf(-105f, -70f, -35f, 0f, 35f, 70f, 105f)
+        for (deg in spikeAngles) {
+            val rad = Math.toRadians(deg.toDouble())
+            val dy = kotlin.math.cos(rad).toFloat()
+            val dz = kotlin.math.sin(rad).toFloat()
+            val len = when {
+                kotlin.math.abs(deg) < 5f -> 0.072f * s
+                kotlin.math.abs(deg) < 40f -> 0.048f * s
+                else -> 0.040f * s
+            }
+            m.addOrientedCylinder(
+                haloX, haloY + dy * (haloR - 0.004f * s), dz * (haloR - 0.004f * s),
+                haloX, haloY + dy * (haloR + len), dz * (haloR + len),
+                0.013f * s, 0.002f * s, 6, r = GOLD_R, g = GOLD_G, b = GOLD_B
+            )
+        }
+
+        // 8. Right Arm (+Z): Extended Outward Gripping Master-Crafted Power Sword Diagonally Across Above Shoulder
+        val rHandX = 0.095f * s
+        val rHandY = by + 0.482f * s
+        val rHandZ = 0.295f * s
+        buildMarineArm(
+            m, s,
+            shX = 0f, shY = by + 0.495f * s, shZ = 0.152f * s,
+            elX = 0.024f * s, elY = by + 0.462f * s, elZ = 0.242f * s,
+            hdX = rHandX, hdY = rHandY, hdZ = rHandZ
+        )
+        // Sword local axis +Y rotated inward (-Z) & slightly back (-X) toward the Iron Halo
+        val swRx = -64f; val swRy = 14f; val swRz = 0f
+        fun swordBox(lx: Float, ly: Float, lz: Float, sx: Float, sy: Float, sz: Float, r: Float, g: Float, b: Float, a: Float = 1f) {
+            val p = rotateLocal(lx, ly, lz, swRx, swRy, swRz)
+            m.addOrientedBox(rHandX + p[0], rHandY + p[1], rHandZ + p[2], sx, sy, sz, rotXDeg = swRx, rotYDeg = swRy, rotZDeg = swRz, r = r, g = g, b = b, a = a)
+        }
+        fun swordPt(lx: Float, ly: Float, lz: Float): FloatArray {
+            val p = rotateLocal(lx, ly, lz, swRx, swRy, swRz)
+            return floatArrayOf(rHandX + p[0], rHandY + p[1], rHandZ + p[2])
+        }
+        // Pommel + Crimson Leather Hilt
+        val pPom = swordPt(0f, -0.056f * s, 0f)
+        m.addOrientedEllipsoid(pPom[0], pPom[1], pPom[2], 0.018f * s, 0.018f * s, 0.018f * s, latSegs = 3, lonSegs = 6, r = GOLD_R, g = GOLD_G, b = GOLD_B)
+        val pGrip0 = swordPt(0f, -0.044f * s, 0f)
+        val pGrip1 = swordPt(0f, 0.042f * s, 0f)
+        m.addOrientedCylinder(pGrip0[0], pGrip0[1], pGrip0[2], pGrip1[0], pGrip1[1], pGrip1[2], 0.014f * s, 0.015f * s, 8, r = CAPE_R, g = CAPE_G, b = CAPE_B)
+        // Winged Golden Crossguard
+        swordBox(0f, 0.052f * s, 0f, 0.032f * s, 0.022f * s, 0.118f * s, GOLD_R, GOLD_G, GOLD_B)
+        swordBox(0f, 0.064f * s, -0.052f * s, 0.024f * s, 0.026f * s, 0.022f * s, GOLD_R, GOLD_G, GOLD_B)
+        swordBox(0f, 0.064f * s, 0.052f * s, 0.024f * s, 0.026f * s, 0.022f * s, GOLD_R, GOLD_G, GOLD_B)
+        // Silver-Steel Broadsword Blade + Tapered Tip + Dark Fuller
+        swordBox(0f, 0.215f * s, 0f, 0.013f * s, 0.305f * s, 0.042f * s, STEEL_R * 1.30f, STEEL_G * 1.30f, STEEL_B * 1.30f)
+        swordBox(0f, 0.388f * s, 0f, 0.009f * s, 0.065f * s, 0.022f * s, STEEL_R * 1.40f, STEEL_G * 1.40f, STEEL_B * 1.40f)
+        swordBox(0f, 0.195f * s, 0f, 0.015f * s, 0.220f * s, 0.010f * s, IRON_R * 1.4f, IRON_G * 1.4f, IRON_B * 1.4f)
+        // Glowing Cyan Power-Field Lightning Arcs Along Blade Edge (as in photo!)
+        swordBox(0.010f * s, 0.155f * s, -0.020f * s, 0.010f * s, 0.072f * s, 0.012f * s, 0.32f, 0.92f, 1.0f, a = E)
+        swordBox(-0.008f * s, 0.245f * s, 0.022f * s, 0.010f * s, 0.080f * s, 0.012f * s, 0.32f, 0.92f, 1.0f, a = E)
+        swordBox(0.008f * s, 0.315f * s, -0.018f * s, 0.010f * s, 0.058f * s, 0.010f * s, 0.32f, 0.92f, 1.0f, a = E)
+
+        // 9. Left Arm (-Z): Bent Forward Bracing Massive Bone-Ivory & Gold Bladeguard Storm Shield
+        buildMarineArm(
+            m, s,
+            shX = 0f, shY = by + 0.495f * s, shZ = -0.152f * s,
+            elX = 0.042f * s, elY = by + 0.382f * s, elZ = -0.205f * s,
+            hdX = 0.145f * s, hdY = by + 0.358f * s, hdZ = -0.165f * s
+        )
+        val shCx = 0.178f * s; val shCy = by + 0.335f * s; val shCz = -0.158f * s
+        val shRx = -6f; val shRy = 30f; val shRz = 8f
+        fun shieldBox(lx: Float, ly: Float, lz: Float, sx: Float, sy: Float, sz: Float, r: Float, g: Float, b: Float) {
+            val p = rotateLocal(lx, ly, lz, shRx, shRy, shRz)
+            m.addOrientedBox(shCx + p[0], shCy + p[1], shCz + p[2], sx, sy, sz, rotXDeg = shRx, rotYDeg = shRy, rotZDeg = shRz, r = r, g = g, b = b)
+        }
+        fun shieldSphere(lx: Float, ly: Float, lz: Float, rx: Float, ry: Float, rz: Float, r: Float, g: Float, b: Float) {
+            val p = rotateLocal(lx, ly, lz, shRx, shRy, shRz)
+            m.addOrientedEllipsoid(shCx + p[0], shCy + p[1], shCz + p[2], rx, ry, rz, rotXDeg = shRx, rotYDeg = shRy, rotZDeg = shRz, latSegs = 4, lonSegs = 8, r = r, g = g, b = b)
+        }
+
+        // Stepped/Notched Bone-Ivory Shield Backing Plate + Thick Imperial Gold Border
+        shieldBox(0f, 0.095f * s, 0f, 0.026f * s, 0.180f * s, 0.235f * s, ivoryR, ivoryG, ivoryB)
+        shieldBox(0f, -0.010f * s, 0f, 0.026f * s, 0.095f * s, 0.175f * s, ivoryR, ivoryG, ivoryB)
+        shieldBox(0f, -0.115f * s, 0f, 0.026f * s, 0.165f * s, 0.220f * s, ivoryR, ivoryG, ivoryB)
+        shieldBox(0f, -0.210f * s, 0f, 0.026f * s, 0.065f * s, 0.120f * s, ivoryR, ivoryG, ivoryB)
+        // Gold Outer Frame Trim
+        shieldBox(0.004f * s, 0.190f * s, 0f, 0.032f * s, 0.026f * s, 0.245f * s, GOLD_R, GOLD_G, GOLD_B)
+        shieldBox(0.004f * s, -0.240f * s, 0f, 0.032f * s, 0.028f * s, 0.115f * s, GOLD_R, GOLD_G, GOLD_B)
+        for (sSide in floatArrayOf(-1f, 1f)) {
+            shieldBox(0.004f * s, 0.095f * s, sSide * 0.116f * s, 0.032f * s, 0.195f * s, 0.024f * s, GOLD_R, GOLD_G, GOLD_B)
+            shieldBox(0.004f * s, -0.010f * s, sSide * 0.088f * s, 0.032f * s, 0.095f * s, 0.024f * s, GOLD_R, GOLD_G, GOLD_B)
+            shieldBox(0.004f * s, -0.115f * s, sSide * 0.110f * s, 0.032f * s, 0.175f * s, 0.024f * s, GOLD_R, GOLD_G, GOLD_B)
+        }
+        // Large Golden Relic Cross + Spear Tip Finial
+        shieldBox(0.018f * s, -0.015f * s, 0f, 0.022f * s, 0.355f * s, 0.044f * s, GOLD_R, GOLD_G, GOLD_B)
+        shieldBox(0.018f * s, 0.065f * s, 0f, 0.022f * s, 0.046f * s, 0.190f * s, GOLD_R, GOLD_G, GOLD_B)
+        shieldBox(0.018f * s, 0.160f * s, 0f, 0.022f * s, 0.024f * s, 0.072f * s, GOLD_DK_R, GOLD_DK_G, GOLD_DK_B)
+        shieldBox(0.018f * s, -0.195f * s, 0f, 0.022f * s, 0.038f * s, 0.074f * s, GOLD_R, GOLD_G, GOLD_B)
+        // Golden Sunburst Halo Ring behind Cross Center
+        shieldSphere(0.016f * s, 0.065f * s, 0f, 0.014f * s, 0.056f * s, 0.056f * s, GOLD_DK_R, GOLD_DK_G, GOLD_DK_B)
+        // Central Large Golden Skull Boss
+        shieldSphere(0.034f * s, 0.068f * s, 0f, 0.026f * s, 0.030f * s, 0.025f * s, GOLD_R * 1.08f, GOLD_G * 1.08f, GOLD_B * 1.08f)
+        shieldBox(0.030f * s, 0.044f * s, 0f, 0.018f * s, 0.016f * s, 0.020f * s, GOLD_DK_R, GOLD_DK_G, GOLD_DK_B)
+        // 3 Smaller Stacked Skulls Descending the Vertical Cross Arm (matching photo!)
+        for (skIdx in 0..2) {
+            val sky = (-0.018f - skIdx * 0.048f) * s
+            shieldSphere(0.030f * s, sky, 0f, 0.016f * s, 0.018f * s, 0.016f * s, GOLD_R * 1.05f, GOLD_G * 1.05f, GOLD_B * 1.05f)
+        }
+        // Crimson Wax Purity Seal & Twin Fluttering Cream Parchment Ribbons on Shield Front-Left
+        shieldSphere(0.028f * s, 0.008f * s, -0.052f * s, 0.014f * s, 0.020f * s, 0.020f * s, WAX_R, WAX_G, WAX_B)
+        shieldBox(0.026f * s, -0.056f * s, -0.058f * s, 0.008f * s, 0.095f * s, 0.020f * s, PARCH_R, PARCH_G, PARCH_B)
+        shieldBox(0.024f * s, -0.050f * s, -0.038f * s, 0.008f * s, 0.082f * s, 0.018f * s, PARCH_R * 0.92f, PARCH_G * 0.92f, PARCH_B * 0.92f)
+    }
+
+    private fun baseYOr(v: Float): Float = v
 }

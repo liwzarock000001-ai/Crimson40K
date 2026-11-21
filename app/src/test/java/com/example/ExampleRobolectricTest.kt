@@ -93,11 +93,28 @@ class ExampleRobolectricTest {
       ownerPlayerName = "Commander 2"
     )
 
-    val unitsJson = com.example.engine.BattleStateSerializer.serializeUnits(listOf(u1, u2))
+    val bgTpl = templates.getValue("bladeguard_veterans")
+    val u3 = com.example.model.BattleUnit(
+      uid = "coop_p1_bg",
+      template = bgTpl,
+      faction = com.example.model.Faction.MARINES,
+      x = 3,
+      y = 5,
+      facing = com.example.model.Facing.EAST,
+      totalWounds = bgTpl.maxTotalWounds,
+      maxTotalWounds = bgTpl.maxTotalWounds,
+      moveCmLeft = bgTpl.moveCm.toFloat(),
+      ownerPlayerId = "p1",
+      ownerPlayerName = "Commander 1 (Host)",
+      bladeguardRerollBuffActive = true
+    )
+
+    val unitsJson = com.example.engine.BattleStateSerializer.serializeUnits(listOf(u1, u2, u3))
     val restored = com.example.engine.BattleStateSerializer.deserializeUnits(unitsJson, templates)
-    assertEquals(2, restored.size)
+    assertEquals(3, restored.size)
     assertEquals("p1", restored[0].ownerPlayerId)
     assertEquals("Commander 2", restored[1].ownerPlayerName)
+    org.junit.Assert.assertTrue(restored[2].bladeguardRerollBuffActive)
 
     val p1 = com.example.model.CoopPlayer("p1", "Commander 1 (Host)", com.example.model.Faction.MARINES, com.example.model.CoopSlotMode.HOST)
     val p2 = com.example.model.CoopPlayer("p2", "Commander 2", com.example.model.Faction.MARINES, com.example.model.CoopSlotMode.LAN_CLIENT)
@@ -192,5 +209,104 @@ class ExampleRobolectricTest {
     // Deployment phase also locks Host out when it is P3's deployment turn
     val hostDuringP3Deploy = hostOnP1Turn.copy(isDeploymentPhase = true, deploymentTurnPlayerId = "p3")
     org.junit.Assert.assertFalse(hostDuringP3Deploy.isPlayerTurn)
+  }
+
+  @Test
+  fun `11th edition catalog migration upgrades pre-11e configs and persists custom ld oc and squadSize`() {
+    val pre11eJson = """
+      [
+        {"id":"intercessors","points":80,"squadSize":5,"strength":4},
+        {"id":"termagants","points":60,"squadSize":5,"attacksPerModel":2},
+        {"id":"terminators","points":175,"terminatorWeapon":"LIGHTNING_CLAWS","damage":1}
+      ]
+    """.trimIndent()
+    val upgraded = com.example.engine.DefaultCatalog.deserializeTemplates(pre11eJson)
+    assertEquals(85, upgraded.getValue("intercessors").points)
+    assertEquals(5, upgraded.getValue("intercessors").strength)
+    assertEquals(55, upgraded.getValue("termagants").points)
+    assertEquals(10, upgraded.getValue("termagants").squadSize)
+    assertEquals(180, upgraded.getValue("terminators").points)
+    assertEquals(com.example.model.TerminatorWeaponChoice.LIGHTNING_CLAWS, upgraded.getValue("terminators").terminatorWeapon)
+    assertEquals(6, upgraded.getValue("terminators").attacksPerModel)
+
+    val byId = com.example.engine.DefaultCatalog.defaultTemplates.associateBy { it.id }.toMutableMap()
+    val termagants = byId.getValue("termagants")
+    byId["termagants"] = termagants.copy(points = 65, squadSize = 10, leadership = 7, objectiveControl = 3)
+    val roundTripped = com.example.engine.DefaultCatalog.deserializeTemplates(
+      com.example.engine.DefaultCatalog.serializeTemplates(byId)
+    )
+    assertEquals(65, roundTripped.getValue("termagants").points)
+    assertEquals(10, roundTripped.getValue("termagants").squadSize)
+    assertEquals(7, roundTripped.getValue("termagants").leadership)
+    assertEquals(3, roundTripped.getValue("termagants").objectiveControl)
+  }
+
+  @Test
+  fun `coop battle snapshot preserves detailed combat dice logs`() {
+    val templates = com.example.engine.DefaultCatalog.defaultTemplates.associateBy { it.id }
+    val map = com.example.model.SectorMap(42L, com.example.engine.MapGenerator.generateSectorMap(42L))
+    val sampleLog = com.example.model.CombatLogEntry(
+      id = 701L,
+      round = 2,
+      faction = com.example.model.Faction.MARINES,
+      title = "INTERCESSOR SQUAD ▸ TYRANID WARRIORS",
+      subtitle = "BOLT RIFLE • RANGED",
+      steps = listOf(
+        com.example.model.DiceStepDetail(
+          phaseName = "HIT",
+          stepLabel = "BS 3+",
+          targetNeeded = 3,
+          rolled = 6,
+          passed = 4,
+          failed = 2,
+          diceValues = listOf(6, 5, 4, 3, 2, 1),
+          note = ""
+        ),
+        com.example.model.DiceStepDetail(
+          phaseName = "WOUND",
+          stepLabel = "S5 vs T5 (4+)",
+          targetNeeded = 4,
+          rolled = 4,
+          passed = 3,
+          failed = 1,
+          diceValues = listOf(6, 5, 4, 2),
+          note = ""
+        ),
+        com.example.model.DiceStepDetail(
+          phaseName = "SAVE",
+          stepLabel = "SV 5+",
+          targetNeeded = 5,
+          rolled = 3,
+          passed = 1,
+          failed = 2,
+          diceValues = listOf(6, 3, 1),
+          note = "AP-1"
+        )
+      ),
+      resultSummary = "4 Hits • 3 Wounds • 1 Saved • -2W",
+      isCounterOrFightFirst = false,
+      isSuccess = true
+    )
+
+    val state = com.example.viewmodel.BattleUiState(
+      active = true,
+      round = 2,
+      map = map,
+      isCoopMode = true,
+      combatLogs = listOf(sampleLog)
+    )
+    val snap = com.example.engine.BattleStateSerializer.serializeCoopBattleSnapshot(state, templates)
+    val restored = com.example.engine.BattleStateSerializer.applyCoopBattleSnapshot(snap, com.example.viewmodel.BattleUiState())
+    org.junit.Assert.assertNotNull(restored)
+    assertEquals(1, restored!!.combatLogs.size)
+    val log = restored.combatLogs.first()
+    assertEquals(701L, log.id)
+    assertEquals(2, log.round)
+    assertEquals(3, log.steps.size)
+    assertEquals(6, log.steps[0].rolled)
+    assertEquals(4, log.steps[0].passed)
+    assertEquals(2, log.steps[0].failed)
+    assertEquals(listOf(6, 5, 4, 3, 2, 1), log.steps[0].diceValues)
+    assertEquals("AP-1", log.steps[2].note)
   }
 }

@@ -1,9 +1,13 @@
 package com.example.ui.battle
 
+import android.content.Context
+import android.content.res.AssetManager
 import com.example.engine.MapGenerator
 import com.example.model.SectorMap
 import com.example.model.TerrainType
 import com.example.model.UnitArchetype
+import java.io.File
+import java.io.InputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.FloatBuffer
@@ -618,10 +622,53 @@ object MeshCatalog3D {
         }.build()
     }
 
+    @Volatile
+    private var appAssets: AssetManager? = null
+
     private val archetypeMeshes = mutableMapOf<Pair<UnitArchetype, String>, MeshGeometry>()
 
+    fun init(context: Context) {
+        val hadAssets = appAssets != null
+        appAssets = context.applicationContext.assets
+        if (!hadAssets) {
+            synchronized(archetypeMeshes) {
+                archetypeMeshes.remove(UnitArchetype.TERMINATOR to "")
+            }
+        }
+    }
+
+    private fun openAssetStream(fileName: String): InputStream? {
+        runCatching { appAssets?.open(fileName) }.getOrNull()?.let { return it }
+        val devPaths = listOf(
+            "src/main/assets/$fileName",
+            "app/src/main/assets/$fileName",
+            "public/assets/aistudio/$fileName"
+        )
+        for (path in devPaths) {
+            val file = File(path)
+            if (file.isFile) {
+                return file.inputStream()
+            }
+        }
+        return javaClass.classLoader?.getResourceAsStream(fileName)
+    }
+
     fun getUnitMesh(archetype: UnitArchetype, variant: String = ""): MeshGeometry =
-        archetypeMeshes.getOrPut(archetype to variant) { UnitMeshSculptor3D.build(archetype, variant) }
+        synchronized(archetypeMeshes) {
+            archetypeMeshes.getOrPut(archetype to variant) {
+                if (archetype == UnitArchetype.TERMINATOR && variant != "CLAWS") {
+                    openAssetStream("assault_terminator.glb")?.use { stream ->
+                        GlbLoader3D.loadMesh(
+                            stream = stream,
+                            targetHeight = 0.923f,
+                            rotateYPlus90 = true
+                        )
+                    } ?: UnitMeshSculptor3D.build(archetype, variant)
+                } else {
+                    UnitMeshSculptor3D.build(archetype, variant)
+                }
+            }
+        }
 
     fun buildStaticMapBatches(map: SectorMap): Pair<MeshGeometry, MeshGeometry> {
         val floor = MeshAccumulator()

@@ -36,8 +36,8 @@ enum class Facing(val dx: Int, val dy: Int, val label: String) {
 }
 
 enum class WarriorWeaponChoice(val label: String) {
-    BONESWORDS("Dual Boneswords (Melee 2cm)"),
-    FLESHBORER("Fleshborer (Ranged Rng 4)")
+    BONESWORDS("Claws & Talons (Melee 2cm)"),
+    FLESHBORER("Deathspitter (Ranged Rng 5)")
 }
 
 enum class TerminatorWeaponChoice(val label: String) {
@@ -50,6 +50,7 @@ enum class UnitArchetype {
     INCURSOR,
     HELLBLASTER,
     ASSAULT_MARINE,
+    BLADEGUARD,
     TERMINATOR,
     DREADNOUGHT,
     CAPTAIN,
@@ -59,7 +60,9 @@ enum class UnitArchetype {
     GENESTEALER,
     VON_RYANS_LEAPER,
     CARNIFEX,
-    HIVE_TYRANT
+    HIVE_TYRANT,
+    BIOVORE,
+    SPORE_MINE
 }
 
 @Immutable
@@ -97,6 +100,8 @@ data class UnitTemplate(
     val range: Int,
     val ballisticSkill: Int,
     val weaponSkill: Int,
+    val leadership: Int = 6,
+    val objectiveControl: Int = 1,
     val skillName: String,
     val skillDesc: String,
     val skillCooldown: Int,
@@ -217,7 +222,8 @@ data class BattleUnit(
     val ownerPlayerId: String = "PLAYER",
     val ownerPlayerName: String = "",
     val markedByTeam: Int? = null,
-    val meleeChargeBuffActive: Boolean = false
+    val meleeChargeBuffActive: Boolean = false,
+    val bladeguardRerollBuffActive: Boolean = false
 ) {
     val pos: GridPos get() = GridPos(x, y)
     val worldPos: WorldPos get() = WorldPos(worldX, worldY)
@@ -468,3 +474,27 @@ data class SettingsState(
     val screenBrightness: Float = 1.0f
 )
 
+@Immutable
+data class DiceStepDetail(
+    val phaseName: String,
+    val stepLabel: String,
+    val targetNeeded: Int,
+    val rolled: Int,
+    val passed: Int,
+    val failed: Int,
+    val diceValues: List<Int> = emptyList(),
+    val note: String = ""
+)
+
+@Immutable
+data class CombatLogEntry(
+    val id: Long = 0L,
+    val round: Int = 1,
+    val faction: Faction = Faction.MARINES,
+    val title: String,
+    val subtitle: String,
+    val steps: List<DiceStepDetail>,
+    val resultSummary: String,
+    val isCounterOrFightFirst: Boolean = false,
+    val isSuccess: Boolean = true
+)

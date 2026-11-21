@@ -733,7 +733,7 @@ private fun DeployedUnitRow(
             }
             val invSuffix = template.invulnSave?.let { "/${it}++" } ?: ""
             Text(
-                text = "UNIT: ${template.squadSize}x ${template.woundsPerModel}W • M ${template.moveCm}cm • T${template.toughness} • SV ${template.save}+$invSuffix • WS ${template.weaponSkill}+",
+                text = "UNIT: ${template.squadSize}x ${template.woundsPerModel}W • M ${template.moveCm}cm • T${template.toughness} • SV ${template.save}+$invSuffix • LD ${template.leadership}+ • OC ${template.objectiveControl}",
                 style = MaterialTheme.typography.bodySmall,
                 color = TextMuted,
                 maxLines = 1,

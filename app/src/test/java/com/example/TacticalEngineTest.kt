@@ -11,6 +11,7 @@ import com.example.model.Facing
 import com.example.model.Faction
 import com.example.model.GridPos
 import com.example.model.TerrainType
+import com.example.model.TerminatorWeaponChoice
 import com.example.model.UnitArchetype
 import com.example.model.WarriorWeaponChoice
 import com.example.model.WeaponMode
@@ -247,7 +248,8 @@ class TacticalEngineTest {
         assertEquals(roll.toFloat(), bonusCm, 0.01f)
 
         val intercessorTpl = DefaultCatalog.defaultTemplates.first { it.id == "intercessors" } // Assault = true
-        val hellblasterTpl = DefaultCatalog.defaultTemplates.first { it.id == "hellblasters" } // Assault = false
+        val hellblasterTpl = DefaultCatalog.defaultTemplates.first { it.id == "hellblasters" } // 11e Assault = true
+        val dreadTpl = DefaultCatalog.defaultTemplates.first { it.id == "dreadnought" } // Macro Plasma Assault = false
 
         val advancedIntercessor = BattleUnit(
             uid = "m_adv1",
@@ -268,6 +270,8 @@ class TacticalEngineTest {
         assertTrue(TacticalRules.canUseMode(advancedIntercessor, WeaponMode.MAIN))
         assertFalse(TacticalRules.canUseMode(advancedIntercessor, WeaponMode.PISTOL))
 
+        // In 11th Edition, Hellblasters' Plasma Incinerator has [ASSAULT]
+        assertTrue(hellblasterTpl.mainWeaponAssault)
         val advancedHellblaster = BattleUnit(
             uid = "m_adv2",
             template = hellblasterTpl,
@@ -280,12 +284,28 @@ class TacticalEngineTest {
             moveCmLeft = hellblasterTpl.moveCm + bonusCm,
             hasAdvanced = true
         )
-        // Non-Assault Plasma Incinerator cannot shoot or charge after Advancing
         assertFalse(advancedHellblaster.canCharge)
-        assertFalse(advancedHellblaster.canShoot)
-        assertFalse(TacticalRules.canUseMode(advancedHellblaster, WeaponMode.MAIN))
-        assertFalse(TacticalRules.canUseMode(advancedHellblaster, WeaponMode.SKILL))
+        assertTrue(advancedHellblaster.canShoot)
+        assertTrue(TacticalRules.canUseMode(advancedHellblaster, WeaponMode.MAIN))
         assertFalse(TacticalRules.canUseMode(advancedHellblaster, WeaponMode.PISTOL))
+
+        // Non-Assault Macro Plasma Incinerator cannot shoot or charge after Advancing
+        val advancedDread = BattleUnit(
+            uid = "m_adv3",
+            template = dreadTpl,
+            faction = Faction.MARINES,
+            x = 2,
+            y = 7,
+            facing = Facing.EAST,
+            totalWounds = dreadTpl.maxTotalWounds,
+            maxTotalWounds = dreadTpl.maxTotalWounds,
+            moveCmLeft = dreadTpl.moveCm + bonusCm,
+            hasAdvanced = true
+        )
+        assertFalse(advancedDread.canCharge)
+        assertFalse(advancedDread.canShoot)
+        assertFalse(TacticalRules.canUseMode(advancedDread, WeaponMode.MAIN))
+        assertFalse(TacticalRules.canUseMode(advancedDread, WeaponMode.SKILL))
     }
 
     @Test
@@ -529,13 +549,13 @@ class TacticalEngineTest {
         assertEquals("Thunder Hammer & Storm Shield", termiTpl.mainWeaponName)
         assertEquals(4, termiTpl.woundsPerModel)
         assertEquals(8, termiTpl.strength)
-        assertEquals(2, termiTpl.damage)
+        assertEquals(3, termiTpl.damage)
 
         val clawsTpl = termiTpl.copy(
             terminatorWeapon = com.example.model.TerminatorWeaponChoice.LIGHTNING_CLAWS,
             mainWeaponName = "Twin Lightning Claws",
             woundsPerModel = 3,
-            attacksPerModel = 5,
+            attacksPerModel = 6,
             strength = 5,
             armorPen = 2,
             damage = 1,
@@ -550,6 +570,69 @@ class TacticalEngineTest {
         assertTrue(clawsMesh.vertexCount > 50)
         assertTrue("Expected distinct geometry between Hammer+Shield and Twin Lightning Claws", hammerMesh.vertexCount != clawsMesh.vertexCount || !hammerMesh.data.contentEquals(clawsMesh.data))
         for (v in clawsMesh.data) assertTrue(v.isFinite())
+    }
+
+    @Test
+    fun terminatorGlbReplacesDefaultModelWithMatchingHeightAndCenteredBase() {
+        val glbMesh = com.example.ui.battle.MeshCatalog3D.getUnitMesh(com.example.model.UnitArchetype.TERMINATOR, "")
+        val legacyMesh = com.example.ui.battle.UnitMeshSculptor3D.build(com.example.model.UnitArchetype.TERMINATOR, "")
+
+        // Verify the bundled assault_terminator.glb (120,000 tris = 360,000 vertices) is loaded instead of legacy geometry
+        assertEquals(360_000, glbMesh.vertexCount)
+        assertEquals(0, glbMesh.data.size % 10)
+
+        fun computeBounds(data: FloatArray): FloatArray {
+            var minX = Float.POSITIVE_INFINITY
+            var maxX = Float.NEGATIVE_INFINITY
+            var minY = Float.POSITIVE_INFINITY
+            var maxY = Float.NEGATIVE_INFINITY
+            var minZ = Float.POSITIVE_INFINITY
+            var maxZ = Float.NEGATIVE_INFINITY
+            var i = 0
+            while (i < data.size) {
+                val x = data[i]
+                val y = data[i + 1]
+                val z = data[i + 2]
+                assertTrue(x.isFinite() && y.isFinite() && z.isFinite())
+                if (x < minX) minX = x
+                if (x > maxX) maxX = x
+                if (y < minY) minY = y
+                if (y > maxY) maxY = y
+                if (z < minZ) minZ = z
+                if (z > maxZ) maxZ = z
+                i += 10
+            }
+            return floatArrayOf(minX, maxX, minY, maxY, minZ, maxZ)
+        }
+
+        val glbBounds = computeBounds(glbMesh.data)
+        val legacyBounds = computeBounds(legacyMesh.data)
+        val glbHeight = glbBounds[3] - glbBounds[2]
+        val legacyHeight = legacyBounds[3] - legacyBounds[2]
+
+        assertEquals(0f, glbBounds[2], 0.005f)
+        assertEquals(legacyHeight, glbHeight, 0.02f)
+
+        // Base plinth (bottom 4.5%) must be centered near (0, 0) in XZ
+        var bMinX = Float.POSITIVE_INFINITY
+        var bMaxX = Float.NEGATIVE_INFINITY
+        var bMinZ = Float.POSITIVE_INFINITY
+        var bMaxZ = Float.NEGATIVE_INFINITY
+        var i = 0
+        while (i < glbMesh.data.size) {
+            val y = glbMesh.data[i + 1]
+            if (y <= glbHeight * 0.045f) {
+                val x = glbMesh.data[i]
+                val z = glbMesh.data[i + 2]
+                if (x < bMinX) bMinX = x
+                if (x > bMaxX) bMaxX = x
+                if (z < bMinZ) bMinZ = z
+                if (z > bMaxZ) bMaxZ = z
+            }
+            i += 10
+        }
+        assertEquals(0f, (bMinX + bMaxX) * 0.5f, 0.02f)
+        assertEquals(0f, (bMinZ + bMaxZ) * 0.5f, 0.02f)
     }
 
     @Test
@@ -881,6 +964,7 @@ class TacticalEngineTest {
         val customIncursorTpl = DefaultCatalog.defaultTemplates.first { it.id == "incursors" }.copy(
             attacksPerModel = 2,
             strength = 4,
+            armorPen = 0,
             mainSustainedHits = 0,
             meleeAttacks = 5,
             meleeWeaponSkill = 2,
@@ -998,7 +1082,495 @@ class TacticalEngineTest {
         assertEquals(assaultTpl.pistolStrength, TacticalRules.weaponStrength(buffed, WeaponMode.PISTOL))
         assertEquals(assaultTpl.pistolArmorPen, TacticalRules.weaponAp(buffed, WeaponMode.PISTOL))
     }
+
+    @Test
+    fun allTwelveUnitsMatchWarhammer40k11thEditionStatsPointsAndMigrateOldConfigs() {
+        val byId = DefaultCatalog.defaultTemplates.associateBy { it.id }
+        assertEquals(15, byId.size)
+
+        // --- Ultramarines (11e) ---
+        val intercessors = byId.getValue("intercessors")
+        assertEquals(85, intercessors.points)
+        assertEquals(5, intercessors.squadSize)
+        assertEquals(15, intercessors.moveCm)
+        assertEquals(4, intercessors.toughness)
+        assertEquals(3, intercessors.save)
+        assertEquals(2, intercessors.woundsPerModel)
+        assertEquals(6, intercessors.leadership)
+        assertEquals(2, intercessors.objectiveControl)
+        assertEquals(5, intercessors.strength) // Bolt Rifle S5 AP-1 D1 Assault
+        assertEquals(1, intercessors.armorPen)
+        assertTrue(intercessors.mainWeaponAssault)
+        assertEquals(5, intercessors.meleeStrength) // Knives and Fists S5
+
+        val incursors = byId.getValue("incursors")
+        assertEquals(90, incursors.points)
+        assertEquals(20, incursors.moveCm) // 8"
+        assertEquals(6, incursors.leadership)
+        assertEquals(1, incursors.objectiveControl)
+        assertEquals(5, incursors.strength) // Occulus Bolt Carbine S5 AP-1
+        assertEquals(1, incursors.armorPen)
+        assertEquals(5, incursors.meleeStrength) // Paired Combat Blades S5 AP-1 Sustained 1
+        assertEquals(1, incursors.meleeArmorPen)
+        assertEquals(1, incursors.meleeSustainedHits)
+        assertEquals(5, incursors.pistolStrength)
+        assertEquals(1, incursors.pistolArmorPen)
+
+        val hellblasters = byId.getValue("hellblasters")
+        assertEquals(115, hellblasters.points)
+        assertEquals(5, hellblasters.toughness) // T5
+        assertEquals(6, hellblasters.leadership)
+        assertEquals(1, hellblasters.objectiveControl)
+        assertEquals(7, hellblasters.strength)
+        assertEquals(2, hellblasters.armorPen)
+        assertEquals(2, hellblasters.damage) // D2 standard & overcharge
+        assertTrue(hellblasters.mainWeaponAssault)
+        assertEquals(3, hellblasters.meleeWeaponSkill)
+        assertEquals(5, hellblasters.meleeStrength)
+
+        val assaultMarines = byId.getValue("assault_intercessors")
+        assertEquals(85, assaultMarines.points)
+        assertEquals(15, assaultMarines.moveCm) // 6"
+        assertEquals(4, assaultMarines.attacksPerModel)
+        assertEquals(4, assaultMarines.strength)
+        assertEquals(1, assaultMarines.armorPen)
+        assertEquals(4, assaultMarines.pistolRange) // Heavy Bolt Pistol 18"
+        assertEquals(2, assaultMarines.objectiveControl)
+
+        val bladeguard = byId.getValue("bladeguard_veterans")
+        assertEquals(90, bladeguard.points)
+        assertEquals(3, bladeguard.squadSize)
+        assertEquals(3, bladeguard.woundsPerModel)
+        assertEquals(4, bladeguard.toughness)
+        assertEquals(3, bladeguard.save)
+        assertEquals(4, bladeguard.invulnSave)
+        assertEquals(15, bladeguard.moveCm) // 6"
+        assertEquals(4, bladeguard.attacksPerModel)
+        assertEquals(3, bladeguard.weaponSkill)
+        assertEquals(5, bladeguard.strength)
+        assertEquals(2, bladeguard.armorPen)
+        assertEquals(2, bladeguard.damage)
+        assertEquals(1, bladeguard.skillCooldown)
+        assertEquals(4, bladeguard.pistolRange) // Heavy Bolt Pistol 18"
+
+        val termis = byId.getValue("terminators")
+        assertEquals(180, termis.points)
+        assertEquals(12, termis.moveCm) // 5"
+        assertEquals(5, termis.toughness)
+        assertEquals(2, termis.save)
+        assertEquals(4, termis.invulnSave)
+        assertEquals(4, termis.woundsPerModel)
+        assertEquals(3, termis.damage) // Thunder Hammer D3
+        assertEquals(6, termis.terminatorClawsProfile?.attacksPerModel)
+
+        val dread = byId.getValue("dreadnought")
+        assertEquals(180, dread.points) // 170 + 10 Macro Plasma
+        assertEquals(20, dread.moveCm) // 8"
+        assertEquals(10, dread.toughness)
+        assertEquals(2, dread.save)
+        assertEquals(12, dread.woundsPerModel)
+        assertEquals(4, dread.objectiveControl)
+        assertEquals(2, dread.ballisticSkill) // BS 2+
+        assertEquals(4, dread.attacksPerModel) // D6+1 avg
+        assertEquals(5, dread.meleeDamage) // Redemptor Fist D3+3 avg
+        assertEquals(3, dread.meleeArmorPen)
+
+        // --- Tyranids (11e) ---
+        val termagants = byId.getValue("termagants")
+        assertEquals(55, termagants.points)
+        assertEquals(10, termagants.squadSize)
+        assertEquals(15, termagants.moveCm) // 6"
+        assertEquals(8, termagants.leadership)
+        assertEquals(2, termagants.objectiveControl)
+        assertEquals(1, termagants.attacksPerModel) // Fleshborer 1A S5 AP0
+        assertEquals(5, termagants.strength)
+
+        val hormagaunts = byId.getValue("hormagaunts")
+        assertEquals(70, hormagaunts.points)
+        assertEquals(10, hormagaunts.squadSize)
+        assertEquals(25, hormagaunts.moveCm) // 10"
+        assertEquals(8, hormagaunts.leadership)
+        assertEquals(2, hormagaunts.objectiveControl)
+        assertEquals(3, hormagaunts.attacksPerModel)
+
+        val warriors = byId.getValue("warriors")
+        assertEquals(75, warriors.points)
+        assertEquals(3, warriors.squadSize)
+        assertEquals(6, warriors.attacksPerModel) // 6A S5 AP-2 D1
+        assertEquals(1, warriors.damage)
+        assertEquals(7, warriors.leadership)
+        assertEquals(2, warriors.objectiveControl)
+        assertEquals("Deathspitter", warriors.warriorRangedProfile?.name)
+        assertEquals(5, warriors.warriorRangedProfile?.range)
+        assertEquals(3, warriors.warriorRangedProfile?.attacksPerModel)
+        assertEquals(1, warriors.warriorRangedProfile?.armorPen)
+        assertEquals(false, warriors.warriorRangedProfile?.assault)
+
+        val carnifex = byId.getValue("carnifex")
+        assertEquals(90, carnifex.points)
+        assertEquals(20, carnifex.moveCm) // 8"
+        assertEquals(8, carnifex.woundsPerModel) // 8W
+        assertEquals(9, carnifex.toughness)
+        assertEquals(2, carnifex.save)
+        assertEquals(3, carnifex.objectiveControl)
+        assertEquals(4, carnifex.weaponSkill) // Crushing Claws WS 4+ 4A D4
+        assertEquals(4, carnifex.attacksPerModel)
+        assertEquals(4, carnifex.damage)
+        assertEquals(5, carnifex.pistolAttacks) // Spine Banks 5A S5 AP0 R2
+        assertEquals(5, carnifex.pistolStrength)
+        assertEquals(0, carnifex.pistolArmorPen)
+        assertEquals(2, carnifex.pistolRange)
+
+        val genestealers = byId.getValue("genestealers")
+        assertEquals(75, genestealers.points)
+        assertEquals(5, genestealers.squadSize)
+        assertEquals(20, genestealers.moveCm) // 8"
+        assertEquals(5, genestealers.invulnSave)
+        assertEquals(2, genestealers.weaponSkill)
+
+        val leapers = byId.getValue("von_ryans_leaper")
+        assertEquals(55, leapers.points)
+        assertEquals(3, leapers.squadSize)
+        assertEquals(25, leapers.moveCm) // 10"
+        assertEquals(6, leapers.invulnSave) // 6++
+        assertEquals(6, leapers.attacksPerModel) // 6A S5 AP-1 D1
+        assertEquals(1, leapers.armorPen)
+        assertEquals(1, leapers.damage)
+    }
+
+    @Test
+    fun diceLogCapturesStepByStepRollsPassesAndFailures() {
+        val openMap = Array(MapGenerator.GRID_H) { Array(MapGenerator.GRID_W) { TerrainType.OPEN } }
+        val intercessorTpl = DefaultCatalog.defaultTemplates.first { it.id == "intercessors" }
+        val warriorTpl = DefaultCatalog.defaultTemplates.first { it.id == "warriors" }
+
+        val shooter = BattleUnit(
+            uid = "m_log",
+            template = intercessorTpl,
+            faction = Faction.MARINES,
+            x = 2,
+            y = 10,
+            facing = Facing.EAST,
+            totalWounds = intercessorTpl.maxTotalWounds,
+            maxTotalWounds = intercessorTpl.maxTotalWounds,
+            moveCmLeft = intercessorTpl.moveCm.toFloat()
+        )
+        val warrior = BattleUnit(
+            uid = "w_log",
+            template = warriorTpl,
+            faction = Faction.XENOS,
+            x = 5,
+            y = 10,
+            facing = Facing.WEST,
+            totalWounds = 30,
+            maxTotalWounds = 30,
+            moveCmLeft = warriorTpl.moveCm.toFloat()
+        )
+
+        val rangedOutcome = TacticalRules.resolveAttack(
+            attacker = shooter,
+            primaryTarget = warrior,
+            allUnits = listOf(shooter, warrior),
+            mode = WeaponMode.MAIN,
+            map = openMap,
+            rng = Random(99)
+        )
+        assertEquals(1, rangedOutcome.logEntries.size)
+        val log = rangedOutcome.logEntries.first()
+        assertTrue(log.steps.isNotEmpty())
+        val hitStep = log.steps.first { it.phaseName == "HIT" }
+        assertTrue(hitStep.stepLabel.startsWith("BS "))
+        assertEquals(10, hitStep.rolled)
+        assertEquals(hitStep.rolled, hitStep.passed + hitStep.failed)
+        assertEquals(hitStep.rolled, hitStep.diceValues.size)
+
+        val woundStep = log.steps.firstOrNull { it.phaseName == "WOUND" }
+        assertNotNull(woundStep)
+        assertEquals(hitStep.passed, woundStep!!.rolled)
+        assertEquals(woundStep.rolled, woundStep.passed + woundStep.failed)
+        assertTrue(woundStep.stepLabel.contains("S5 vs T5"))
+
+        val saveStep = log.steps.firstOrNull { it.phaseName == "SAVE" }
+        if (woundStep.passed > 0) {
+            assertNotNull(saveStep)
+            assertEquals(woundStep.passed, saveStep!!.rolled)
+            assertEquals(saveStep.rolled, saveStep.passed + saveStep.failed)
+        }
+
+        // Melee counter-attack also records step-by-step WS -> S vs T -> Save log
+        val adjMarine = shooter.copy(x = 4, worldX = 4f)
+        val counter = TacticalRules.resolveMeleeCounterAttack(warrior, adjMarine, openMap, Random(7))
+        assertNotNull(counter)
+        val counterLog = counter!!.logEntry
+        assertNotNull(counterLog)
+        assertTrue(counterLog!!.isCounterOrFightFirst)
+        assertTrue(counterLog.steps.first().stepLabel.startsWith("WS "))
+        counterLog.steps.forEach { step ->
+            assertEquals(step.rolled, step.passed + step.failed)
+        }
+    }
+
+    @Test
+    fun bladeguardVeteransStormShieldInvulnAndTurnScopedRerollOnesWorkInAttackAndCounter() {
+        val openMap = Array(MapGenerator.GRID_H) { Array(MapGenerator.GRID_W) { TerrainType.OPEN } }
+        val bgTpl = DefaultCatalog.defaultTemplates.first { it.id == "bladeguard_veterans" }
+        val carniTpl = DefaultCatalog.defaultTemplates.first { it.id == "carnifex" }
+
+        // 1. 3D Mesh builds cleanly with rich geometry
+        val mesh = UnitMeshSculptor3D.build(UnitArchetype.BLADEGUARD)
+        assertTrue(mesh.vertexCount > 300)
+        assertEquals(0, mesh.data.size % 10)
+        assertTrue(mesh.data.all { it.isFinite() })
+
+        val bladeguard = BattleUnit(
+            uid = "u_bg",
+            template = bgTpl,
+            faction = Faction.MARINES,
+            x = 5,
+            y = 10,
+            facing = Facing.EAST,
+            totalWounds = bgTpl.maxTotalWounds,
+            maxTotalWounds = bgTpl.maxTotalWounds,
+            moveCmLeft = bgTpl.moveCm.toFloat()
+        )
+        val carnifex = BattleUnit(
+            uid = "u_carni_bg",
+            template = carniTpl,
+            faction = Faction.XENOS,
+            x = 6,
+            y = 10,
+            facing = Facing.WEST,
+            totalWounds = 30,
+            maxTotalWounds = 30,
+            moveCmLeft = 0f
+        )
+
+        // 2. Passive 4++ Invulnerable Save kicks in against AP-3 Crushing Claws (Sv 3+ + AP3 = 6+, so 4++ is used)
+        val carniVsBg = TacticalRules.canTarget(carnifex, bladeguard, WeaponMode.MAIN, openMap, listOf(carnifex, bladeguard))!!
+        assertEquals(4, carniVsBg.saveRollNeeded)
+        assertTrue(carniVsBg.usingInvuln)
+
+        // 3. Activate Bladeguard Skill -> cooldown 1, buff active, cannot double activate same turn
+        assertTrue(TacticalRules.canUseMode(bladeguard, WeaponMode.SKILL, listOf(bladeguard, carnifex)))
+        val buffedBg = TacticalRules.activateSelfSkillIfApplicable(bladeguard, listOf(bladeguard, carnifex))!!
+        assertTrue(buffedBg.bladeguardRerollBuffActive)
+        assertEquals(1, buffedBg.skillCooldownLeft)
+        assertFalse(TacticalRules.canUseMode(buffedBg, WeaponMode.SKILL, listOf(buffedBg, carnifex)))
+
+        // 4. Deterministic seed check: Hit rolls of 1 are re-rolled on Bladeguard attack
+        var foundHitReroll = false
+        for (seed in 1..200) {
+            val out = TacticalRules.resolveAttack(buffedBg, carnifex, listOf(buffedBg, carnifex), WeaponMode.MAIN, openMap, Random(seed))
+            val hitNote = out.logEntries.firstOrNull()?.steps?.firstOrNull { it.phaseName == "HIT" }?.note.orEmpty()
+            if (hitNote.contains("RE-ROLL 1s")) {
+                foundHitReroll = true
+                break
+            }
+        }
+        assertTrue("Expected Bladeguard attack to re-roll Hit rolls of 1", foundHitReroll)
+
+        // 5. Deterministic seed check: Save rolls of 1 are re-rolled on Enemy Counter-Attack vs buffed Bladeguard
+        var foundSaveReroll = false
+        for (seed in 1..400) {
+            val counter = TacticalRules.resolveMeleeCounterAttack(carnifex, buffedBg, openMap, Random(seed)) ?: continue
+            val svStep = counter.logEntry?.steps?.firstOrNull { it.phaseName == "SAVE" } ?: continue
+            if (svStep.note.contains("RE-ROLL 1s")) {
+                assertTrue(svStep.stepLabel.contains("INV 4++"))
+                foundSaveReroll = true
+                break
+            }
+        }
+        assertTrue("Expected Enemy Counter-Attack against buffed Bladeguard to re-roll Save rolls of 1", foundSaveReroll)
+    }
+
+    @Test
+    fun testBiovoresAndSporeMine11thEditionStats() {
+        val biovore = DefaultCatalog.defaultTemplates.first { it.id == "biovores" }
+        assertEquals(UnitArchetype.BIOVORE, biovore.archetype)
+        assertEquals(50, biovore.points)
+        assertEquals(1, biovore.squadSize)
+        assertEquals(5, biovore.woundsPerModel)
+        assertEquals(6, biovore.toughness)
+        assertEquals(4, biovore.save)
+        assertNull(biovore.invulnSave)
+        assertEquals(12, biovore.moveCm)
+        assertEquals(8, biovore.range) // 24"
+        assertEquals(1, biovore.attacksPerModel)
+        assertEquals(4, biovore.ballisticSkill)
+        assertEquals(6, biovore.strength)
+        assertEquals(1, biovore.armorPen)
+        assertEquals(2, biovore.damage)
+        assertEquals("Seed Spore Mine", biovore.skillName)
+        assertEquals(1, biovore.skillCooldown)
+
+        val sporeMine = DefaultCatalog.defaultTemplates.first { it.id == "spore_mine" }
+        assertEquals(UnitArchetype.SPORE_MINE, sporeMine.archetype)
+        assertEquals(0, sporeMine.points)
+        assertEquals(1, sporeMine.squadSize)
+        assertEquals(1, sporeMine.woundsPerModel)
+        assertEquals(1, sporeMine.toughness)
+        assertEquals(6, sporeMine.save)
+        assertEquals(4, sporeMine.moveCm) // 4 cm move
+        assertEquals(1, sporeMine.range)
+        assertEquals("Self-Destruct", sporeMine.skillName)
+
+        val xenosRoster = DefaultCatalog.defaultXenosRoster()
+        assertTrue("Xenos roster must include biovores", xenosRoster.any { it.templateId == "biovores" })
+    }
+
+    @Test
+    fun testComputeSeedSporeMineTilesRequiresAtLeast8CmFromEnemies() {
+        val biovoreTemplate = DefaultCatalog.defaultTemplates.first { it.id == "biovores" }
+        val enemyTemplate = DefaultCatalog.defaultTemplates.first { it.id == "intercessors" }
+
+        val biovore = BattleUnit(
+            uid = "bio1",
+            template = biovoreTemplate,
+            faction = Faction.XENOS,
+            x = 4,
+            y = 4,
+            facing = Facing.EAST,
+            totalWounds = biovoreTemplate.maxTotalWounds,
+            maxTotalWounds = biovoreTemplate.maxTotalWounds,
+            moveCmLeft = biovoreTemplate.moveCm.toFloat(),
+            worldX = 4f,
+            worldY = 4f
+        )
+        val enemy = BattleUnit(
+            uid = "marine1",
+            template = enemyTemplate,
+            faction = Faction.MARINES,
+            x = 8,
+            y = 4,
+            facing = Facing.WEST,
+            totalWounds = enemyTemplate.maxTotalWounds,
+            maxTotalWounds = enemyTemplate.maxTotalWounds,
+            moveCmLeft = enemyTemplate.moveCm.toFloat(),
+            worldX = 8f,
+            worldY = 4f
+        )
+
+        val map = Array(14) { Array(16) { TerrainType.OPEN } }
+        val tiles = TacticalRules.computeSeedSporeMineTiles(
+            biovore = biovore,
+            map = map,
+            allUnits = listOf(biovore, enemy),
+            maxDist = 8,
+            minEnemyDistCm = 8.0f
+        )
+
+        assertTrue("Should have valid spawn tiles", tiles.isNotEmpty())
+        for (tile in tiles) {
+            val distCm = kotlin.math.hypot(tile.x - enemy.worldX, tile.y - enemy.worldY) * TacticalRules.CM_PER_TILE
+            assertTrue("Every seed tile must be >= 8 cm from enemy ($distCm cm at tile $tile)", distCm >= 8.0f - 0.05f)
+        }
+        // Enemy is at (8, 4), so adjacent tile (7, 4) is 1 tile away = 3 cm < 8 cm -> must not be allowed
+        assertFalse("Tile (7,4) is 3 cm from enemy, must not be valid", tiles.contains(GridPos(7, 4)))
+    }
+
+    @Test
+    fun testSporeMineDetonationMechanic() {
+        val sporeMineTemplate = DefaultCatalog.defaultTemplates.first { it.id == "spore_mine" }
+        val enemyTemplate = DefaultCatalog.defaultTemplates.first { it.id == "intercessors" }
+
+        val sporeMine = BattleUnit(
+            uid = "mine1",
+            template = sporeMineTemplate,
+            faction = Faction.XENOS,
+            x = 5,
+            y = 5,
+            facing = Facing.EAST,
+            totalWounds = 1,
+            maxTotalWounds = 1,
+            moveCmLeft = 4f,
+            worldX = 5f,
+            worldY = 5f
+        )
+        // Squad of 5 Intercessors (10 total wounds, 2W each)
+        val enemy = BattleUnit(
+            uid = "marine1",
+            template = enemyTemplate,
+            faction = Faction.MARINES,
+            x = 5,
+            y = 6,
+            facing = Facing.NORTH,
+            totalWounds = 10,
+            maxTotalWounds = 10,
+            moveCmLeft = enemyTemplate.moveCm.toFloat(),
+            worldX = 5f,
+            worldY = 6f
+        )
+
+        val map = Array(14) { Array(16) { TerrainType.OPEN } }
+        // Verify canTarget acknowledges melee reach detonation
+        val preview = TacticalRules.canTarget(sporeMine, enemy, WeaponMode.MAIN, map, listOf(sporeMine, enemy))
+        assertNotNull("Spore mine adjacent to enemy must be able to target for detonation", preview)
+        assertEquals(5, preview!!.attacksCount) // 1 D6 per enemy model
+
+        // Deterministic RNG test:
+        // Mock RNG returning rolls [1, 2, 3, 4, 1]
+        // 3 of 5 rolls are < 3 (rolls of 1, 2, 1), so exactly 3 Mortal Wounds must be inflicted
+        val customRng = object : Random() {
+            private val rolls = intArrayOf(1, 2, 3, 4, 1)
+            private var idx = 0
+            override fun nextBits(bitCount: Int): Int = 0
+            override fun nextInt(from: Int, until: Int): Int {
+                val r = rolls[idx % rolls.size]
+                idx++
+                return r
+            }
+        }
+
+        val outcome = TacticalRules.resolveAttack(
+            attacker = sporeMine,
+            primaryTarget = enemy,
+            allUnits = listOf(sporeMine, enemy),
+            mode = WeaponMode.MAIN,
+            map = map,
+            rng = customRng
+        )
+
+        // Spore mine must be dead (0 wounds)
+        assertEquals(0, outcome.updatedAttacker.totalWounds)
+        assertFalse(outcome.updatedAttacker.isAlive)
+
+        // Target must have suffered 3 mortal wounds (10 - 3 = 7W)
+        val updatedEnemy = outcome.updatedTargets.first()
+        assertEquals(7, updatedEnemy.totalWounds)
+        assertEquals(4, updatedEnemy.aliveModels) // 7W with 2W per model = 4 models alive
+        assertEquals(3, outcome.totalDamageDealt)
+
+        // Verify combat log
+        val log = outcome.logEntries.first()
+        val detonateStep = log.steps.first()
+        assertEquals("DETONATE", detonateStep.phaseName)
+        assertEquals(5, detonateStep.rolled)
+        assertEquals(3, detonateStep.passed)
+        assertEquals(2, detonateStep.failed)
+        assertTrue(log.title.contains("Detonates"))
+    }
+
+    @Test
+    fun testBiovoreAndSporeMine3DMeshes() {
+        val biovoreMesh = UnitMeshSculptor3D.build(UnitArchetype.BIOVORE)
+        assertTrue("Biovore mesh vertex count must be > 100", biovoreMesh.vertexCount > 100)
+        assertEquals("Biovore float buffer size must be multiple of 10", 0, biovoreMesh.data.size % 10)
+        for (v in biovoreMesh.data) {
+            assertFalse("Biovore float must not be NaN", v.isNaN())
+            assertFalse("Biovore float must not be Infinite", v.isInfinite())
+        }
+
+        val sporeMineMesh = UnitMeshSculptor3D.build(UnitArchetype.SPORE_MINE)
+        assertTrue("Spore Mine mesh vertex count must be > 100", sporeMineMesh.vertexCount > 100)
+        assertEquals("Spore Mine float buffer size must be multiple of 10", 0, sporeMineMesh.data.size % 10)
+        for (v in sporeMineMesh.data) {
+            assertFalse("Spore Mine float must not be NaN", v.isNaN())
+            assertFalse("Spore Mine float must not be Infinite", v.isInfinite())
+        }
+    }
 }
+
+
 
 
 

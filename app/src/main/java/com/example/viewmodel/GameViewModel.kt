@@ -23,11 +23,13 @@ import com.example.model.AppScreen
 import com.example.model.BattleSummary
 import com.example.model.BattleUnit
 import com.example.model.ChargePreview
+import com.example.model.CombatLogEntry
 import com.example.model.CoopNetworkRole
 import com.example.model.CoopPlayer
 import com.example.model.CoopRosterUnit
 import com.example.model.CoopSlotMode
 import com.example.model.CoopState
+import com.example.model.DiceStepDetail
 import com.example.model.Facing
 import com.example.model.Faction
 import com.example.model.FloatingTextVfx
@@ -135,7 +137,8 @@ data class BattleUiState(
     val selectedReserveUnitUid: String? = null,
     val deploymentTurnPlayerId: String? = null,
     val deploymentTurnPlayerName: String = "",
-    val deploymentTeamIndex: Int = 0
+    val deploymentTeamIndex: Int = 0,
+    val combatLogs: List<CombatLogEntry> = emptyList()
 ) {
     val isPlayerTurn: Boolean
         get() = !isAiThinking && summary == null && if (isDeploymentPhase) {
@@ -704,7 +707,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             val aiTemplateIds = if (aiFaction == Faction.XENOS) {
                 listOf("carnifex", "warriors", "von_ryans_leaper", "termagants", "hormagaunts")
             } else {
-                listOf("captain", "dreadnought", "terminators", "hellblasters", "intercessors", "assault_intercessors")
+                listOf("captain", "dreadnought", "terminators", "bladeguard_veterans", "hellblasters", "intercessors", "assault_intercessors")
             }
             for (tid in aiTemplateIds) {
                 val tpl = templates[tid] ?: continue
@@ -1175,7 +1178,13 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         aiJob?.cancel()
         actionJob?.cancel()
         sound.play(SoundType.CLICK)
-        val inactive = _battleState.value.copy(active = false, summary = null, isAiThinking = false, isAnimating = false)
+        val inactive = _battleState.value.copy(
+            active = false,
+            summary = null,
+            isAiThinking = false,
+            isAnimating = false,
+            combatLogs = emptyList()
+        )
         _battleState.value = inactive
         if (wasCoop) {
             syncCoopHostIfNeeded(inactive)
@@ -1484,6 +1493,32 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
 
+        // 0b. Check if Biovore is in Seed Spore Mine mode
+        if (selected != null && state.canCommandUnit(selected, fromLanClient) &&
+            selected.template.archetype == UnitArchetype.BIOVORE &&
+            state.weaponMode == WeaponMode.SKILL
+        ) {
+            if (pos in state.reachableTiles.keys) {
+                actionJob?.cancel()
+                actionJob = viewModelScope.launch {
+                    performSeedSporeMine(selected.uid, pos)
+                }
+            } else {
+                val dist = maxOf(abs(pos.x - selected.x), abs(pos.y - selected.y))
+                val enemies = state.units.filter { it.isAlive && selected.isEnemyOf(it) }
+                val minEnemyCm = enemies.minOfOrNull {
+                    hypot(pos.x - it.worldX, pos.y - it.worldY) * TacticalRules.CM_PER_TILE
+                } ?: 999f
+                when {
+                    dist > 8 -> spawnFloatingText(pos, "MAX RANGE 8", 0xFFFF4D58L)
+                    minEnemyCm < 7.95f -> spawnFloatingText(pos, "TOO CLOSE TO ENEMY (MIN 8CM)", 0xFFFF4D58L)
+                    !MapGenerator.isWalkable(state.map.rows[pos.y][pos.x]) -> spawnFloatingText(pos, "BLOCKED TILE", 0xFFFF4D58L)
+                    else -> spawnFloatingText(pos, "OCCUPIED TILE", 0xFFFF4D58L)
+                }
+            }
+            return
+        }
+
         // 1. Check if tapped an alive unit (continuous hitbox or tile match)
         val unitHit = state.units
             .filter { it.isAlive }
@@ -1684,6 +1719,27 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
         spawnFloatingText(selected.pos, "ADVANCE +$roll cm (+${bonusCm.toInt()} cm)", 0xFF38D96CL)
+        val advLog = CombatLogEntry(
+            id = nextIdCounter++,
+            round = state.round,
+            faction = selected.faction,
+            title = "${selected.template.name.uppercase()} • ADVANCE",
+            subtitle = "MOVEMENT PHASE • 1D6",
+            steps = listOf(
+                DiceStepDetail(
+                    phaseName = "ADVANCE",
+                    stepLabel = "1D6 ADVANCE",
+                    targetNeeded = 1,
+                    rolled = 1,
+                    passed = 1,
+                    failed = 0,
+                    diceValues = listOf(roll),
+                    note = if (selected.template.mainWeaponAssault) "ASSAULT OK" else "NO SHOOT/CHRG"
+                )
+            ),
+            resultSummary = "+$roll cm Move",
+            isSuccess = true
+        )
         val nextState = state.copy(
             units = updatedUnits,
             weaponMode = WeaponMode.MAIN,
@@ -1691,7 +1747,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             chargeModeActive = false,
             chargePreview = null,
             movePreview = null,
-            targetPreview = null
+            targetPreview = null,
+            combatLogs = appendCombatLogs(state.combatLogs, listOf(advLog))
         )
         val ready = recomputeSelectionOverlays(nextState)
         _battleState.value = ready
@@ -1767,10 +1824,33 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         val d1 = Random.nextInt(1, 7)
         val d2 = Random.nextInt(1, 7)
         val total = d1 + d2
+        val chargeSuccess = total >= preview.requiredRoll
+        val chargeLog = CombatLogEntry(
+            id = nextIdCounter++,
+            round = state.round,
+            faction = charger.faction,
+            title = "${charger.template.name.uppercase()} ▸ ${preview.targetName.uppercase()}",
+            subtitle = "CHARGE • ${"%.1f".format(preview.distanceCm)} cm (NEED ${preview.requiredRoll}+)",
+            steps = listOf(
+                DiceStepDetail(
+                    phaseName = "CHARGE",
+                    stepLabel = "2D6 (${preview.requiredRoll}+)",
+                    targetNeeded = preview.requiredRoll,
+                    rolled = 2,
+                    passed = if (chargeSuccess) 1 else 0,
+                    failed = if (chargeSuccess) 0 else 1,
+                    diceValues = listOf(d1, d2),
+                    note = "TOTAL $total"
+                )
+            ),
+            resultSummary = if (chargeSuccess) "CHARGE SUCCESS ($d1+$d2=$total)" else "CHARGE FAILED ($d1+$d2=$total)",
+            isSuccess = chargeSuccess
+        )
 
-        if (total >= preview.requiredRoll) {
+        if (chargeSuccess) {
             sound.play(SoundType.MELEE)
             spawnFloatingText(charger.pos, "CHARGE $d1+$d2=$total! (${preview.requiredRoll}+)", 0xFFFFD166L)
+            _battleState.update { st -> st.copy(combatLogs = appendCombatLogs(st.combatLogs, listOf(chargeLog))) }
             performChargeDash(unitUid, preview)
         } else {
             sound.play(SoundType.CLICK)
@@ -1783,7 +1863,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     units = updatedUnits,
                     chargeModeActive = false,
                     chargePreview = null,
-                    chargeableUids = emptySet()
+                    chargeableUids = emptySet(),
+                    combatLogs = appendCombatLogs(state.combatLogs, listOf(chargeLog))
                 )
             )
             _battleState.value = next
@@ -2082,6 +2163,114 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private suspend fun performSeedSporeMine(unitUid: String, dest: GridPos) {
+        val state = _battleState.value
+        val biovore = state.units.firstOrNull { it.uid == unitUid && it.isAlive } ?: return
+        sound.play(SoundType.PLASMA)
+
+        val startPos = biovore.pos
+        val vfx = ProjectileVfx(
+            id = nextIdCounter++,
+            fromX = biovore.worldX,
+            fromY = biovore.worldY,
+            toX = dest.x.toFloat(),
+            toY = dest.y.toFloat(),
+            colorArgb = 0xFF9D4EDDL,
+            isBeam = false,
+            isMelee = false,
+            startTimeMs = System.currentTimeMillis()
+        )
+
+        val updatedUnits = state.units.map { u ->
+            if (u.uid != unitUid) u
+            else u.copy(
+                skillCooldownLeft = u.template.skillCooldown,
+                hasShot = true
+            )
+        }.toMutableList()
+
+        _battleState.value = state.copy(
+            units = updatedUnits,
+            weaponMode = WeaponMode.MAIN,
+            moveModeActive = false,
+            movePreview = null,
+            reachableTiles = emptyMap(),
+            moveParents = emptyMap(),
+            attackableUids = emptySet(),
+            targetPreview = null,
+            isAnimating = true,
+            projectiles = state.projectiles + vfx
+        )
+        spawnFloatingText(startPos, "SEED SPORE", 0xFFE0AAFFL)
+
+        try {
+            delay(350L)
+            sound.play(SoundType.SURGE)
+
+            val sporeTemplate = DefaultCatalog.defaultTemplates.firstOrNull { it.id == "spore_mine" }
+                ?: DefaultCatalog.defaultTemplates.first { it.archetype == UnitArchetype.SPORE_MINE }
+            val sporeWounds = sporeTemplate.woundsPerModel * sporeTemplate.squadSize
+            val newSporeMine = BattleUnit(
+                uid = "spore_mine_${nextIdCounter++}",
+                template = sporeTemplate,
+                faction = biovore.faction,
+                x = dest.x,
+                y = dest.y,
+                facing = biovore.facing,
+                totalWounds = sporeWounds,
+                maxTotalWounds = sporeWounds,
+                moveCmLeft = sporeTemplate.moveCm.toFloat(),
+                worldX = dest.x.toFloat(),
+                worldY = dest.y.toFloat(),
+                facingDeg = biovore.facingDeg,
+                ownerPlayerId = biovore.ownerPlayerId,
+                ownerPlayerName = biovore.ownerPlayerName
+            )
+            updatedUnits.add(newSporeMine)
+
+            spawnFloatingText(dest, "SPORE MINE SEEDED!", 0xFFC77DFFL)
+
+            val log = CombatLogEntry(
+                id = nextIdCounter++,
+                round = state.round,
+                faction = biovore.faction,
+                title = "${biovore.template.name.uppercase()} • SEED SPORE MINE",
+                subtitle = "SPAWN POS (${dest.x}, ${dest.y}) [≥8cm FROM FOES]",
+                steps = listOf(
+                    DiceStepDetail(
+                        phaseName = "SKILL",
+                        stepLabel = "Seed Spore Mine",
+                        targetNeeded = 1,
+                        rolled = 1,
+                        passed = 1,
+                        failed = 0,
+                        diceValues = listOf(6),
+                        note = "M 4 cm, Detonate: 1D6/enemy model, <3 = 1W"
+                    )
+                ),
+                resultSummary = "Living Spore Mine deployed and controllable",
+                isSuccess = true
+            )
+
+            val finalUnits = TacticalRules.applyAuras(updatedUnits)
+            _battleState.value = recomputeSelectionOverlays(
+                _battleState.value.copy(
+                    units = finalUnits,
+                    isAnimating = false,
+                    selectedUnitUid = newSporeMine.uid,
+                    focusGridPos = if (_battleState.value.autoFocusCamera) dest else _battleState.value.focusGridPos,
+                    combatLogs = appendCombatLogs(_battleState.value.combatLogs, listOf(log))
+                )
+            )
+            syncCoopHostIfNeeded(_battleState.value)
+            scheduleVfxCleanup()
+        } finally {
+            _battleState.update { st ->
+                if (st.isAnimating) recomputeSelectionOverlays(st.copy(isAnimating = false)) else st
+            }
+        }
+    }
+
     private suspend fun performContinuousMove(unitUid: String, preview: MovePreview) {
         val stateBefore = _battleState.value
         val unit = stateBefore.units.firstOrNull { it.uid == unitUid && it.isAlive } ?: return
@@ -2336,13 +2525,23 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 val targetIsSide0 = if (state.isCoopMode) target.effectiveTeam == 0 else target.faction == state.playerFaction
                 val preKillsPlayer = if (targetIsSide0 && preOutcome.updatedAttacker.totalWounds == 0) 1 else 0
                 val preKillsEnemy = if (!targetIsSide0 && preOutcome.updatedAttacker.totalWounds == 0) 1 else 0
+                val preLogs = preOutcome.logEntry?.let {
+                    listOf(
+                        it.copy(
+                            id = nextIdCounter++,
+                            round = state.round,
+                            subtitle = "⚡ FIGHT FIRST • ${TacticalRules.weaponDisplayName(target, WeaponMode.MAIN, true).uppercase()}"
+                        )
+                    )
+                } ?: emptyList()
                 val preUpdated = state.copy(
                     units = preUnits,
                     projectiles = (state.projectiles + preProj).filter { preNow - it.startTimeMs < 1800 },
                     floatingTexts = (state.floatingTexts + preFloats).filter { preNow - it.startTimeMs < 3200 },
                     playerKills = state.playerKills + preKillsPlayer,
                     enemyKills = state.enemyKills + preKillsEnemy,
-                    focusGridPos = if (state.autoFocusCamera) attacker.pos else state.focusGridPos
+                    focusGridPos = if (state.autoFocusCamera) attacker.pos else state.focusGridPos,
+                    combatLogs = appendCombatLogs(state.combatLogs, preLogs)
                 )
                 val afterPre = checkVictoryOrUpdate(recomputeSelectionOverlays(preUpdated))
                 _battleState.value = afterPre
@@ -2431,6 +2630,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         } else emptyList()
         val willCounterAttack = counterDefenders.isNotEmpty()
 
+        val attackLogs = outcome.logEntries.map { it.copy(id = nextIdCounter++, round = state.round) }
         val updated = state.copy(
             units = newUnits,
             weaponMode = WeaponMode.MAIN,
@@ -2445,7 +2645,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             floatingTexts = (state.floatingTexts + floats).filter { now - it.startTimeMs < 3200 },
             focusGridPos = if (state.autoFocusCamera) target.pos else state.focusGridPos,
             playerKills = state.playerKills + addedPlayerKills,
-            enemyKills = state.enemyKills + addedEnemyKills
+            enemyKills = state.enemyKills + addedEnemyKills,
+            combatLogs = appendCombatLogs(state.combatLogs, attackLogs)
         )
         val afterHit = checkVictoryOrUpdate(recomputeSelectionOverlays(updated))
         _battleState.value = afterHit
@@ -2517,12 +2718,16 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                         val counterKillsPlayer = if (defIsSide0 && counterOutcome.updatedAttacker.totalWounds == 0) 1 else 0
                         val counterKillsEnemy = if (!defIsSide0 && counterOutcome.updatedAttacker.totalWounds == 0) 1 else 0
 
+                        val counterLogs = counterOutcome.logEntry?.let {
+                            listOf(it.copy(id = nextIdCounter++, round = currentState.round))
+                        } ?: emptyList()
                         val stateAfterCounter = currentState.copy(
                             units = afterCounterUnits,
                             projectiles = (currentState.projectiles + counterProj).filter { counterNow - it.startTimeMs < 1800 },
                             floatingTexts = (currentState.floatingTexts + counterFloats).filter { counterNow - it.startTimeMs < 3200 },
                             playerKills = currentState.playerKills + counterKillsPlayer,
-                            enemyKills = currentState.enemyKills + counterKillsEnemy
+                            enemyKills = currentState.enemyKills + counterKillsEnemy,
+                            combatLogs = appendCombatLogs(currentState.combatLogs, counterLogs)
                         )
                         val afterCounter = checkVictoryOrUpdate(recomputeSelectionOverlays(stateAfterCounter))
                         _battleState.value = afterCounter
@@ -2551,12 +2756,28 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         sound.play(SoundType.CLICK)
 
         if (mode == WeaponMode.SKILL) {
+            if (selected.template.archetype == UnitArchetype.SPORE_MINE) {
+                val adjEnemy = state.units.firstOrNull {
+                    it.isAlive && selected.isEnemyOf(it) && TacticalRules.isWithinMeleeReach(selected, it)
+                }
+                if (adjEnemy != null) {
+                    actionJob?.cancel()
+                    actionJob = viewModelScope.launch {
+                        executeAttack(selected.uid, adjEnemy.uid, WeaponMode.MAIN)
+                    }
+                } else {
+                    spawnFloatingText(selected.pos, "NO ENEMY IN MELEE RANGE", 0xFFFF4D58L)
+                }
+                return
+            }
+
             val selfUpdated = TacticalRules.activateSelfSkillIfApplicable(selected, state.units)
             if (selfUpdated != null) {
                 val units = TacticalRules.applyAuras(state.units.map { if (it.uid == selfUpdated.uid) selfUpdated else it })
                 when (selected.template.archetype) {
                     UnitArchetype.VON_RYANS_LEAPER -> spawnFloatingText(selected.pos, "CHAMELEONIC CLOAK! (1T INVISIBLE)", 0xFF4CC9F0L)
                     UnitArchetype.ASSAULT_MARINE -> spawnFloatingText(selected.pos, "⚡ SHOCK ASSAULT! +1S +1AP MELEE", 0xFFFFD166L)
+                    UnitArchetype.BLADEGUARD -> spawnFloatingText(selected.pos, "⚔️ REROLL 1s (HIT & SAVE 1T)", 0xFF4CC9F0L)
                     else -> spawnFloatingText(selected.pos, "BOUNDING LEAP!", 0xFF38D96CL)
                 }
                 val next = recomputeSelectionOverlays(
@@ -2824,6 +3045,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                             when (u.template.archetype) {
                                 UnitArchetype.VON_RYANS_LEAPER -> spawnFloatingText(u.pos, "CHAMELEONIC CLOAK!", 0xFF4CC9F0L)
                                 UnitArchetype.ASSAULT_MARINE -> spawnFloatingText(u.pos, "⚡ SHOCK ASSAULT! +1S +1AP", 0xFFFFD166L)
+                                UnitArchetype.BLADEGUARD -> spawnFloatingText(u.pos, "⚔️ REROLL 1s (HIT & SAVE)", 0xFF4CC9F0L)
                                 else -> spawnFloatingText(u.pos, "LEAP!", 0xFFC77DFFL)
                             }
                         }
@@ -2833,6 +3055,10 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     }
                     is AiDecision.Teleport -> {
                         performTeleport(decision.unitUid, decision.targetPos)
+                        delay(900)
+                    }
+                    is AiDecision.SeedSporeMine -> {
+                        performSeedSporeMine(decision.unitUid, decision.targetPos)
                         delay(900)
                     }
                     is AiDecision.Advance -> {
@@ -2846,8 +3072,37 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                             )
                         }
                         val u = units.firstOrNull { it.uid == decision.unitUid }
+                        val advLog = u?.let { advUnit ->
+                            CombatLogEntry(
+                                id = nextIdCounter++,
+                                round = current.round,
+                                faction = advUnit.faction,
+                                title = "${advUnit.template.name.uppercase()} • ADVANCE",
+                                subtitle = "MOVEMENT PHASE • 1D6",
+                                steps = listOf(
+                                    DiceStepDetail(
+                                        phaseName = "ADVANCE",
+                                        stepLabel = "1D6 ADVANCE",
+                                        targetNeeded = 1,
+                                        rolled = 1,
+                                        passed = 1,
+                                        failed = 0,
+                                        diceValues = listOf(roll),
+                                        note = if (advUnit.template.mainWeaponAssault) "ASSAULT OK" else "NO SHOOT/CHRG"
+                                    )
+                                ),
+                                resultSummary = "+$roll cm Move",
+                                isSuccess = true
+                            )
+                        }
                         if (u != null) spawnFloatingText(u.pos, "ADVANCE +$roll cm", 0xFF38D96CL)
-                        _battleState.update { it.copy(units = units, focusGridPos = if (it.autoFocusCamera) u?.pos else it.focusGridPos) }
+                        _battleState.update { st ->
+                            st.copy(
+                                units = units,
+                                focusGridPos = if (st.autoFocusCamera) u?.pos else st.focusGridPos,
+                                combatLogs = if (advLog != null) appendCombatLogs(st.combatLogs, listOf(advLog)) else st.combatLogs
+                            )
+                        }
                         syncCoopHostIfNeeded(_battleState.value)
                         delay(650)
                     }
@@ -2932,7 +3187,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                         stealthTurnsLeft = nextStealthTurns,
                         activeBuffLabel = if (nextBuffTurns > 0 || nextDamageReduction > 0 || nextStealthTurns > 0) u.activeBuffLabel else null,
                         markedByTeam = clearedMark,
-                        meleeChargeBuffActive = false
+                        meleeChargeBuffActive = false,
+                        bladeguardRerollBuffActive = false
                     )
                 }
             }
@@ -2941,10 +3197,11 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun clearTurnScopedMeleeBuffs(units: List<BattleUnit>): List<BattleUnit> =
         units.map { u ->
-            if (!u.meleeChargeBuffActive) u
+            if (!u.meleeChargeBuffActive && !u.bladeguardRerollBuffActive) u
             else u.copy(
                 meleeChargeBuffActive = false,
-                activeBuffLabel = if (u.activeBuffLabel == "+1S +1AP MELEE") null else u.activeBuffLabel
+                bladeguardRerollBuffActive = false,
+                activeBuffLabel = if (u.activeBuffLabel == "+1S +1AP MELEE" || u.activeBuffLabel == "REROLL 1s (HIT & SAVE)") null else u.activeBuffLabel
             )
         }
 
@@ -2973,7 +3230,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                         stealthTurnsLeft = nextStealthTurns,
                         activeBuffLabel = if (nextBuffTurns > 0 || nextDamageReduction > 0 || nextStealthTurns > 0) u.activeBuffLabel else null,
                         markedByTeam = clearedMark,
-                        meleeChargeBuffActive = false
+                        meleeChargeBuffActive = false,
+                        bladeguardRerollBuffActive = false
                     )
                 }
             }
@@ -3002,6 +3260,21 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 moveModeActive = false,
                 chargeModeActive = false,
                 reachableTiles = teleportTiles.associateWith { 0 },
+                moveParents = emptyMap(),
+                attackableUids = emptySet(),
+                chargeableUids = emptySet()
+            )
+        }
+
+        if (selected.template.archetype == UnitArchetype.BIOVORE && state.weaponMode == WeaponMode.SKILL) {
+            val canSeed = !inMelee && selected.skillCooldownLeft == 0 && !selected.hasAdvanced && !selected.hasCharged
+            val seedTiles = if (canSeed) {
+                TacticalRules.computeSeedSporeMineTiles(selected, state.map.rows, state.units, maxDist = 8, minEnemyDistCm = 8.0f)
+            } else emptySet()
+            return state.copy(
+                moveModeActive = false,
+                chargeModeActive = false,
+                reachableTiles = seedTiles.associateWith { 0 },
                 moveParents = emptyMap(),
                 attackableUids = emptySet(),
                 chargeableUids = emptySet()
@@ -3143,6 +3416,15 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
         }
+    }
+
+    private fun appendCombatLogs(
+        existing: List<CombatLogEntry>,
+        additions: List<CombatLogEntry>,
+        maxEntries: Int = 40
+    ): List<CombatLogEntry> {
+        if (additions.isEmpty()) return existing
+        return (additions.reversed() + existing).take(maxEntries)
     }
 
     private fun scheduleSplashAutoDismiss() {

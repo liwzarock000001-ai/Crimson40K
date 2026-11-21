@@ -1826,8 +1826,9 @@ private fun AllFactionStatsDialog(
                                         color = ImperialGold
                                     )
                                 }
+                                val invStr = tpl.invulnSave?.let { "/${it}++" } ?: ""
                                 Text(
-                                    text = "${tpl.faction.displayName} • ${tpl.squadSize}x ${tpl.woundsPerModel}W • M${tpl.moveCm} T${tpl.toughness} SV${tpl.save}+ • S${tpl.strength} AP-${tpl.armorPen} D${tpl.damage}",
+                                    text = "${tpl.faction.displayName} • ${tpl.squadSize}x ${tpl.woundsPerModel}W • M${tpl.moveCm} T${tpl.toughness} SV${tpl.save}+$invStr LD${tpl.leadership}+ OC${tpl.objectiveControl} • S${tpl.strength} AP-${tpl.armorPen} D${tpl.damage}",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = TextMuted,
                                     maxLines = 1,

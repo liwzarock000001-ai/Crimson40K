@@ -14,6 +14,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -161,6 +162,7 @@ fun BattleScreen(
     var zoomStepTrigger by remember { mutableIntStateOf(0) }
     var zoomStepDirection by remember { mutableIntStateOf(0) }
     var viewingSkillInfoTemplate by remember { mutableStateOf<UnitTemplate?>(null) }
+    var diceLogExpanded by remember { mutableStateOf(true) }
 
     val targetCameraPitch = when (cameraPitchMode) {
         1 -> 30f
@@ -172,11 +174,13 @@ fun BattleScreen(
         showConfirmExit = true
     }
 
-    Box(
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
             .background(VoidObsidian)
     ) {
+        val maxLogBodyHeight = (maxHeight * 0.35f).coerceIn(100.dp, 220.dp)
+        val logPanelWidth = (maxWidth * 0.38f).coerceIn(250.dp, 316.dp)
         viewingSkillInfoTemplate?.let { template ->
             SkillInfoDialog(
                 template = template,
@@ -350,13 +354,29 @@ fun BattleScreen(
                         }
                     }
 
-                    AnimatedVisibility(
-                        visible = state.turnSplash != null,
-                        enter = fadeIn() + scaleIn(initialScale = 0.94f),
-                        exit = fadeOut() + scaleOut(targetScale = 0.96f)
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.Top
                     ) {
-                        state.turnSplash?.let { splash ->
-                            TurnSplashCard(splash = splash, onClick = onDismissTurnSplash)
+                        AnimatedVisibility(
+                            visible = state.turnSplash != null,
+                            enter = fadeIn() + scaleIn(initialScale = 0.94f),
+                            exit = fadeOut() + scaleOut(targetScale = 0.96f)
+                        ) {
+                            state.turnSplash?.let { splash ->
+                                TurnSplashCard(splash = splash, onClick = onDismissTurnSplash)
+                            }
+                        }
+
+                        if (!state.isDeploymentPhase) {
+                            CombatDiceLogPanel(
+                                logs = state.combatLogs,
+                                activeFaction = state.activeFaction,
+                                expanded = diceLogExpanded,
+                                onToggleExpanded = { diceLogExpanded = !diceLogExpanded },
+                                maxBodyHeight = maxLogBodyHeight,
+                                modifier = Modifier.width(logPanelWidth)
+                            )
                         }
                     }
                 }
@@ -823,6 +843,7 @@ private fun TargetPreviewBanner(
         CoverTag.OPEN -> TextMuted
         CoverTag.COVER -> WarmAmber
     }
+    val isSporeDetonate = preview.weaponName.contains("Destruct") || preview.saveRollNeeded > 6
 
     GrimdarkBevelPanel(
         cut = 8.dp,
@@ -898,7 +919,11 @@ private fun TargetPreviewBanner(
                     maxLines = 2
                 )
                 Text(
-                    text = "${preview.attacksCount}x ATK • EST DMG: ${preview.expectedTotalDamage}W",
+                    text = if (isSporeDetonate) {
+                        "💥 1D6/MODEL • <3 = 1W • EST: ${preview.expectedTotalDamage}W"
+                    } else {
+                        "${preview.attacksCount}x ATK • EST DMG: ${preview.expectedTotalDamage}W"
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = WarmAmber
                 )
@@ -916,7 +941,10 @@ private fun TargetPreviewBanner(
             ) {
                 Icon(Icons.Default.MyLocation, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(4.dp))
-                Text(stringResource(R.string.btn_strike), style = MaterialTheme.typography.labelMedium)
+                Text(
+                    text = if (isSporeDetonate) "DETONATE" else stringResource(R.string.btn_strike),
+                    style = MaterialTheme.typography.labelMedium
+                )
             }
         }
     }
@@ -1014,6 +1042,8 @@ private fun UnitStatusCard(
                     StatPill("T", "${unit.template.toughness}", TextPrimary)
                     StatPill("SV", svLabel, if (unit.template.invulnSave != null) TacticalCyan else TextPrimary)
                     StatPill("W", "${unit.template.woundsPerModel}", TextPrimary)
+                    StatPill("LD", "${unit.template.leadership}+", TextPrimary)
+                    StatPill("OC", "${unit.template.objectiveControl}", TextPrimary)
                     StatPill("FACE", unit.facing.label, pal.trimBorder)
                     if (unit.hasRangedProfile) {
                         val shootLabel = when {
@@ -1676,19 +1706,29 @@ private fun ActionDock(
 
             if (selected != null) {
                 val isTerminator = selected.template.archetype == UnitArchetype.TERMINATOR
+                val isBiovore = selected.template.archetype == UnitArchetype.BIOVORE
+                val isSporeMine = selected.template.archetype == UnitArchetype.SPORE_MINE
                 val isLeaper = selected.template.archetype == UnitArchetype.VON_RYANS_LEAPER
                 val isAssaultMarine = selected.template.archetype == UnitArchetype.ASSAULT_MARINE
+                val isBladeguard = selected.template.archetype == UnitArchetype.BLADEGUARD
                 val isMeleeSkill = TacticalRules.modeUsesMelee(selected, WeaponMode.SKILL)
-                val isUtilitySkill = isTerminator || selected.template.archetype == UnitArchetype.HORMAGAUNT || isLeaper || isAssaultMarine
+                val isUtilitySkill = isTerminator || isBiovore || isSporeMine || selected.template.archetype == UnitArchetype.HORMAGAUNT || isLeaper || isAssaultMarine || isBladeguard
                 val skillReady = enabled && TacticalRules.canUseMode(selected, WeaponMode.SKILL, allUnits)
                 val isSkillOn = weaponMode == WeaponMode.SKILL
+                val isBuffActive = selected.isCloaked || selected.meleeChargeBuffActive || selected.bladeguardRerollBuffActive
                 val skillSubtitle = when {
-                    selected.isCloaked || selected.meleeChargeBuffActive -> "ACTIVE 1T"
+                    isBuffActive -> "ACTIVE 1T"
                     selected.skillCooldownLeft > 0 -> "CD ${selected.skillCooldownLeft}"
+                    isBiovore && selected.hasShot -> "SEEDED"
+                    isBiovore && isEngaged -> "IN MELEE"
+                    isBiovore && selected.hasAdvanced -> "NO ADV"
+                    isBiovore -> "SEED MINE"
+                    isSporeMine -> "DETONATE"
                     isAssaultMarine && selected.hasFought -> "FOUGHT"
                     isAssaultMarine && selected.hasAdvanced -> "NO ADV"
                     isAssaultMarine && (!selected.hasCharged || !isEngaged) -> "NEED CHG"
                     isAssaultMarine -> "+1S +1AP"
+                    isBladeguard -> "REROLL 1s"
                     selected.hasCharged && !isMeleeSkill -> "MELEE"
                     isEngaged && !isMeleeSkill && !isLeaper && (isTerminator || !selected.template.mainWeaponPistol) -> "IN MELEE"
                     selected.hasAdvanced && !selected.template.mainWeaponAssault && !isUtilitySkill && !isMeleeSkill -> "NO ADV"
@@ -1699,13 +1739,13 @@ private fun ActionDock(
                     else -> "READY"
                 }
                 ActionDockButton(
-                    title = if (isTerminator) "Teleport" else "Skill",
+                    title = if (isTerminator) "Teleport" else if (isBiovore) "Seed Mine" else if (isSporeMine) "Detonate" else "Skill",
                     subtitle = skillSubtitle,
                     icon = null,
-                    containerTop = if (isSkillOn || selected.isCloaked || selected.meleeChargeBuffActive) ColorTokens.CyanSurface else ColorTokens.SkillSurface,
+                    containerTop = if (isSkillOn || isBuffActive) ColorTokens.CyanSurface else ColorTokens.SkillSurface,
                     containerBottom = PanelIronBottom,
-                    borderColor = if (isSkillOn || selected.isCloaked || selected.meleeChargeBuffActive) TacticalCyan else ColorTokens.SkillBorder,
-                    textColor = if (selected.isCloaked || selected.meleeChargeBuffActive) TacticalCyan else WarmAmber,
+                    borderColor = if (isSkillOn || isBuffActive) TacticalCyan else ColorTokens.SkillBorder,
+                    textColor = if (isBuffActive) TacticalCyan else WarmAmber,
                     enabled = true,
                     onClick = {
                         if (skillReady) {

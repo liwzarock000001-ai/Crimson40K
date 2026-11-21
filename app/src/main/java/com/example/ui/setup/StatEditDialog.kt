@@ -87,6 +87,8 @@ fun StatEditDialog(
     var save by remember(template.id) { mutableStateOf(template.save.toString()) }
     var invulnSave by remember(template.id) { mutableStateOf((template.invulnSave ?: 0).toString()) }
     var moveCm by remember(template.id) { mutableStateOf(template.moveCm.toString()) }
+    var leadership by remember(template.id) { mutableStateOf(template.leadership.toString()) }
+    var objectiveControl by remember(template.id) { mutableStateOf(template.objectiveControl.toString()) }
     var skillCooldown by remember(template.id) { mutableStateOf(template.skillCooldown.toString()) }
 
     // Standard primary weapon
@@ -109,10 +111,10 @@ fun StatEditDialog(
     var meleeDamage by remember(template.id) { mutableStateOf(template.effectiveMeleeDamage.toString()) }
     var meleeSustainedHits by remember(template.id) { mutableStateOf(template.effectiveMeleeSustainedHits.toString()) }
 
-    // Independent Warrior Weapon 1 (Boneswords Melee) & Weapon 2 (Fleshborer Ranged)
+    // Independent Warrior Weapon 1 (Claws & Talons Melee) & Weapon 2 (Deathspitter Ranged)
     val initWarriorMelee = remember(template.id) {
         template.warriorMeleeProfile ?: WeaponProfile(
-            name = "Tyranid Boneswords",
+            name = "Tyranid Warrior Claws & Talons",
             range = 1,
             attacksPerModel = if (template.range <= 1) template.attacksPerModel else template.effectiveMeleeAttacks,
             skill = if (template.range <= 1) template.weaponSkill else template.effectiveMeleeWeaponSkill,
@@ -124,15 +126,15 @@ fun StatEditDialog(
     }
     val initWarriorRanged = remember(template.id) {
         template.warriorRangedProfile ?: WeaponProfile(
-            name = "Fleshborer",
-            range = if (template.range > 1) template.range else 4,
-            attacksPerModel = if (template.range > 1) template.attacksPerModel else 2,
+            name = "Deathspitter",
+            range = if (template.range > 1) template.range else 5,
+            attacksPerModel = if (template.range > 1) template.attacksPerModel else 3,
             skill = template.ballisticSkill,
             strength = if (template.range > 1) template.strength else 5,
-            armorPen = if (template.range > 1) template.armorPen else 0,
+            armorPen = if (template.range > 1) template.armorPen else 1,
             damage = if (template.range > 1) template.damage else 1,
             sustainedHits = if (template.range > 1) template.mainSustainedHits else 0,
-            assault = if (template.range > 1) template.mainWeaponAssault else true,
+            assault = if (template.range > 1) template.mainWeaponAssault else false,
             pistol = if (template.range > 1) template.mainWeaponPistol else false
         )
     }
@@ -164,7 +166,7 @@ fun StatEditDialog(
             skill = if (template.terminatorWeapon != TerminatorWeaponChoice.LIGHTNING_CLAWS) template.weaponSkill else 3,
             strength = if (template.terminatorWeapon != TerminatorWeaponChoice.LIGHTNING_CLAWS) template.strength else 8,
             armorPen = if (template.terminatorWeapon != TerminatorWeaponChoice.LIGHTNING_CLAWS) template.armorPen else 2,
-            damage = if (template.terminatorWeapon != TerminatorWeaponChoice.LIGHTNING_CLAWS) template.damage else 2,
+            damage = if (template.terminatorWeapon != TerminatorWeaponChoice.LIGHTNING_CLAWS) template.damage else 3,
             sustainedHits = if (template.terminatorWeapon != TerminatorWeaponChoice.LIGHTNING_CLAWS) template.mainSustainedHits else 0
         )
     }
@@ -172,7 +174,7 @@ fun StatEditDialog(
         template.terminatorClawsProfile ?: WeaponProfile(
             name = "Twin Lightning Claws",
             range = 1,
-            attacksPerModel = if (template.terminatorWeapon == TerminatorWeaponChoice.LIGHTNING_CLAWS) template.attacksPerModel else 5,
+            attacksPerModel = if (template.terminatorWeapon == TerminatorWeaponChoice.LIGHTNING_CLAWS) template.attacksPerModel else 6,
             skill = if (template.terminatorWeapon == TerminatorWeaponChoice.LIGHTNING_CLAWS) template.weaponSkill else 3,
             strength = if (template.terminatorWeapon == TerminatorWeaponChoice.LIGHTNING_CLAWS) template.strength else 5,
             armorPen = if (template.terminatorWeapon == TerminatorWeaponChoice.LIGHTNING_CLAWS) template.armorPen else 2,
@@ -266,10 +268,11 @@ fun StatEditDialog(
                             style = MaterialTheme.typography.labelMedium,
                             color = pal.trimBorder
                         )
-                        TwoFieldRow("Point Cost", points, { points = it }, "Squad Size (1-5)", squadSize, { squadSize = it })
+                        TwoFieldRow("Point Cost", points, { points = it }, "Squad Size (1-10)", squadSize, { squadSize = it })
                         TwoFieldRow("Wounds / Model (W)", woundsPerModel, { woundsPerModel = it }, "Toughness T (1-14)", toughness, { toughness = it })
                         TwoFieldRow("Armor Save Sv (2-6+)", save, { save = it }, "Invuln (0=None,2-6)", invulnSave, { invulnSave = it })
                         TwoFieldRow("Movement M (cm)", moveCm, { moveCm = it }, "Skill Cooldown", skillCooldown, { skillCooldown = it })
+                        TwoFieldRow("Leadership Ld (4-10+)", leadership, { leadership = it }, "Objective Control OC (0-8)", objectiveControl, { objectiveControl = it })
 
                         when {
                             isWarrior -> {
@@ -315,13 +318,13 @@ fun StatEditDialog(
                                 }
 
                                 HorizontalDivider(color = DividerIron, modifier = Modifier.padding(top = 4.dp))
-                                Text("WEAPON 1: TYRANID BONESWORDS (MELEE 2CM)", style = MaterialTheme.typography.labelMedium, color = ImperialGold)
+                                Text("WEAPON 1: ${initWarriorMelee.name.uppercase()} (MELEE 2CM)", style = MaterialTheme.typography.labelMedium, color = ImperialGold)
                                 TwoFieldRow("Melee Attacks (A)", wMeleeA, { wMeleeA = it }, "Weapon WS (2-6+)", wMeleeWs, { wMeleeWs = it })
                                 TwoFieldRow("Strength S (1-20)", wMeleeS, { wMeleeS = it }, "Armor Pen (0-5)", wMeleeAp, { wMeleeAp = it })
                                 TwoFieldRow("Melee Damage (D)", wMeleeD, { wMeleeD = it }, "Sustained Hits X (0-6)", wMeleeSus, { wMeleeSus = it })
 
                                 HorizontalDivider(color = DividerIron, modifier = Modifier.padding(top = 4.dp))
-                                Text("WEAPON 2: FLESHBORER (RANGED)", style = MaterialTheme.typography.labelMedium, color = TacticalCyan)
+                                Text("WEAPON 2: ${initWarriorRanged.name.uppercase()} (RANGED)", style = MaterialTheme.typography.labelMedium, color = TacticalCyan)
                                 TwoFieldRow("Attack Range (Tiles)", wRngRange, { wRngRange = it }, "Ranged Attacks (A)", wRngA, { wRngA = it })
                                 TwoFieldRow("Ballistic BS (2-6+)", wRngBs, { wRngBs = it }, "Strength S (1-20)", wRngS, { wRngS = it })
                                 TwoFieldRow("Armor Pen (0-5)", wRngAp, { wRngAp = it }, "Ranged Damage (D)", wRngD, { wRngD = it })
@@ -470,11 +473,13 @@ fun StatEditDialog(
                             onClick = {
                                 val parsedInv = invulnSave.toIntOrNull()?.let { if (it in 2..6) it else null }
                                 val commonPoints = points.toIntOrNull()?.coerceIn(20, 2000) ?: template.points
-                                val commonSquad = squadSize.toIntOrNull()?.coerceIn(1, 5) ?: template.squadSize
+                                val commonSquad = squadSize.toIntOrNull()?.coerceIn(1, 10) ?: template.squadSize
                                 val commonWounds = woundsPerModel.toIntOrNull()?.coerceIn(1, 30) ?: template.woundsPerModel
                                 val commonTough = toughness.toIntOrNull()?.coerceIn(1, 14) ?: template.toughness
                                 val commonSave = save.toIntOrNull()?.coerceIn(2, 6) ?: template.save
-                                val commonMove = moveCm.toIntOrNull()?.coerceIn(3, 36) ?: template.moveCm
+                                val commonMove = moveCm.toIntOrNull()?.coerceIn(3, 45) ?: template.moveCm
+                                val commonLd = leadership.toIntOrNull()?.coerceIn(4, 10) ?: template.leadership
+                                val commonOc = objectiveControl.toIntOrNull()?.coerceIn(0, 8) ?: template.objectiveControl
                                 val commonCd = skillCooldown.toIntOrNull()?.coerceIn(1, 8) ?: template.skillCooldown
                                 val savedPistolA = pistolAttacks.toIntOrNull()?.coerceIn(1, 10) ?: template.pistolAttacks
                                 val savedPistolD = pistolDamage.toIntOrNull()?.coerceIn(0, 200) ?: template.pistolDamage
@@ -492,6 +497,8 @@ fun StatEditDialog(
                                     save = commonSave,
                                     invulnSave = parsedInv,
                                     moveCm = commonMove,
+                                    leadership = commonLd,
+                                    objectiveControl = commonOc,
                                     skillCooldown = commonCd,
                                     pistolAttacks = savedPistolA,
                                     pistolDamage = savedPistolD,
@@ -505,7 +512,7 @@ fun StatEditDialog(
                                 val savedTemplate = when {
                                     isWarrior -> {
                                         val savedMelee = WeaponProfile(
-                                            name = "Tyranid Boneswords",
+                                            name = initWarriorMelee.name,
                                             range = 1,
                                             attacksPerModel = wMeleeA.toIntOrNull()?.coerceIn(1, 10) ?: initWarriorMelee.attacksPerModel,
                                             skill = wMeleeWs.toIntOrNull()?.coerceIn(2, 6) ?: initWarriorMelee.skill,
@@ -515,7 +522,7 @@ fun StatEditDialog(
                                             sustainedHits = wMeleeSus.toIntOrNull()?.coerceIn(0, 6) ?: initWarriorMelee.sustainedHits
                                         )
                                         val savedRanged = WeaponProfile(
-                                            name = "Fleshborer",
+                                            name = initWarriorRanged.name,
                                             range = wRngRange.toIntOrNull()?.coerceIn(2, 12) ?: initWarriorRanged.range,
                                             attacksPerModel = wRngA.toIntOrNull()?.coerceIn(1, 10) ?: initWarriorRanged.attacksPerModel,
                                             skill = wRngBs.toIntOrNull()?.coerceIn(2, 6) ?: initWarriorRanged.skill,
