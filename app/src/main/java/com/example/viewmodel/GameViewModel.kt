@@ -2468,9 +2468,13 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 val liveAttacker = currentState.units.firstOrNull { it.uid == liveAtkBefore.uid && it.isAlive }
 
                 if (liveDefender != null && liveAttacker != null && liveDefender.aliveModels > 0) {
+                    val facingDeg = TacticalRules.angleDegToward(liveDefender.worldX, liveDefender.worldY, liveAttacker.worldX, liveAttacker.worldY)
+                    val facing = TacticalRules.nearestFacingFromDeg(facingDeg)
+                    val rotatedDefender = liveDefender.copy(facing = facing, facingDeg = facingDeg)
+
                     sound.play(SoundType.MELEE)
                     val counterOutcome = TacticalRules.resolveMeleeCounterAttack(
-                        liveDefender,
+                        rotatedDefender,
                         liveAttacker,
                         currentState.map.rows
                     )
