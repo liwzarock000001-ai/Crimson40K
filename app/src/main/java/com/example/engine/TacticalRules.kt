@@ -976,7 +976,10 @@ object TacticalRules {
             repeat(attacks) {
                 if (runningWounds > 0) {
                     // Step 1: Hit Roll (d6 vs BS / WS; 1 always misses; 6 triggers Sustained Hits [X])
-                    val hitRoll = rng.nextInt(1, 7)
+                    var hitRoll = rng.nextInt(1, 7)
+                    if (attacker.template.archetype == UnitArchetype.GENESTEALER && hitRoll == 1) {
+                        hitRoll = rng.nextInt(1, 7)
+                    }
                     if (hitRoll > 1 && hitRoll >= tgtPreview.hitRollNeeded) {
                         val extraHits = if (hitRoll == 6 && sustainedX > 0) sustainedX else 0
                         sustainedBonusHits += extraHits
@@ -984,8 +987,11 @@ object TacticalRules {
                         tgtHits += hitsFromAttack
                         repeat(hitsFromAttack) {
                             if (runningWounds > 0) {
-                                // Step 2: Wound Roll (d6 comparing S vs T; 1 always fails)
-                                val woundRoll = rng.nextInt(1, 7)
+                                // Step 2: Wound Roll (d6 comparing S vs T; 1 always fails unless re-rolled)
+                                var woundRoll = rng.nextInt(1, 7)
+                                if (attacker.template.archetype == UnitArchetype.GENESTEALER && woundRoll == 1) {
+                                    woundRoll = rng.nextInt(1, 7)
+                                }
                                 if (woundRoll > 1 && woundRoll >= tgtPreview.woundRollNeeded) {
                                     tgtWounds++
                                     // Step 3: Saving Throw (d6 vs Sv+AP or Invuln; 1 always fails; 7+ auto-fails)
@@ -1227,6 +1233,14 @@ object TacticalRules {
                         activeBuffLabel = "+1S +1AP MELEE"
                     )
                 }
+            }
+            UnitArchetype.GENESTEALER -> {
+                if (unit.skillCooldownLeft > 0) null
+                else unit.copy(
+                    skillCooldownLeft = unit.template.skillCooldown,
+                    buffTurnsLeft = 1,
+                    activeBuffLabel = "BROOD TELEPATHY (1T)"
+                )
             }
             else -> null
         }

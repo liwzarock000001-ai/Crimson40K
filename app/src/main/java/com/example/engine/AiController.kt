@@ -61,7 +61,7 @@ object AiController {
                 val selfSkill = TacticalRules.activateSelfSkillIfApplicable(unit, units)
                 val shouldTriggerSelf = when (unit.template.archetype) {
                     UnitArchetype.VON_RYANS_LEAPER -> distToNearest <= 7 && !unit.isCloaked
-                    UnitArchetype.ASSAULT_MARINE -> true
+                    UnitArchetype.ASSAULT_MARINE, UnitArchetype.GENESTEALER -> true
                     else -> distToNearest > 2
                 }
                 if (selfSkill != null && shouldTriggerSelf) {

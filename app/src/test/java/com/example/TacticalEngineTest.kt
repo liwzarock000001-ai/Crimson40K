@@ -496,9 +496,13 @@ class TacticalEngineTest {
         assertTrue(closeMain.isMelee)
 
         val closeSkill = TacticalRules.canTarget(closeMarine, enemy, WeaponMode.SKILL, map, listOf(closeMarine, enemy))
-        assertNotNull(closeSkill)
-        assertTrue(closeSkill!!.inRange)
-        assertTrue(closeSkill.isMelee)
+        assertNull(closeSkill) // Requires Charge to use Skill
+
+        val chargedMarine = closeMarine.copy(hasCharged = true)
+        val chargedSkill = TacticalRules.canTarget(chargedMarine, enemy, WeaponMode.SKILL, map, listOf(chargedMarine, enemy))
+        assertNotNull(chargedSkill)
+        assertTrue(chargedSkill!!.inRange)
+        assertTrue(chargedSkill.isMelee)
 
         val closeTermiHammer = TacticalRules.canTarget(closeTermi, enemy, WeaponMode.MAIN, map, listOf(closeTermi, enemy))
         assertNotNull(closeTermiHammer)

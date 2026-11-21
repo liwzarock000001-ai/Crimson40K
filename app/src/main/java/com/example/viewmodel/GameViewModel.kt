@@ -2372,6 +2372,10 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             }
         )
 
+        spawnFloatingText(target.pos, "🎲 TABLETOP ROLL (2s)...", 0xFFFFD166L)
+        _battleState.update { it.copy(isAnimating = true) }
+        delay(2000L)
+
         val outcome = TacticalRules.resolveAttack(attacker, target, state.units, mode, state.map.rows)
         val now = System.currentTimeMillis()
 

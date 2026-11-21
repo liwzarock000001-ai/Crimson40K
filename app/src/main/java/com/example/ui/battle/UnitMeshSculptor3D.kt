@@ -1241,34 +1241,60 @@ object UnitMeshSculptor3D {
     }
 
     private fun buildGenestealer(m: MeshAccumulator) {
-        val s = 1.08f
-        m.addCylinder(0f, 0.002f, 0f, 0.175f * s, 0.16f * s, 0.022f, 10, 0.11f, 0.10f, 0.16f)
-        val by = 0.022f
-        val indigoR = 0.18f; val indigoG = 0.12f; val indigoB = 0.44f
-        val fleshBlueR = 0.66f; val fleshBlueG = 0.58f; val fleshBlueB = 0.78f
+        val s = 1.05f
+        // 1. Dark Sector Base Plinth
+        m.addCylinder(0f, 0.002f, 0f, 0.175f * s, 0.16f * s, 0.024f, 10, 0.12f, 0.12f, 0.14f)
+        val by = 0.024f
 
+        val skinR = 0.88f; val skinG = 0.84f; val skinB = 0.82f
+        val skinShR = 0.72f; val skinShG = 0.65f; val skinShB = 0.75f
+        val purpleR = 0.42f; val purpleG = 0.18f; val purpleB = 0.58f
+        val purpleHiR = 0.58f; val purpleHiG = 0.28f; val purpleHiB = 0.74f
+        val tongueR = 0.92f; val tongueG = 0.26f; val tongueB = 0.38f
+        val talonDkR = 0.22f; val talonDkG = 0.18f; val talonDkB = 0.22f
+        val talonTipR = 0.12f; val talonTipG = 0.08f; val talonTipB = 0.10f
+
+        // 2. Crouched Muscular Pale-Flesh Legs & Clawed Feet
         for (side in floatArrayOf(-1f, 1f)) {
-            val z = side * 0.095f * s
-            m.addOrientedCylinder(-0.02f * s, by + 0.018f * s, z, -0.09f * s, by + 0.13f * s, z, 0.028f * s, 0.036f * s, 8, r = fleshBlueR * 0.85f, g = fleshBlueG * 0.85f, b = fleshBlueB * 0.85f)
-            m.addOrientedCylinder(-0.09f * s, by + 0.13f * s, z, -0.01f * s, by + 0.24f * s, z * 0.8f, 0.038f * s, 0.048f * s, 8, r = fleshBlueR, g = fleshBlueG, b = fleshBlueB)
-            m.addOrientedEllipsoid(0f, by + 0.016f * s, z, 0.052f * s, 0.020f * s, 0.038f * s, phiEndDeg = 90f, latSegs = 3, lonSegs = 6, r = indigoR, g = indigoG, b = indigoB)
+            val z = side * 0.092f * s
+            m.addOrientedCylinder(-0.02f * s, by + 0.018f * s, z, -0.085f * s, by + 0.135f * s, z, 0.028f * s, 0.036f * s, 8, r = skinShR, g = skinShG, b = skinShB)
+            m.addOrientedCylinder(-0.085f * s, by + 0.135f * s, z, -0.01f * s, by + 0.25f * s, z * 0.82f, 0.036f * s, 0.046f * s, 8, r = skinR, g = skinG, b = skinB)
+            m.addOrientedEllipsoid(0.01f * s, by + 0.016f * s, z, 0.054f * s, 0.020f * s, 0.038f * s, phiEndDeg = 90f, latSegs = 3, lonSegs = 6, r = talonDkR, g = talonDkG, b = talonDkB)
         }
-        // Hunched Spine + Ribbed Chitin Shell
-        m.addOrientedEllipsoid(0.03f * s, by + 0.255f * s, 0f, 0.135f * s, 0.088f * s, 0.095f * s, rotZDeg = 12f, latSegs = 5, lonSegs = 10, r = fleshBlueR, g = fleshBlueG, b = fleshBlueB)
-        m.addOrientedEllipsoid(0.01f * s, by + 0.295f * s, 0f, 0.145f * s, 0.075f * s, 0.105f * s, rotZDeg = 12f, phiEndDeg = 100f, latSegs = 5, lonSegs = 10, r = indigoR, g = indigoG, b = indigoB)
 
-        // Iconic Bulbous Ribbed Genestealer Broodlord Skull
-        m.addOrientedEllipsoid(0.16f * s, by + 0.295f * s, 0f, 0.105f * s, 0.068f * s, 0.074f * s, rotZDeg = -8f, latSegs = 5, lonSegs = 10, r = indigoR * 1.15f, g = indigoG * 1.15f, b = indigoB * 1.15f)
-        m.addOrientedEllipsoid(0.225f * s, by + 0.298f * s, -0.034f * s, 0.016f * s, 0.012f * s, 0.012f * s, latSegs = 3, lonSegs = 6, r = 1.0f, g = 0.45f, b = 0.15f, a = E)
-        m.addOrientedEllipsoid(0.225f * s, by + 0.298f * s, 0.034f * s, 0.016f * s, 0.012f * s, 0.012f * s, latSegs = 3, lonSegs = 6, r = 1.0f, g = 0.45f, b = 0.15f, a = E)
+        // 3. Hunched Prowling Torso & Layered Deep Purple Carapace Shell Plates
+        m.addOrientedEllipsoid(0.035f * s, by + 0.265f * s, 0f, 0.130f * s, 0.085f * s, 0.088f * s, rotZDeg = 14f, latSegs = 5, lonSegs = 10, r = skinR, g = skinG, b = skinB)
+        m.addOrientedEllipsoid(0.018f * s, by + 0.305f * s, 0f, 0.140f * s, 0.075f * s, 0.098f * s, rotZDeg = 14f, phiEndDeg = 100f, latSegs = 5, lonSegs = 10, r = purpleR, g = purpleG, b = purpleB)
+        // Stepped Purple Dorsal Carapace Flared Shell Segments (matching photo!)
+        for (i in 0 until 4) {
+            val rx = (-0.055f + i * 0.050f) * s
+            val ry = by + (0.355f + i * 0.012f) * s
+            m.addOrientedBox(rx, ry, 0f, 0.052f * s, 0.022f * s, 0.125f * s - i * 0.008f * s, rotZDeg = 16f, r = purpleHiR, g = purpleHiG, b = purpleHiB)
+        }
 
-        // 4 Wide-Spread Rending Claw Arms
+        // 4. Iconic Genestealer Skull: Sloped Head, Purple Ridges, Gaping Jaw + Long Hanging Pink Tongue & Glowing Eyes
+        val hx = 0.165f * s
+        val hy = by + 0.325f * s
+        m.addOrientedEllipsoid(hx, hy, 0f, 0.092f * s, 0.052f * s, 0.054f * s, rotZDeg = -10f, latSegs = 4, lonSegs = 8, r = skinR, g = skinG, b = skinB)
+        // Purple Head Crest Ridges
+        m.addOrientedBox(hx - 0.02f * s, hy + 0.042f * s, 0f, 0.075f * s, 0.022f * s, 0.048f * s, rotZDeg = 18f, r = purpleR, g = purpleG, b = purpleB)
+        m.addOrientedBox(hx + 0.015f * s, hy + 0.048f * s, 0f, 0.055f * s, 0.020f * s, 0.038f * s, rotZDeg = 12f, r = purpleHiR, g = purpleHiG, b = purpleHiB)
+        // Glowing Eyes
+        m.addOrientedEllipsoid(hx + 0.048f * s, hy + 0.012f * s, -0.026f * s, 0.014f * s, 0.010f * s, 0.010f * s, latSegs = 3, lonSegs = 6, r = 1.0f, g = 0.55f, b = 0.15f, a = E)
+        m.addOrientedEllipsoid(hx + 0.048f * s, hy + 0.012f * s, 0.026f * s, 0.014f * s, 0.010f * s, 0.010f * s, latSegs = 3, lonSegs = 6, r = 1.0f, g = 0.55f, b = 0.15f, a = E)
+        // Signature Long Hanging Pink/Purple Tongue
+        m.addOrientedCylinder(hx + 0.06f * s, hy - 0.012f * s, 0f, hx + 0.115f * s, hy - 0.068f * s, 0f, 0.018f * s, 0.010f * s, 6, r = tongueR, g = tongueG, b = tongueB)
+        m.addOrientedCylinder(hx + 0.115f * s, hy - 0.068f * s, 0f, hx + 0.145f * s, hy - 0.105f * s, 0f, 0.010f * s, 0.004f * s, 6, r = tongueR * 0.9f, g = tongueG * 0.8f, b = tongueB * 0.9f)
+
+        // 5. 4 Wide-Spread Rending Claw Arms (Upper Mantis Sweep + Lower Reaching Claws)
         for (side in floatArrayOf(-1f, 1f)) {
-            val sz = side * 0.105f * s
-            m.addOrientedCylinder(0.07f * s, by + 0.28f * s, sz, 0.18f * s, by + 0.34f * s, sz * 1.55f, 0.025f * s, 0.020f * s, 6, r = fleshBlueR, g = fleshBlueG, b = fleshBlueB)
-            m.addOrientedCylinder(0.18f * s, by + 0.34f * s, sz * 1.55f, 0.31f * s, by + 0.31f * s, sz * 1.25f, 0.020f * s, 0.005f * s, 6, r = TALON_TIP_R, g = TALON_TIP_G, b = TALON_TIP_B)
-            m.addOrientedCylinder(0.08f * s, by + 0.21f * s, sz * 0.9f, 0.20f * s, by + 0.18f * s, sz * 1.4f, 0.022f * s, 0.016f * s, 6, r = indigoR, g = indigoG, b = indigoB)
-            m.addOrientedCylinder(0.20f * s, by + 0.18f * s, sz * 1.4f, 0.32f * s, by + 0.21f * s, sz * 1.1f, 0.018f * s, 0.005f * s, 6, r = TALON_DK_R, g = TALON_DK_G, b = TALON_DK_B)
+            val sz = side * 0.115f * s
+            // Upper Scything Rending Arms
+            m.addOrientedCylinder(0.06f * s, by + 0.285f * s, sz, 0.17f * s, by + 0.355f * s, sz * 1.55f, 0.026f * s, 0.022f * s, 6, r = skinR, g = skinG, b = skinB)
+            m.addOrientedCylinder(0.17f * s, by + 0.355f * s, sz * 1.55f, 0.31f * s, by + 0.315f * s, sz * 1.25f, 0.022f * s, 0.005f * s, 6, r = talonTipR, g = talonTipG, b = talonTipB)
+            // Lower Reaching Rending Arms
+            m.addOrientedCylinder(0.07f * s, by + 0.215f * s, sz * 0.88f, 0.19f * s, by + 0.185f * s, sz * 1.35f, 0.024f * s, 0.018f * s, 6, r = skinShR, g = skinShG, b = skinShB)
+            m.addOrientedCylinder(0.19f * s, by + 0.185f * s, sz * 1.35f, 0.32f * s, by + 0.22f * s, sz * 1.05f, 0.018f * s, 0.005f * s, 6, r = talonDkR, g = talonDkG, b = talonDkB)
         }
     }
 
