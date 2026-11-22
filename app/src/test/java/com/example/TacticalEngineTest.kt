@@ -1509,7 +1509,7 @@ class TacticalEngineTest {
 
         // Deterministic RNG test:
         // Mock RNG returning rolls [1, 2, 3, 4, 1]
-        // 3 of 5 rolls are < 3 (rolls of 1, 2, 1), so exactly 3 Mortal Wounds must be inflicted
+        // 4 of 5 rolls are < 4 (rolls of 1, 2, 3, 1), so exactly 4 Mortal Wounds must be inflicted
         val customRng = object : Random() {
             private val rolls = intArrayOf(1, 2, 3, 4, 1)
             private var idx = 0
@@ -1534,19 +1534,19 @@ class TacticalEngineTest {
         assertEquals(0, outcome.updatedAttacker.totalWounds)
         assertFalse(outcome.updatedAttacker.isAlive)
 
-        // Target must have suffered 3 mortal wounds (10 - 3 = 7W)
+        // Target must have suffered 4 mortal wounds (10 - 4 = 6W)
         val updatedEnemy = outcome.updatedTargets.first()
-        assertEquals(7, updatedEnemy.totalWounds)
-        assertEquals(4, updatedEnemy.aliveModels) // 7W with 2W per model = 4 models alive
-        assertEquals(3, outcome.totalDamageDealt)
+        assertEquals(6, updatedEnemy.totalWounds)
+        assertEquals(3, updatedEnemy.aliveModels) // 6W with 2W per model = 3 models alive
+        assertEquals(4, outcome.totalDamageDealt)
 
         // Verify combat log
         val log = outcome.logEntries.first()
         val detonateStep = log.steps.first()
         assertEquals("DETONATE", detonateStep.phaseName)
         assertEquals(5, detonateStep.rolled)
-        assertEquals(3, detonateStep.passed)
-        assertEquals(2, detonateStep.failed)
+        assertEquals(4, detonateStep.passed)
+        assertEquals(1, detonateStep.failed)
         assertTrue(log.title.contains("Detonates"))
     }
 

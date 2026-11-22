@@ -1,6 +1,9 @@
 package com.example.ui.battle
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -32,11 +35,16 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -44,6 +52,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import com.example.R
 import com.example.model.CombatLogEntry
 import com.example.model.DiceStepDetail
@@ -273,14 +283,18 @@ private fun CombatDiceLogEntryCard(entry: CombatLogEntry) {
         )
 
         entry.steps.forEach { step ->
-            DiceStepDetailBlock(step = step)
+            DiceStepDetailBlock(step = step, entryId = entry.id)
         }
     }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun DiceStepDetailBlock(step: DiceStepDetail) {
+private fun DiceStepDetailBlock(
+    step: DiceStepDetail,
+    entryId: Long = 0L
+) {
+    var rollTrigger by remember { mutableIntStateOf(0) }
     val blockShape = remember { CutCornerShape(4.dp) }
     val phaseColor = when (step.phaseName) {
         "HIT" -> TacticalCyan
@@ -374,31 +388,195 @@ private fun DiceStepDetailBlock(step: DiceStepDetail) {
 
         if (step.diceValues.isNotEmpty()) {
             FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(3.dp),
-                verticalArrangement = Arrangement.spacedBy(3.dp)
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { rollTrigger++ }
+                    .padding(vertical = 2.dp)
+                    .testTag("step_dice_row_${step.phaseName}")
             ) {
-                step.diceValues.forEach { die ->
-                    val (bg, fg, border) = dieColors(step = step, die = die)
-                    Box(
-                        modifier = Modifier
-                            .size(width = 18.dp, height = 16.dp)
-                            .clip(CutCornerShape(2.dp))
-                            .background(bg)
-                            .border(0.8.dp, border, CutCornerShape(2.dp)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = die.toString(),
-                            style = MaterialTheme.typography.labelSmall,
-                            fontSize = 9.sp,
-                            color = fg,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            softWrap = false
-                        )
-                    }
+                step.diceValues.forEachIndexed { index, die ->
+                    Tumbling3DDice(
+                        die = die,
+                        step = step,
+                        index = index,
+                        triggerKey = entryId to rollTrigger
+                    )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun Tumbling3DDice(
+    die: Int,
+    step: DiceStepDetail,
+    index: Int,
+    triggerKey: Pair<Long, Int>
+) {
+    var individualTrigger by remember { mutableIntStateOf(0) }
+    val animProgress = remember { Animatable(0f) }
+    val staggerDelayMs = remember(index) { ((index % 8) * 36L).coerceAtMost(220L) }
+    var displayedValue by remember(triggerKey, individualTrigger) { mutableIntStateOf(die) }
+
+    LaunchedEffect(triggerKey, individualTrigger) {
+        animProgress.snapTo(0f)
+        if (staggerDelayMs > 0L) {
+            delay(staggerDelayMs)
+        }
+        // Rapid face value tumbling cycling in flight
+        launch {
+            var stepCount = 0
+            while (animProgress.value < 0.78f) {
+                delay(38L)
+                stepCount++
+                displayedValue = ((die + stepCount + index) % 6) + 1
+            }
+            displayedValue = die // Firmly lock to true result
+        }
+        animProgress.animateTo(
+            targetValue = 1f,
+            animationSpec = tween(
+                durationMillis = 580,
+                easing = FastOutSlowInEasing
+            )
+        )
+    }
+
+    val t = animProgress.value.coerceIn(0f, 1f)
+    val heightDp: Float
+    val squashX: Float
+    val squashY: Float
+
+    if (t >= 1f) {
+        heightDp = 0f
+        squashX = 1f
+        squashY = 1f
+    } else if (t < 0.55f) {
+        // Phase 1: Free fall drop under tabletop gravity from 14dp height
+        val p = t / 0.55f
+        heightDp = 14f * (1f - p * p)
+        if (t > 0.48f) {
+            val f = (t - 0.48f) / 0.07f
+            squashY = 1f - 0.18f * f
+            squashX = 1f + 0.15f * f
+        } else {
+            squashY = 1.06f
+            squashX = 0.95f
+        }
+    } else if (t < 0.82f) {
+        // Phase 2: First rebound bounce (apex 4.2dp)
+        val p = (t - 0.55f) / 0.27f
+        heightDp = 4f * 4.2f * p * (1f - p)
+        if (t < 0.62f) {
+            val f = 1f - (t - 0.55f) / 0.07f
+            squashY = 1f - 0.18f * f
+            squashX = 1f + 0.15f * f
+        } else if (t > 0.76f) {
+            val f = (t - 0.76f) / 0.06f
+            squashY = 1f - 0.08f * f
+            squashX = 1f + 0.07f * f
+        } else {
+            squashY = 1f
+            squashX = 1f
+        }
+    } else {
+        // Phase 3: Settle micro-hop (apex 1.2dp)
+        val p = (t - 0.82f) / 0.18f
+        heightDp = 4f * 1.2f * p * (1f - p)
+        if (t < 0.88f) {
+            val f = 1f - (t - 0.82f) / 0.06f
+            squashY = 1f - 0.08f * f
+            squashX = 1f + 0.07f * f
+        } else {
+            squashY = 1f
+            squashX = 1f
+        }
+    }
+
+    // Rotations along X, Y, and Z with quadratic decay towards 0
+    val decay = if (t >= 1f) 0f else (1f - t) * (1f - t)
+    val spinSignX = if (index % 2 == 0) 1f else -1f
+    val spinSignY = if ((index / 2) % 2 == 0) 1f else -1f
+    val spinSignZ = if (index % 3 == 0) 1f else -1f
+
+    val rotX = (540f + (index % 3) * 180f) * spinSignX * decay
+    val rotY = (360f + ((index + 1) % 3) * 120f) * spinSignY * decay
+    val rotZ = (140f + (index % 2) * 80f) * spinSignZ * decay
+
+    // Dynamic contact shadow beneath the die
+    val normHeight = (heightDp / 14f).coerceIn(0f, 1f)
+    val shadowAlpha = if (t >= 1f) 0.50f else (0.50f - normHeight * 0.35f).coerceIn(0.12f, 0.50f)
+    val shadowScaleX = 1.0f + normHeight * 0.35f
+    val shadowScaleY = 0.50f + normHeight * 0.20f
+
+    val (finalBg, finalFg, finalBorder) = dieColors(step = step, die = die)
+    val isTumbling = animProgress.value < 0.78f
+    val bg = if (isTumbling) InputDark else finalBg
+    val fg = if (isTumbling) WarmAmber else finalFg
+    val border = if (isTumbling) BorderSteel.copy(alpha = 0.85f) else finalBorder
+
+    Box(
+        modifier = Modifier
+            .size(width = 22.dp, height = 24.dp)
+            .clickable { individualTrigger++ }
+            .testTag("die_item_${step.phaseName}_$index"),
+        contentAlignment = Alignment.BottomCenter
+    ) {
+        // Tabletop contact shadow
+        Box(
+            modifier = Modifier
+                .padding(bottom = 1.dp)
+                .size(width = 16.dp, height = 6.dp)
+                .align(Alignment.BottomCenter)
+                .graphicsLayer {
+                    this.scaleX = shadowScaleX
+                    this.scaleY = shadowScaleY
+                    this.alpha = shadowAlpha
+                }
+                .background(Color.Black.copy(alpha = 0.75f), CutCornerShape(3.dp))
+        )
+
+        // 3D physics-tumbling dice cube
+        Box(
+            modifier = Modifier
+                .padding(bottom = 2.dp)
+                .size(width = 19.dp, height = 19.dp)
+                .align(Alignment.BottomCenter)
+                .graphicsLayer {
+                    cameraDistance = 14f * density
+                    this.translationY = -heightDp * density
+                    this.rotationX = rotX
+                    this.rotationY = rotY
+                    this.rotationZ = rotZ
+                    this.scaleX = squashX
+                    this.scaleY = squashY
+                }
+                .clip(CutCornerShape(2.5.dp))
+                .background(bg)
+                .border(0.9.dp, border, CutCornerShape(2.5.dp)),
+            contentAlignment = Alignment.Center
+        ) {
+            // Subtle 3D top bevel edge highlight
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(1.5.dp)
+                    .align(Alignment.TopCenter)
+                    .background(Color.White.copy(alpha = 0.20f))
+            )
+
+            Text(
+                text = displayedValue.toString(),
+                style = MaterialTheme.typography.labelSmall,
+                fontSize = 9.5.sp,
+                color = fg,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                softWrap = false
+            )
         }
     }
 }

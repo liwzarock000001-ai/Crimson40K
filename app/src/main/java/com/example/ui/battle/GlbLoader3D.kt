@@ -269,6 +269,9 @@ object GlbLoader3D {
                         cg = col[vi * cComp + 1] * baseG
                         cb = col[vi * cComp + 2] * baseB
                         ca = if (cComp >= 4) col[vi * cComp + 3] * baseA else baseA
+                    } else if (kotlin.math.abs(baseR - 0.5f) < 0.01f && kotlin.math.abs(baseG - 0.5f) < 0.01f && kotlin.math.abs(baseB - 0.5f) < 0.01f) {
+                        val painted = colorizeAssaultTerminator(pos[vi * 3], pos[vi * 3 + 1], pos[vi * 3 + 2], nx, ny, nz, baseR, baseG, baseB, baseA)
+                        cr = painted[0]; cg = painted[1]; cb = painted[2]; ca = painted[3]
                     } else {
                         cr = baseR
                         cg = baseG
@@ -693,5 +696,77 @@ object GlbLoader3D {
         private fun skipWs() {
             while (pos < src.length && src[pos] <= ' ') pos++
         }
+    }
+
+    private fun colorizeAssaultTerminator(
+        sx: Float, sy: Float, sz: Float,
+        nx: Float, ny: Float, nz: Float,
+        dr: Float, dg: Float, db: Float, da: Float
+    ): FloatArray {
+        // 1. Base / Ground / Rocks (sy < 0.18f)
+        if (sy < 0.18f) {
+            val rockNoise = ((sx * 37f + sz * 73f) % 1f).let { if (it < 0) -it else it }
+            val r = 0.18f + rockNoise * 0.10f
+            val g = 0.18f + rockNoise * 0.08f
+            val b = 0.20f + rockNoise * 0.08f
+            return floatArrayOf(r, g, b, da)
+        }
+
+        // 2. Storm Shield (X > 0.12, 0.60 <= Y <= 1.40, Z > 0.08)
+        if (sx > 0.12f && sy in 0.60f..1.40f && sz > 0.08f) {
+            val isBorderOrCross = (sx > 0.50f || kotlin.math.abs(sz - 0.22f) < 0.05f || kotlin.math.abs(sy - 1.0f) < 0.06f || (nx * nx + ny * ny) > 0.85f)
+            if (isBorderOrCross) {
+                return floatArrayOf(0.85f, 0.65f, 0.25f, da) // Gold trim
+            } else {
+                return floatArrayOf(0.88f, 0.85f, 0.78f, da) // Bone / Parchment shield face
+            }
+        }
+
+        // 3. Thunder Hammer (X < -0.30, Y > 1.05)
+        if (sx < -0.30f && sy > 1.05f) {
+            if (sy > 1.65f && sz > 0.35f) {
+                return floatArrayOf(0.20f, 0.85f, 0.95f, 1.6f) // Emissive energy cyan/blue
+            }
+            if (sy > 1.45f || kotlin.math.abs(sx + 0.55f) < 0.15f) {
+                val isGoldAccent = (nx > 0.5f || sy in 1.50f..1.55f)
+                if (isGoldAccent) {
+                    return floatArrayOf(0.85f, 0.65f, 0.25f, da) // Gold
+                }
+                return floatArrayOf(0.52f, 0.56f, 0.62f, da) // Steel / Gunmetal
+            }
+            return floatArrayOf(0.18f, 0.12f, 0.09f, da) // Leather brown handle
+        }
+
+        // 4. Helmet / Head (1.15 <= Y <= 1.42, X near center, Z near front/sides)
+        if (sy in 1.15f..1.42f && sx in -0.14f..0.14f && sz in -0.24f..0.05f) {
+            if (sy in 1.24f..1.32f && sz in -0.18f..-0.08f && kotlin.math.abs(sx) in 0.02f..0.07f) {
+                return floatArrayOf(1.25f, 0.15f, 0.15f, 1.6f) // Glowing red eyes (emissive)
+            }
+            if (sy < 1.25f || kotlin.math.abs(sx) < 0.03f) {
+                return floatArrayOf(0.12f, 0.13f, 0.16f, da) // Dark iron grill
+            }
+            return floatArrayOf(0.92f, 0.93f, 0.96f, da) // Veteran White Helmet
+        }
+
+        // 5. Shoulder Pauldrons (1.15 <= Y <= 1.55, abs(X) > 0.15)
+        if (sy in 1.15f..1.55f && kotlin.math.abs(sx) > 0.15f && sz < 0.10f) {
+            if (kotlin.math.abs(sx) > 0.38f || ny > 0.70f || (nx * nx + nz * nz) > 0.80f) {
+                return floatArrayOf(0.85f, 0.65f, 0.25f, da) // Gold trim
+            }
+            return floatArrayOf(0.11f, 0.28f, 0.67f, da)
+        }
+
+        // 6. Joints and inner framing (Black Iron)
+        if (sy in 0.40f..1.10f && (kotlin.math.abs(sx) < 0.12f || kotlin.math.abs(sz) > 0.35f)) {
+            if (sz in -0.30f..0.30f && kotlin.math.abs(sx) < 0.15f) {
+                return floatArrayOf(0.09f, 0.10f, 0.13f, da) // Black iron joints
+            }
+        }
+
+        // 7. Default Armor: Macragge Blue with upward highlight
+        val blueR = 0.11f + ny.coerceAtLeast(0f) * 0.05f
+        val blueG = 0.28f + ny.coerceAtLeast(0f) * 0.08f
+        val blueB = 0.67f + ny.coerceAtLeast(0f) * 0.10f
+        return floatArrayOf(blueR, blueG, blueB, da)
     }
 }

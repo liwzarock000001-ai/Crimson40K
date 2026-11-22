@@ -219,11 +219,17 @@ object TacticalRules {
         if (maxMp <= 0) return MoveSearchResult(emptyMap(), emptyMap())
 
         val occupied = BooleanArray(TOTAL_CELLS)
-        for (i in units.indices) {
-            val u = units[i]
-            if (u.isAlive && u.uid != unit.uid) {
-                if (u.x in 0 until W && u.y in 0 until H) {
-                    occupied[u.y * W + u.x] = true
+        for (gy in 0 until H) {
+            for (gx in 0 until W) {
+                val wx = gx.toFloat()
+                val wy = gy.toFloat()
+                for (i in units.indices) {
+                    val u = units[i]
+                    if (u.isAlive && u.uid != unit.uid) {
+                        if (hypot(wx - u.worldX, wy - u.worldY) < BASE_SEPARATION_TILES) {
+                            occupied[gy * W + gx] = true
+                        }
+                    }
                 }
             }
         }
@@ -748,13 +754,13 @@ object TacticalRules {
         if (attacker.template.archetype == UnitArchetype.SPORE_MINE) {
             val distTiles = hypot(atkX - defender.worldX, atkY - defender.worldY)
             if (distTiles > MELEE_MAX_CENTER_TILES) return null
-            val hitProb = 2f / 6f
+            val hitProb = 3f / 6f
             val expectedTotal = (defender.aliveModels * hitProb).roundToInt().coerceAtLeast(1)
             return TargetPreview(
                 targetUid = defender.uid,
                 targetName = defender.template.name,
                 hitChance = (hitProb * 100f).roundToInt(),
-                hitRollNeeded = 2,
+                hitRollNeeded = 3,
                 woundRollNeeded = 1,
                 saveRollNeeded = 7,
                 usingInvuln = false,
@@ -766,7 +772,7 @@ object TacticalRules {
                 attacksCount = defender.aliveModels,
                 coverTag = CoverTag.OPEN,
                 weaponMode = mode,
-                weaponName = "Bio-Self Destruct (1D6/model, <3 = 1W)",
+                weaponName = "Bio-Self Destruct (1D6/model, <4 = 1W)",
                 sustainedHits = 0,
                 markedBonusApplied = false,
                 inRange = true,
@@ -991,7 +997,7 @@ object TacticalRules {
             repeat(modelsCount) {
                 val roll = rng.nextInt(1, 7)
                 detonateDice.add(roll)
-                if (roll < 3) {
+                if (roll < 4) {
                     mortalWounds++
                 }
             }
@@ -1008,25 +1014,25 @@ object TacticalRules {
             val killed = runningWounds == 0
             val detonateStep = DiceStepDetail(
                 phaseName = "DETONATE",
-                stepLabel = "Self-Destruct (1D6/model vs <3)",
-                targetNeeded = 2,
+                stepLabel = "Self-Destruct (1D6/model vs <4)",
+                targetNeeded = 3,
                 rolled = modelsCount,
                 passed = mortalWounds,
                 failed = modelsCount - mortalWounds,
                 diceValues = detonateDice,
-                note = "$mortalWounds Mortal Wounds inflicted on rolls < 3 (${detonateDice.count { it < 3 }}/$modelsCount)"
+                note = "$mortalWounds Mortal Wounds inflicted on rolls < 4 (${detonateDice.count { it < 4 }}/$modelsCount)"
             )
             val log = CombatLogEntry(
                 id = 0L,
                 round = 1,
                 faction = attacker.faction,
                 title = "💥 ${attacker.template.name} Detonates on ${primaryTarget.template.name}",
-                subtitle = "SELF-DESTRUCT • 1D6 per model (<3 = 1W)",
+                subtitle = "SELF-DESTRUCT • 1D6 per model (<4 = 1W)",
                 steps = listOf(detonateStep),
                 resultSummary = if (dmgDealt > 0) {
                     "Dealt ${dmgDealt}W mortal damage! ${primaryTarget.template.name} has ${runningWounds}W remaining (${updatedTarget.aliveModels} models)"
                 } else {
-                    "Detonation failed to inflict wounds (no rolls < 3)"
+                    "Detonation failed to inflict wounds (no rolls < 4)"
                 },
                 isCounterOrFightFirst = false,
                 isSuccess = dmgDealt > 0

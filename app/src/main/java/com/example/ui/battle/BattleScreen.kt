@@ -7,11 +7,13 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -83,6 +85,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.window.Dialog
 import com.example.R
 import com.example.engine.TacticalRules
@@ -163,6 +167,7 @@ fun BattleScreen(
     var zoomStepDirection by remember { mutableIntStateOf(0) }
     var viewingSkillInfoTemplate by remember { mutableStateOf<UnitTemplate?>(null) }
     var diceLogExpanded by remember { mutableStateOf(true) }
+    var diceLogOffset by remember { mutableStateOf(IntOffset(16, 110)) }
 
     val targetCameraPitch = when (cameraPitchMode) {
         1 -> 30f
@@ -375,7 +380,17 @@ fun BattleScreen(
                                 expanded = diceLogExpanded,
                                 onToggleExpanded = { diceLogExpanded = !diceLogExpanded },
                                 maxBodyHeight = maxLogBodyHeight,
-                                modifier = Modifier.width(logPanelWidth)
+                                modifier = Modifier
+                                    .width(logPanelWidth)
+                                    .offset { diceLogOffset }
+                                    .pointerInput(Unit) {
+                                        detectDragGestures { _, dragAmount ->
+                                            diceLogOffset = IntOffset(
+                                                (diceLogOffset.x + dragAmount.x).toInt(),
+                                                (diceLogOffset.y + dragAmount.y).toInt()
+                                            )
+                                        }
+                                    }
                             )
                         }
                     }
@@ -1540,30 +1555,68 @@ private fun ActionDock(
     val enabled = isPlayerTurn && canCommandSelected && selected != null
     val isEngaged = selected != null && TacticalRules.isEngagedInMelee(selected, allUnits)
     val pal = factionPalette(selected?.faction ?: activeFaction)
+    var dockExpanded by remember { mutableStateOf(true) }
 
     Column(
         horizontalAlignment = Alignment.End,
         verticalArrangement = Arrangement.spacedBy(5.dp)
     ) {
-        if (selected != null) {
-            GrimdarkBevelPanel(
-                cut = 5.dp,
-                borderColor = pal.trimBorder,
-                topColor = pal.panelTop,
-                bottomColor = pal.panelBottom,
-                showRivets = false,
-                modifier = Modifier.widthIn(max = 315.dp)
+        GrimdarkBevelPanel(
+            cut = 5.dp,
+            borderColor = pal.trimBorder,
+            topColor = pal.panelTop,
+            bottomColor = pal.panelBottom,
+            showRivets = false,
+            modifier = Modifier
+                .widthIn(max = 315.dp)
+                .clickable { dockExpanded = !dockExpanded }
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "⚡ ${selected.template.passiveName}: ${selected.template.passiveDesc}",
+                    text = if (selected != null) "⚡ ${selected.template.name.uppercase()} ACTIONS" else "⚡ COMMAND DOCK",
                     style = MaterialTheme.typography.labelSmall,
                     color = pal.headerText,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    fontWeight = FontWeight.Bold
+                )
+                Icon(
+                    imageVector = if (dockExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    contentDescription = if (dockExpanded) "Collapse" else "Expand",
+                    tint = pal.headerText,
+                    modifier = Modifier.size(16.dp)
                 )
             }
         }
+
+        AnimatedVisibility(visible = dockExpanded) {
+            Column(
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(5.dp)
+            ) {
+                if (selected != null) {
+                    GrimdarkBevelPanel(
+                        cut = 5.dp,
+                        borderColor = pal.trimBorder,
+                        topColor = pal.panelTop,
+                        bottomColor = pal.panelBottom,
+                        showRivets = false,
+                        modifier = Modifier.widthIn(max = 315.dp)
+                    ) {
+                        Text(
+                            text = "💡 ${selected.template.passiveName}: ${selected.template.passiveDesc}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = pal.headerText,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
+                }
 
         // Row 1: Manoeuvre & Phase Actions (Turn, Move, Advance 1D6, Charge 2D6)
         Row(
@@ -1774,7 +1827,9 @@ private fun ActionDock(
                 testTag = "end_turn_button"
             )
         }
+      }
     }
+  }
 }
 
 @Composable
@@ -2190,9 +2245,9 @@ private fun DeploymentTrayBar(
                             fontWeight = FontWeight.Bold,
                             maxLines = 1
                         )
-                    }
                 }
             }
         }
     }
+}
 }
