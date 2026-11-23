@@ -396,14 +396,17 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         spawnAi: Boolean,
         status: String,
         customTemplates: Map<String, UnitTemplate>? = null,
-        pointLimit: Int? = null
+        pointLimit: Int? = null,
+        localSlotId: String? = null,
+        isHost: Boolean? = null
     ) {
         if (status == "FINISHED") return
         _coopState.update { current ->
-            val isHost = current.networkRole == CoopNetworkRole.LOCAL_OR_HOST
+            val resolvedIsHost = isHost ?: (current.networkRole == CoopNetworkRole.LOCAL_OR_HOST)
+            val resolvedLocalId = localSlotId?.takeIf { it.isNotBlank() } ?: current.localPlayerId
             val resolvedPlayers = if (players.isNotEmpty()) players else current.players
             val joinedPeers = resolvedPlayers.count { !it.isHost && it.connectedClient }
-            val nextStatusText = if (isHost) {
+            val nextStatusText = if (resolvedIsHost) {
                 if (joinedPeers > 0) "Cloud Room #$roomCode • $joinedPeers online ally" else "Cloud Room #$roomCode Live"
             } else {
                 "Cloud Room #$roomCode • $status"
@@ -411,6 +414,10 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             current.copy(
                 inRoom = true,
                 roomCode = roomCode,
+                networkRole = if (resolvedIsHost) CoopNetworkRole.LOCAL_OR_HOST else CoopNetworkRole.CLIENT,
+                serverRunning = resolvedIsHost,
+                clientConnected = !resolvedIsHost,
+                localPlayerId = resolvedLocalId,
                 hostCommanderName = hostName.ifBlank { current.hostCommanderName },
                 players = resolvedPlayers,
                 assignedUnits = assignedUnits,
@@ -873,20 +880,20 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         val state = _battleState.value
         if (!state.active || !state.isCoopMode) return
         val senderSlot = state.coopTurnOrder.firstOrNull { it.id == senderPlayerId } ?: return
-        if (senderSlot.slotMode != CoopSlotMode.LAN_CLIENT || !senderSlot.connectedClient) return
+        if (senderSlot.slotMode != CoopSlotMode.LAN_CLIENT) return
         val expectedPlayerId = if (state.isDeploymentPhase) state.deploymentTurnPlayerId else state.activeCoopPlayerId
         if (expectedPlayerId != senderPlayerId) return
 
         when (actionType) {
             "DEPLOY_UNIT" -> if (wx != null && wy != null) onWorldTapped(wx, wy, fromLanClient = true, deployUnitIndex = cm?.toInt())
             "TAP_WORLD" -> if (wx != null && wy != null) onWorldTapped(wx, wy, fromLanClient = true)
-            "TOGGLE_MOVE" -> toggleMoveMode(fromLanClient = true)
+            "TOGGLE_MOVE" -> toggleMoveMode(fromLanClient = true, desiredActive = left)
             "ADVANCE" -> advanceMove(fromLanClient = true)
             "SET_CM" -> if (cm != null) setCmStep(cm, fromLanClient = true)
             "WALK_CM" -> walkForwardCm(fromLanClient = true)
             "CONFIRM_MOVE" -> confirmMovePreview(fromLanClient = true)
             "CANCEL_MOVE" -> cancelMovePreview(fromLanClient = true)
-            "TOGGLE_CHARGE" -> toggleChargeMode(fromLanClient = true)
+            "TOGGLE_CHARGE" -> toggleChargeMode(fromLanClient = true, desiredActive = left)
             "CONFIRM_CHARGE" -> confirmChargeRoll(fromLanClient = true)
             "CANCEL_CHARGE" -> cancelChargePreview(fromLanClient = true)
             "STRIKE" -> confirmStrike(fromLanClient = true)
@@ -895,6 +902,20 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             "FIGHT_FIRST" -> triggerFightFirst(fromLanClient = true)
             "END_TURN" -> endPlayerTurn(fromLanClient = true)
         }
+    }
+
+    private fun resolveCommandableUnit(state: BattleUiState, fromLanClient: Boolean): BattleUnit? {
+        val currentSel = state.selectedUnit
+        if (currentSel != null && state.canCommandUnit(currentSel, fromLanClient)) return currentSel
+        val fallback = state.units.firstOrNull { it.isAlive && state.canCommandUnit(it, fromLanClient) }
+        if (fallback != null) {
+            _battleState.update { st ->
+                if (st.selectedUnitUid == null || st.selectedUnit?.let { !st.canCommandUnit(it, fromLanClient) } == true) {
+                    st.copy(selectedUnitUid = fallback.uid)
+                } else st
+            }
+        }
+        return fallback
     }
 
     fun updateSettings(newSettings: SettingsState) {
@@ -1658,24 +1679,24 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun toggleMoveMode(fromLanClient: Boolean = false) {
+    fun toggleMoveMode(fromLanClient: Boolean = false, desiredActive: Boolean? = null) {
         val state = _battleState.value
         if (!state.canAcceptInput(fromLanClient) || state.isDeploymentPhase) return
         if (shouldForwardToLanHost(fromLanClient)) {
-            forwardClientAction("TOGGLE_MOVE")
+            forwardClientAction("TOGGLE_MOVE") { it.put("left", !state.moveModeActive) }
             return
         }
-        val selected = state.selectedUnit ?: return
-        if (!state.canCommandUnit(selected, fromLanClient)) return
+        val selected = resolveCommandableUnit(state, fromLanClient) ?: return
         if (TacticalRules.isEngagedInMelee(selected, state.units)) {
             spawnFloatingText(selected.pos, "LOCKED IN MELEE: KILL ENEMY FIRST!", 0xFFFF4D58L)
             return
         }
         sound.play(SoundType.CLICK)
         _battleState.update { st ->
-            val next = !st.moveModeActive
+            val next = desiredActive ?: !st.moveModeActive
             recomputeSelectionOverlays(
                 st.copy(
+                    selectedUnitUid = selected.uid,
                     moveModeActive = next,
                     movePreview = if (next) st.movePreview else null,
                     chargeModeActive = false,
@@ -1694,8 +1715,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             forwardClientAction("ADVANCE")
             return
         }
-        val selected = state.selectedUnit ?: return
-        if (!state.canCommandUnit(selected, fromLanClient) || !TacticalRules.canAdvance(selected, state.units)) {
+        val selected = resolveCommandableUnit(state, fromLanClient) ?: return
+        if (!TacticalRules.canAdvance(selected, state.units)) {
             val msg = if (TacticalRules.isEngagedInMelee(selected, state.units)) {
                 "LOCKED IN MELEE: CANNOT ADVANCE!"
             } else {
@@ -1755,15 +1776,14 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         syncCoopHostIfNeeded(ready)
     }
 
-    fun toggleChargeMode(fromLanClient: Boolean = false) {
+    fun toggleChargeMode(fromLanClient: Boolean = false, desiredActive: Boolean? = null) {
         val state = _battleState.value
         if (!state.canAcceptInput(fromLanClient) || state.isDeploymentPhase) return
         if (shouldForwardToLanHost(fromLanClient)) {
-            forwardClientAction("TOGGLE_CHARGE")
+            forwardClientAction("TOGGLE_CHARGE") { it.put("left", !state.chargeModeActive) }
             return
         }
-        val selected = state.selectedUnit ?: return
-        if (!state.canCommandUnit(selected, fromLanClient)) return
+        val selected = resolveCommandableUnit(state, fromLanClient) ?: return
         val inMelee = TacticalRules.isEngagedInMelee(selected, state.units)
         if (inMelee || !selected.canCharge) {
             val msg = when {
@@ -1776,8 +1796,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
         sound.play(SoundType.CLICK)
-        val next = !state.chargeModeActive
+        val next = desiredActive ?: !state.chargeModeActive
         val nextState = state.copy(
+            selectedUnitUid = selected.uid,
             chargeModeActive = next,
             chargePreview = null,
             moveModeActive = false,
@@ -2007,8 +2028,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             forwardClientAction("WALK_CM")
             return
         }
-        val selected = state.selectedUnit ?: return
-        if (!state.canCommandUnit(selected, fromLanClient)) return
+        val selected = resolveCommandableUnit(state, fromLanClient) ?: return
         if (TacticalRules.isEngagedInMelee(selected, state.units)) {
             spawnFloatingText(selected.pos, "LOCKED IN MELEE: CANNOT MOVE!", 0xFFFF4D58L)
             return
@@ -2751,8 +2771,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             forwardClientAction("WEAPON_MODE") { it.put("mode", mode.name) }
             return
         }
-        val selected = state.selectedUnit ?: return
-        if (!state.canCommandUnit(selected, fromLanClient)) return
+        val selected = resolveCommandableUnit(state, fromLanClient) ?: return
         sound.play(SoundType.CLICK)
 
         if (mode == WeaponMode.SKILL) {
@@ -2792,6 +2811,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         val nextMode = if (state.weaponMode == mode) WeaponMode.MAIN else mode
         val next = recomputeSelectionOverlays(
             state.copy(
+                selectedUnitUid = selected.uid,
                 weaponMode = nextMode,
                 moveModeActive = false,
                 movePreview = null,
@@ -2811,8 +2831,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             forwardClientAction("ROTATE") { it.put("left", left) }
             return
         }
-        val selected = state.selectedUnit ?: return
-        if (!state.canCommandUnit(selected, fromLanClient)) return
+        val selected = resolveCommandableUnit(state, fromLanClient) ?: return
         sound.play(SoundType.CLICK)
         val delta = if (left) 45f else -45f
         val nextDeg = ((selected.facingDeg + delta) % 360f + 360f) % 360f
@@ -2820,7 +2839,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         val units = state.units.map {
             if (it.uid == selected.uid) it.copy(facing = nextFacing, facingDeg = nextDeg) else it
         }
-        _battleState.value = state.copy(units = units, movePreview = null)
+        _battleState.value = state.copy(selectedUnitUid = selected.uid, units = units, movePreview = null)
         syncCoopHostIfNeeded(_battleState.value)
     }
 
@@ -3284,10 +3303,6 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         val effectiveMoveMode = if (inMelee) false else state.moveModeActive
         val effectiveChargeMode = if (inMelee) false else state.chargeModeActive
 
-        val moveResult = if (!inMelee && selected.moveCmLeft >= 1.5f && !effectiveChargeMode) {
-            TacticalRules.computeReachableTiles(selected, state.map.rows, state.units)
-        } else null
-
         val chargeable = if (effectiveChargeMode) {
             TacticalRules.computeChargeableTargets(selected, state.units, state.map.rows)
         } else emptySet()
@@ -3310,8 +3325,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             chargeModeActive = effectiveChargeMode,
             movePreview = if (inMelee) null else state.movePreview,
             chargePreview = if (inMelee) null else state.chargePreview,
-            reachableTiles = moveResult?.costs ?: emptyMap(),
-            moveParents = moveResult?.parents ?: emptyMap(),
+            reachableTiles = emptyMap(),
+            moveParents = emptyMap(),
             attackableUids = attackable,
             chargeableUids = chargeable
         )

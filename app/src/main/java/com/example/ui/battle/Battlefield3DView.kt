@@ -354,8 +354,10 @@ fun Battlefield3DView(
                 }
             }
 
-            // CM Ruler Preview Badge
-            st.movePreview?.let { preview ->
+            // CM Ruler Preview Badge (active commanding player only)
+            val sel = st.selectedUnit
+            if (st.isPlayerTurn && sel != null && st.canCommandUnit(sel)) {
+                st.movePreview?.let { preview ->
                 val visible = cam.projectWorldToOut(
                     preview.targetX, 0.52f, preview.targetY,
                     vpScratch, size.width, size.height,
@@ -400,6 +402,7 @@ fun Battlefield3DView(
                         topLeft = Offset(bx + padX, by + padY)
                     )
                 }
+            }
             }
 
             // Floating Combat Text

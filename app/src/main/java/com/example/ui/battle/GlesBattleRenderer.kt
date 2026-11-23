@@ -177,14 +177,12 @@ class GlesBattleRenderer(
             drawVbo(ringVbo, 0.72f, 0.22f, 0.16f, 0.48f, unlit = true)
         }
 
-        // 4. Reachable Move Tiles (Teleport / subtle tile hints) + CM Radius Ring + Selected/Target Rings
+        // 4. Special Skill Placement Tiles (Teleport / Seed Spore Mine) + Selected/Target Rings
         val tileVbo = getOrUploadVbo(MeshCatalog3D.tileQuad)
-        val cmRingVbo = getOrUploadVbo(MeshCatalog3D.cmRadiusRing)
         val rangeRingVbo = getOrUploadVbo(MeshCatalog3D.rangeRadiusRing)
         val cubeVbo = getOrUploadVbo(MeshCatalog3D.unitCube)
         val isTeleportMode = state.selectedUnit?.template?.archetype == UnitArchetype.TERMINATOR && state.weaponMode == WeaponMode.SKILL
         val isSeedSporeMineMode = state.selectedUnit?.template?.archetype == UnitArchetype.BIOVORE && state.weaponMode == WeaponMode.SKILL
-        val moveAlpha = if (state.moveModeActive) 0.14f + pulse * 0.08f else 0.08f + pulse * 0.05f
         if (state.isDeploymentPhase) {
             for (gy in 0 until MapGenerator.GRID_H) {
                 for (gx in 0 until MapGenerator.GRID_W) {
@@ -205,17 +203,17 @@ class GlesBattleRenderer(
                 }
             }
         }
-        for (pos in state.reachableTiles.keys) {
-            Matrix.setIdentityM(modelMat, 0)
-            Matrix.translateM(modelMat, 0, pos.x.toFloat(), 0.008f, pos.y.toFloat())
-            if (isTeleportMode) {
-                drawVbo(tileVbo, 0.22f, 0.82f, 0.98f, 0.28f + pulse * 0.15f, unlit = true)
-                drawVbo(ringVbo, 0.40f, 0.92f, 1.0f, 0.75f + pulse * 0.20f, unlit = true)
-            } else if (isSeedSporeMineMode) {
-                drawVbo(tileVbo, 0.78f, 0.28f, 0.92f, 0.32f + pulse * 0.18f, unlit = true)
-                drawVbo(ringVbo, 0.92f, 0.45f, 1.0f, 0.82f + pulse * 0.18f, unlit = true)
-            } else if (state.moveModeActive) {
-                drawVbo(tileVbo, 0.24f, 0.58f, 0.72f, moveAlpha, unlit = true)
+        if (isTeleportMode || isSeedSporeMineMode) {
+            for (pos in state.reachableTiles.keys) {
+                Matrix.setIdentityM(modelMat, 0)
+                Matrix.translateM(modelMat, 0, pos.x.toFloat(), 0.008f, pos.y.toFloat())
+                if (isTeleportMode) {
+                    drawVbo(tileVbo, 0.22f, 0.82f, 0.98f, 0.28f + pulse * 0.15f, unlit = true)
+                    drawVbo(ringVbo, 0.40f, 0.92f, 1.0f, 0.75f + pulse * 0.20f, unlit = true)
+                } else {
+                    drawVbo(tileVbo, 0.78f, 0.28f, 0.92f, 0.32f + pulse * 0.18f, unlit = true)
+                    drawVbo(ringVbo, 0.92f, 0.45f, 1.0f, 0.82f + pulse * 0.18f, unlit = true)
+                }
             }
         }
 
@@ -235,22 +233,8 @@ class GlesBattleRenderer(
                 drawVbo(ringVbo, 0.78f, 0.56f, 0.86f, 0.92f, unlit = true)
             }
 
-            // Smooth centimeter (cm) radius perimeter ring
-            if (state.canCommandUnit(selectedUnit, isRemoteClientAction = true) &&
-                selectedUnit.moveCmLeft >= 0.25f &&
-                !isTeleportMode &&
-                !isSeedSporeMineMode &&
-                (state.moveModeActive || state.movePreview != null)
-            ) {
-                val radiusTiles = (selectedUnit.moveCmLeft / TacticalRules.CM_PER_TILE).coerceAtLeast(0.2f)
-                Matrix.setIdentityM(modelMat, 0)
-                Matrix.translateM(modelMat, 0, sx, 0.016f, sz)
-                Matrix.scaleM(modelMat, 0, radiusTiles, 1f, radiusTiles)
-                drawVbo(cmRingVbo, 0.28f, 0.88f, 0.98f, 0.52f + pulse * 0.22f, unlit = true)
-            }
-
-            // Charge 12 cm Ring & Preview Path OR Red Shooting/Melee Range Ring
-            if (!isTeleportMode && state.chargeModeActive && state.canCommandUnit(selectedUnit)) {
+            // Charge 12 cm Ring & Preview Path OR Red Shooting/Melee Range Ring (when not moving/using placement skill)
+            if (!isTeleportMode && !isSeedSporeMineMode && state.chargeModeActive && state.canCommandUnit(selectedUnit)) {
                 val chargeRadiusTiles = (12.0f / TacticalRules.CM_PER_TILE) + TacticalRules.MELEE_MAX_CENTER_TILES
                 Matrix.setIdentityM(modelMat, 0)
                 Matrix.translateM(modelMat, 0, sx, 0.020f, sz)
@@ -282,8 +266,8 @@ class GlesBattleRenderer(
                     Matrix.scaleM(modelMat, 0, 0.65f + pulse * 0.15f, 1f, 0.65f + pulse * 0.15f)
                     drawVbo(ringVbo, 1.0f, 0.65f, 0.16f, 0.96f, unlit = true)
                 }
-            } else if (!isTeleportMode) {
-                val activeMode = if (state.canCommandUnit(selectedUnit)) state.weaponMode else WeaponMode.MAIN
+            } else if (!isTeleportMode && !isSeedSporeMineMode && !state.moveModeActive && state.canCommandUnit(selectedUnit)) {
+                val activeMode = state.weaponMode
                 val isEngaged = TacticalRules.isEngagedInMelee(selectedUnit, state.units)
                 val atkRange = when {
                     selectedUnit.hasCharged && activeMode == WeaponMode.MAIN -> 1
@@ -300,9 +284,9 @@ class GlesBattleRenderer(
                 drawVbo(rangeRingVbo, 0.96f, 0.16f, 0.18f, rangeAlpha, unlit = true)
             }
 
-            // CM Ruler Preview Path & Landing Ring
+            // CM Ruler Preview Path & Landing Ring (visible only to active controlling player)
             val preview = state.movePreview
-            if (preview != null && preview.path.isNotEmpty()) {
+            if (state.isPlayerTurn && state.canCommandUnit(selectedUnit) && preview != null && preview.path.isNotEmpty()) {
                 var prevX = sx
                 var prevZ = sz
                 for (i in preview.path.indices) {

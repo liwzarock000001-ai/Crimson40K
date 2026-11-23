@@ -6,20 +6,25 @@ import com.example.engine.DefaultCatalog
 import com.example.engine.MapGenerator
 import com.example.model.BattleSummary
 import com.example.model.BattleUnit
+import com.example.model.ChargePreview
 import com.example.model.CombatLogEntry
 import com.example.model.CoopPlayer
 import com.example.model.CoopRosterUnit
 import com.example.model.CoopSlotMode
 import com.example.model.CoopState
+import com.example.model.CoverTag
 import com.example.model.DiceStepDetail
 import com.example.model.Facing
 import com.example.model.Faction
 import com.example.model.GridPos
+import com.example.model.MovePreview
 import com.example.model.SectorMap
+import com.example.model.TargetPreview
 import com.example.model.UnitArchetype
 import com.example.model.UnitTemplate
 import com.example.model.WarriorWeaponChoice
 import com.example.model.WeaponMode
+import com.example.model.WorldPos
 import com.example.viewmodel.BattleUiState
 import com.google.firebase.Firebase
 import com.google.firebase.Timestamp
@@ -684,6 +689,54 @@ class OnlineCoopRepository(
                 "totalDamageDealt" to sum.totalDamageDealt
             )
         }
+        val movePreviewMap = state.movePreview?.let { mp ->
+            mapOf(
+                "targetX" to mp.targetX.toDouble(),
+                "targetY" to mp.targetY.toDouble(),
+                "distanceCm" to mp.distanceCm.toDouble(),
+                "path" to mp.path.map { wp ->
+                    mapOf("x" to wp.x.toDouble(), "y" to wp.y.toDouble())
+                }
+            )
+        }
+        val chargePreviewMap = state.chargePreview?.let { cp ->
+            mapOf(
+                "targetUid" to cp.targetUid,
+                "targetName" to cp.targetName,
+                "distanceTiles" to cp.distanceTiles.toDouble(),
+                "distanceCm" to cp.distanceCm.toDouble(),
+                "requiredRoll" to cp.requiredRoll,
+                "destinationX" to cp.destinationX.toDouble(),
+                "destinationY" to cp.destinationY.toDouble(),
+                "path" to cp.path.map { wp ->
+                    mapOf("x" to wp.x.toDouble(), "y" to wp.y.toDouble())
+                }
+            )
+        }
+        val targetPreviewMap = state.targetPreview?.let { tp ->
+            mapOf(
+                "targetUid" to tp.targetUid,
+                "targetName" to tp.targetName,
+                "hitChance" to tp.hitChance,
+                "hitRollNeeded" to tp.hitRollNeeded,
+                "woundRollNeeded" to tp.woundRollNeeded,
+                "saveRollNeeded" to tp.saveRollNeeded,
+                "usingInvuln" to tp.usingInvuln,
+                "isMelee" to tp.isMelee,
+                "weaponStrength" to tp.weaponStrength,
+                "weaponAp" to tp.weaponAp,
+                "targetToughness" to tp.targetToughness,
+                "expectedTotalDamage" to tp.expectedTotalDamage,
+                "attacksCount" to tp.attacksCount,
+                "coverTag" to tp.coverTag.name,
+                "weaponMode" to tp.weaponMode.name,
+                "weaponName" to tp.weaponName,
+                "sustainedHits" to tp.sustainedHits,
+                "markedBonusApplied" to tp.markedBonusApplied,
+                "inRange" to tp.inRange,
+                "hasLos" to tp.hasLos
+            )
+        }
         return buildMap {
             put("active", state.active)
             put("round", state.round)
@@ -691,6 +744,11 @@ class OnlineCoopRepository(
             put("playerFaction", state.playerFaction.name)
             put("mapId", state.map.id)
             put("selectedUnitUid", state.selectedUnitUid ?: "")
+            put("weaponMode", state.weaponMode.name)
+            put("cmStepChoice", state.cmStepChoice.toDouble())
+            put("moveModeActive", state.moveModeActive)
+            put("chargeModeActive", state.chargeModeActive)
+            put("isAnimating", state.isAnimating)
             put("aiThinking", state.isAiThinking)
             put("coopMode", state.isCoopMode)
             put("activeCoopPlayerId", state.activeCoopPlayerId ?: "")
@@ -707,6 +765,9 @@ class OnlineCoopRepository(
             put("coopTurnOrder", orderList)
             put("templates", tplList)
             put("combatLogs", combatLogsToMapList(state.combatLogs.take(25)))
+            movePreviewMap?.let { put("movePreview", it) }
+            chargePreviewMap?.let { put("chargePreview", it) }
+            targetPreviewMap?.let { put("targetPreview", it) }
             summaryMap?.let { put("summary", it) }
         }
     }
@@ -1044,6 +1105,72 @@ class OnlineCoopRepository(
             } else null
 
             val parsedLogs = parseCombatLogs(battleMap["combatLogs"] as? List<*>)
+            val weaponModeRaw = (battleMap["weaponMode"] as? String) ?: WeaponMode.MAIN.name
+            val parsedWeaponMode = enumValues<WeaponMode>().firstOrNull { it.name == weaponModeRaw } ?: WeaponMode.MAIN
+            val parsedCmStepChoice = (battleMap["cmStepChoice"] as? Number)?.toFloat() ?: 3f
+            val parsedMoveMode = (battleMap["moveModeActive"] as? Boolean) ?: false
+            val parsedChargeMode = (battleMap["chargeModeActive"] as? Boolean) ?: false
+            val parsedIsAnimating = (battleMap["isAnimating"] as? Boolean) ?: false
+            val parsedMovePreview = (battleMap["movePreview"] as? Map<*, *>)?.let { mp ->
+                val pathList = (mp["path"] as? List<*>)?.mapNotNull { node ->
+                    val nm = node as? Map<*, *> ?: return@mapNotNull null
+                    val px = (nm["x"] as? Number)?.toFloat() ?: return@mapNotNull null
+                    val py = (nm["y"] as? Number)?.toFloat() ?: return@mapNotNull null
+                    WorldPos(px, py)
+                } ?: emptyList()
+                MovePreview(
+                    targetX = (mp["targetX"] as? Number)?.toFloat() ?: 0f,
+                    targetY = (mp["targetY"] as? Number)?.toFloat() ?: 0f,
+                    distanceCm = (mp["distanceCm"] as? Number)?.toFloat() ?: 0f,
+                    path = pathList
+                )
+            }
+            val parsedChargePreview = (battleMap["chargePreview"] as? Map<*, *>)?.let { cp ->
+                val uid = (cp["targetUid"] as? String)?.takeIf { it.isNotBlank() } ?: return@let null
+                val pathList = (cp["path"] as? List<*>)?.mapNotNull { node ->
+                    val nm = node as? Map<*, *> ?: return@mapNotNull null
+                    val px = (nm["x"] as? Number)?.toFloat() ?: return@mapNotNull null
+                    val py = (nm["y"] as? Number)?.toFloat() ?: return@mapNotNull null
+                    WorldPos(px, py)
+                } ?: emptyList()
+                ChargePreview(
+                    targetUid = uid,
+                    targetName = (cp["targetName"] as? String) ?: "",
+                    distanceTiles = (cp["distanceTiles"] as? Number)?.toFloat() ?: 0f,
+                    distanceCm = (cp["distanceCm"] as? Number)?.toFloat() ?: 0f,
+                    requiredRoll = (cp["requiredRoll"] as? Number)?.toInt() ?: 2,
+                    destinationX = (cp["destinationX"] as? Number)?.toFloat() ?: 0f,
+                    destinationY = (cp["destinationY"] as? Number)?.toFloat() ?: 0f,
+                    path = pathList
+                )
+            }
+            val parsedTargetPreview = (battleMap["targetPreview"] as? Map<*, *>)?.let { tp ->
+                val uid = (tp["targetUid"] as? String)?.takeIf { it.isNotBlank() } ?: return@let null
+                val cRaw = (tp["coverTag"] as? String) ?: CoverTag.OPEN.name
+                val mRaw = (tp["weaponMode"] as? String) ?: WeaponMode.MAIN.name
+                TargetPreview(
+                    targetUid = uid,
+                    targetName = (tp["targetName"] as? String) ?: "",
+                    hitChance = (tp["hitChance"] as? Number)?.toInt() ?: 0,
+                    hitRollNeeded = (tp["hitRollNeeded"] as? Number)?.toInt() ?: 3,
+                    woundRollNeeded = (tp["woundRollNeeded"] as? Number)?.toInt() ?: 4,
+                    saveRollNeeded = (tp["saveRollNeeded"] as? Number)?.toInt() ?: 4,
+                    usingInvuln = (tp["usingInvuln"] as? Boolean) ?: false,
+                    isMelee = (tp["isMelee"] as? Boolean) ?: false,
+                    weaponStrength = (tp["weaponStrength"] as? Number)?.toInt() ?: 4,
+                    weaponAp = (tp["weaponAp"] as? Number)?.toInt() ?: 0,
+                    targetToughness = (tp["targetToughness"] as? Number)?.toInt() ?: 4,
+                    expectedTotalDamage = (tp["expectedTotalDamage"] as? Number)?.toInt() ?: 0,
+                    attacksCount = (tp["attacksCount"] as? Number)?.toInt() ?: 1,
+                    coverTag = enumValues<CoverTag>().firstOrNull { it.name == cRaw } ?: CoverTag.OPEN,
+                    weaponMode = enumValues<WeaponMode>().firstOrNull { it.name == mRaw } ?: WeaponMode.MAIN,
+                    weaponName = (tp["weaponName"] as? String) ?: "",
+                    sustainedHits = (tp["sustainedHits"] as? Number)?.toInt() ?: 0,
+                    markedBonusApplied = (tp["markedBonusApplied"] as? Boolean) ?: false,
+                    inRange = (tp["inRange"] as? Boolean) ?: true,
+                    hasLos = (tp["hasLos"] as? Boolean) ?: true
+                )
+            }
 
             current.copy(
                 active = (battleMap["active"] as? Boolean) ?: true,
@@ -1059,6 +1186,9 @@ class OnlineCoopRepository(
                 deploymentTeamIndex = deployTeam,
                 selectedReserveUnitUid = preservedReserveUid,
                 selectedUnitUid = selUid,
+                weaponMode = parsedWeaponMode,
+                cmStepChoice = parsedCmStepChoice,
+                isAnimating = parsedIsAnimating,
                 isAiThinking = (battleMap["aiThinking"] as? Boolean) ?: false,
                 isCoopMode = (battleMap["coopMode"] as? Boolean) ?: true,
                 activeCoopPlayerId = activePid,
@@ -1074,11 +1204,11 @@ class OnlineCoopRepository(
                     current.autoFocusCamera && selPos != null -> selPos
                     else -> current.focusGridPos
                 },
-                moveModeActive = false,
-                movePreview = null,
-                chargeModeActive = false,
-                chargePreview = null,
-                targetPreview = null
+                moveModeActive = parsedMoveMode,
+                movePreview = parsedMovePreview,
+                chargeModeActive = parsedChargeMode,
+                chargePreview = parsedChargePreview,
+                targetPreview = parsedTargetPreview
             )
         } catch (_: Exception) {
             null

@@ -2,17 +2,23 @@ package com.example.engine
 
 import com.example.model.BattleSummary
 import com.example.model.BattleUnit
+import com.example.model.ChargePreview
 import com.example.model.CombatLogEntry
 import com.example.model.CoopPlayer
 import com.example.model.CoopRosterUnit
 import com.example.model.CoopSlotMode
 import com.example.model.CoopState
+import com.example.model.CoverTag
 import com.example.model.DiceStepDetail
 import com.example.model.Facing
 import com.example.model.Faction
 import com.example.model.GridPos
+import com.example.model.MovePreview
 import com.example.model.SectorMap
+import com.example.model.TargetPreview
 import com.example.model.UnitTemplate
+import com.example.model.WeaponMode
+import com.example.model.WorldPos
 import com.example.viewmodel.BattleUiState
 import org.json.JSONArray
 import org.json.JSONObject
@@ -124,6 +130,11 @@ object BattleStateSerializer {
         obj.put("unitsJson", serializeUnits(state.units))
         obj.put("templatesJson", DefaultCatalog.serializeTemplates(templates))
         obj.put("selectedUnitUid", state.selectedUnitUid ?: "")
+        obj.put("weaponMode", state.weaponMode.name)
+        obj.put("cmStepChoice", state.cmStepChoice.toDouble())
+        obj.put("moveModeActive", state.moveModeActive)
+        obj.put("chargeModeActive", state.chargeModeActive)
+        obj.put("isAnimating", state.isAnimating)
         obj.put("isAiThinking", state.isAiThinking)
         obj.put("isCoopMode", state.isCoopMode)
         obj.put("activeCoopPlayerId", state.activeCoopPlayerId ?: "")
@@ -131,6 +142,64 @@ object BattleStateSerializer {
         obj.put("coopTurnIndex", state.coopTurnIndex)
         obj.put("playerKills", state.playerKills)
         obj.put("enemyKills", state.enemyKills)
+        state.movePreview?.let { mp ->
+            val pathArr = JSONArray()
+            for (wp in mp.path) {
+                pathArr.put(JSONObject().apply {
+                    put("x", wp.x.toDouble())
+                    put("y", wp.y.toDouble())
+                })
+            }
+            obj.put("movePreview", JSONObject().apply {
+                put("targetX", mp.targetX.toDouble())
+                put("targetY", mp.targetY.toDouble())
+                put("distanceCm", mp.distanceCm.toDouble())
+                put("path", pathArr)
+            })
+        }
+        state.chargePreview?.let { cp ->
+            val pathArr = JSONArray()
+            for (wp in cp.path) {
+                pathArr.put(JSONObject().apply {
+                    put("x", wp.x.toDouble())
+                    put("y", wp.y.toDouble())
+                })
+            }
+            obj.put("chargePreview", JSONObject().apply {
+                put("targetUid", cp.targetUid)
+                put("targetName", cp.targetName)
+                put("distanceTiles", cp.distanceTiles.toDouble())
+                put("distanceCm", cp.distanceCm.toDouble())
+                put("requiredRoll", cp.requiredRoll)
+                put("destinationX", cp.destinationX.toDouble())
+                put("destinationY", cp.destinationY.toDouble())
+                put("path", pathArr)
+            })
+        }
+        state.targetPreview?.let { tp ->
+            obj.put("targetPreview", JSONObject().apply {
+                put("targetUid", tp.targetUid)
+                put("targetName", tp.targetName)
+                put("hitChance", tp.hitChance)
+                put("hitRollNeeded", tp.hitRollNeeded)
+                put("woundRollNeeded", tp.woundRollNeeded)
+                put("saveRollNeeded", tp.saveRollNeeded)
+                put("usingInvuln", tp.usingInvuln)
+                put("isMelee", tp.isMelee)
+                put("weaponStrength", tp.weaponStrength)
+                put("weaponAp", tp.weaponAp)
+                put("targetToughness", tp.targetToughness)
+                put("expectedTotalDamage", tp.expectedTotalDamage)
+                put("attacksCount", tp.attacksCount)
+                put("coverTag", tp.coverTag.name)
+                put("weaponMode", tp.weaponMode.name)
+                put("weaponName", tp.weaponName)
+                put("sustainedHits", tp.sustainedHits)
+                put("markedBonusApplied", tp.markedBonusApplied)
+                put("inRange", tp.inRange)
+                put("hasLos", tp.hasLos)
+            })
+        }
         val orderArr = JSONArray()
         for (p in state.coopTurnOrder) {
             orderArr.put(JSONObject().apply {
@@ -272,6 +341,71 @@ object BattleStateSerializer {
                 )
             } else null
             val parsedLogs = deserializeCombatLogs(o.optJSONArray("combatLogs"))
+            val parsedWeaponMode = runCatching {
+                WeaponMode.valueOf(o.optString("weaponMode", WeaponMode.MAIN.name))
+            }.getOrDefault(WeaponMode.MAIN)
+            val parsedCmStepChoice = o.optDouble("cmStepChoice", 3.0).toFloat()
+            val parsedMoveMode = o.optBoolean("moveModeActive", false)
+            val parsedChargeMode = o.optBoolean("chargeModeActive", false)
+            val parsedIsAnimating = o.optBoolean("isAnimating", false)
+            val parsedMovePreview = o.optJSONObject("movePreview")?.let { mp ->
+                val pathArr = mp.optJSONArray("path") ?: JSONArray()
+                val path = ArrayList<WorldPos>(pathArr.length())
+                for (i in 0 until pathArr.length()) {
+                    val wp = pathArr.optJSONObject(i) ?: continue
+                    path.add(WorldPos(wp.optDouble("x", 0.0).toFloat(), wp.optDouble("y", 0.0).toFloat()))
+                }
+                MovePreview(
+                    targetX = mp.optDouble("targetX", 0.0).toFloat(),
+                    targetY = mp.optDouble("targetY", 0.0).toFloat(),
+                    distanceCm = mp.optDouble("distanceCm", 0.0).toFloat(),
+                    path = path
+                )
+            }
+            val parsedChargePreview = o.optJSONObject("chargePreview")?.let { cp ->
+                val uid = cp.optString("targetUid").takeIf { it.isNotBlank() } ?: return@let null
+                val pathArr = cp.optJSONArray("path") ?: JSONArray()
+                val path = ArrayList<WorldPos>(pathArr.length())
+                for (i in 0 until pathArr.length()) {
+                    val wp = pathArr.optJSONObject(i) ?: continue
+                    path.add(WorldPos(wp.optDouble("x", 0.0).toFloat(), wp.optDouble("y", 0.0).toFloat()))
+                }
+                ChargePreview(
+                    targetUid = uid,
+                    targetName = cp.optString("targetName", ""),
+                    distanceTiles = cp.optDouble("distanceTiles", 0.0).toFloat(),
+                    distanceCm = cp.optDouble("distanceCm", 0.0).toFloat(),
+                    requiredRoll = cp.optInt("requiredRoll", 2),
+                    destinationX = cp.optDouble("destinationX", 0.0).toFloat(),
+                    destinationY = cp.optDouble("destinationY", 0.0).toFloat(),
+                    path = path
+                )
+            }
+            val parsedTargetPreview = o.optJSONObject("targetPreview")?.let { tp ->
+                val uid = tp.optString("targetUid").takeIf { it.isNotBlank() } ?: return@let null
+                TargetPreview(
+                    targetUid = uid,
+                    targetName = tp.optString("targetName", ""),
+                    hitChance = tp.optInt("hitChance", 0),
+                    hitRollNeeded = tp.optInt("hitRollNeeded", 3),
+                    woundRollNeeded = tp.optInt("woundRollNeeded", 4),
+                    saveRollNeeded = tp.optInt("saveRollNeeded", 4),
+                    usingInvuln = tp.optBoolean("usingInvuln", false),
+                    isMelee = tp.optBoolean("isMelee", false),
+                    weaponStrength = tp.optInt("weaponStrength", 4),
+                    weaponAp = tp.optInt("weaponAp", 0),
+                    targetToughness = tp.optInt("targetToughness", 4),
+                    expectedTotalDamage = tp.optInt("expectedTotalDamage", 0),
+                    attacksCount = tp.optInt("attacksCount", 1),
+                    coverTag = runCatching { CoverTag.valueOf(tp.optString("coverTag", CoverTag.OPEN.name)) }.getOrDefault(CoverTag.OPEN),
+                    weaponMode = runCatching { WeaponMode.valueOf(tp.optString("weaponMode", WeaponMode.MAIN.name)) }.getOrDefault(WeaponMode.MAIN),
+                    weaponName = tp.optString("weaponName", ""),
+                    sustainedHits = tp.optInt("sustainedHits", 0),
+                    markedBonusApplied = tp.optBoolean("markedBonusApplied", false),
+                    inRange = tp.optBoolean("inRange", true),
+                    hasLos = tp.optBoolean("hasLos", true)
+                )
+            }
             val selPos = units.firstOrNull { it.uid == selUid }?.pos
             current.copy(
                 active = o.optBoolean("active", true),
@@ -281,6 +415,9 @@ object BattleStateSerializer {
                 map = sectorMap,
                 units = units,
                 selectedUnitUid = selUid,
+                weaponMode = parsedWeaponMode,
+                cmStepChoice = parsedCmStepChoice,
+                isAnimating = parsedIsAnimating,
                 isAiThinking = o.optBoolean("isAiThinking", false),
                 isCoopMode = o.optBoolean("isCoopMode", true),
                 activeCoopPlayerId = activePid,
@@ -292,11 +429,11 @@ object BattleStateSerializer {
                 summary = parsedSummary,
                 combatLogs = parsedLogs,
                 focusGridPos = if (current.autoFocusCamera && selPos != null) selPos else current.focusGridPos,
-                moveModeActive = false,
-                movePreview = null,
-                chargeModeActive = false,
-                chargePreview = null,
-                targetPreview = null
+                moveModeActive = parsedMoveMode,
+                movePreview = parsedMovePreview,
+                chargeModeActive = parsedChargeMode,
+                chargePreview = parsedChargePreview,
+                targetPreview = parsedTargetPreview
             )
         } catch (_: Exception) {
             null

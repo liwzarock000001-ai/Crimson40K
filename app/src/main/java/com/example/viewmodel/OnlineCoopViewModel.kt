@@ -16,6 +16,7 @@ import com.example.model.WeaponMode
 import com.google.firebase.firestore.FirebaseFirestoreException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -77,11 +78,29 @@ class OnlineCoopViewModel(
     private val _incomingActions = MutableSharedFlow<OnlineClientAction>(extraBufferCapacity = 32)
     val incomingActions = _incomingActions.asSharedFlow()
 
+    private data class BattlePublishRequest(
+        val roomCode: String,
+        val state: BattleUiState,
+        val templates: Map<String, UnitTemplate>,
+        val status: String
+    )
+
     private var roomObserverJob: Job? = null
     private var actionsObserverJob: Job? = null
     private var currentRoomCode: String? = null
     private var currentPlayerSlotId: String = "p1"
     private val processedActionIds = HashSet<String>()
+    private val battlePublishChannel = Channel<BattlePublishRequest>(Channel.CONFLATED)
+
+    init {
+        viewModelScope.launch {
+            for (req in battlePublishChannel) {
+                repository.publishBattleSnapshot(req.roomCode, req.state, req.templates, req.status).onFailure { err ->
+                    Log.w(TAG, "Failed to sync battle state to cloud", err)
+                }
+            }
+        }
+    }
 
     fun clearError() {
         _errorMessage.value = null
@@ -194,8 +213,14 @@ class OnlineCoopViewModel(
                 }
                 .collect { snap ->
                     _activeRoom.value = snap
-                    if (snap != null && snap.hostUid == currentUserId && actionsObserverJob == null) {
-                        startObservingHostActions(roomCode)
+                    if (snap != null) {
+                        val resolvedSlot = snap.playerUids.entries.firstOrNull { it.value == currentUserId }?.key
+                        if (resolvedSlot != null) {
+                            currentPlayerSlotId = resolvedSlot
+                        }
+                        if (snap.hostUid == currentUserId && actionsObserverJob == null) {
+                            startObservingHostActions(roomCode)
+                        }
                     }
                 }
         }
@@ -216,7 +241,7 @@ class OnlineCoopViewModel(
                 .collect { actions ->
                     for (action in actions) {
                         if (processedActionIds.add(action.actionId)) {
-                            _incomingActions.tryEmit(action)
+                            _incomingActions.emit(action)
                             launch {
                                 repository.consumeAction(roomCode, action.actionId)
                             }
@@ -249,11 +274,7 @@ class OnlineCoopViewModel(
         val snap = _activeRoom.value
         if (snap != null && (snap.hostUid != currentUserId || snap.status == "FINISHED")) return
         val nextStatus = if (state.summary != null || !state.active) "FINISHED" else "ACTIVE"
-        viewModelScope.launch {
-            repository.publishBattleSnapshot(code, state, templates, nextStatus).onFailure { err ->
-                Log.w(TAG, "Failed to sync battle state to cloud", err)
-            }
-        }
+        battlePublishChannel.trySend(BattlePublishRequest(code, state, templates, nextStatus))
     }
 
     fun submitClientAction(

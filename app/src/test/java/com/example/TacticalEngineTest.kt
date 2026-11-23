@@ -1568,10 +1568,65 @@ class TacticalEngineTest {
             assertFalse("Spore Mine float must not be Infinite", v.isInfinite())
         }
     }
+
+    @Test
+    fun coopRemoteClientCanCommandOwnUnitAndMoveModeState() {
+        val mapRows = MapGenerator.generateSectorMap(1L)
+        val map = com.example.model.SectorMap(1L, mapRows)
+        val tpl = DefaultCatalog.defaultTemplates.first { it.id == "intercessors" }
+        val p1Unit = BattleUnit(
+            uid = "u_p1",
+            template = tpl,
+            faction = Faction.MARINES,
+            x = 2,
+            y = 4,
+            facing = Facing.EAST,
+            totalWounds = tpl.maxTotalWounds,
+            maxTotalWounds = tpl.maxTotalWounds,
+            moveCmLeft = 15f,
+            ownerPlayerId = "p1",
+            ownerPlayerName = "Host"
+        )
+        val p2Unit = BattleUnit(
+            uid = "u_p2",
+            template = tpl,
+            faction = Faction.MARINES,
+            x = 2,
+            y = 8,
+            facing = Facing.EAST,
+            totalWounds = tpl.maxTotalWounds,
+            maxTotalWounds = tpl.maxTotalWounds,
+            moveCmLeft = 15f,
+            ownerPlayerId = "p2",
+            ownerPlayerName = "Friend"
+        )
+        val movePreview = TacticalRules.computeForwardCmPreview(p2Unit, 5f, listOf(p1Unit, p2Unit), mapRows)
+        assertNotNull(movePreview)
+
+        val clientState = com.example.viewmodel.BattleUiState(
+            active = true,
+            round = 1,
+            activeFaction = Faction.MARINES,
+            playerFaction = Faction.MARINES,
+            map = map,
+            units = listOf(p1Unit, p2Unit),
+            selectedUnitUid = p2Unit.uid,
+            moveModeActive = true,
+            cmStepChoice = 5f,
+            movePreview = movePreview,
+            isCoopMode = true,
+            activeCoopPlayerId = "p2",
+            activeCoopPlayerName = "Friend",
+            localControlledPlayerId = "p2",
+            isAnimating = false
+        )
+
+        assertTrue(clientState.isPlayerTurn)
+        assertTrue(clientState.canAcceptInput(false))
+        assertTrue(clientState.canCommandUnit(p2Unit))
+        assertFalse(clientState.canCommandUnit(p1Unit))
+        assertTrue(clientState.moveModeActive)
+        assertEquals(5f, clientState.cmStepChoice, 0.01f)
+        assertNotNull(clientState.movePreview)
+    }
 }
-
-
-
-
-
-

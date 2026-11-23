@@ -239,6 +239,8 @@ private fun CoopFlowHost(
 
             LaunchedEffect(activeRoom) {
                 val room = activeRoom ?: return@LaunchedEffect
+                val mySlot = room.playerUids.entries.firstOrNull { it.value == user.uid }?.key
+                val isHost = room.hostUid == user.uid
                 vm.applyOnlineRoomSnapshot(
                     roomCode = room.roomCode,
                     hostName = room.hostName,
@@ -247,9 +249,11 @@ private fun CoopFlowHost(
                     spawnAi = room.spawnAiEnemyIfSameFaction,
                     status = room.status,
                     customTemplates = room.customTemplates,
-                    pointLimit = room.pointLimit
+                    pointLimit = room.pointLimit,
+                    localSlotId = mySlot,
+                    isHost = isHost
                 )
-                if (room.hostUid != user.uid) {
+                if (!isHost) {
                     val bMap = room.battleMap
                     if (bMap != null && (room.status == "ACTIVE" || room.status == "FINISHED")) {
                         val synced = onlineVm.applyRemoteBattleSnapshot(bMap, vm.battleState.value)
