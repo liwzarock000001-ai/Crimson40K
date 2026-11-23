@@ -26,6 +26,8 @@ object GlbLoader3D {
     private data class PrimitiveSource(
         val positions: FloatArray,
         val normals: FloatArray?,
+        val texCoords: FloatArray?,
+        val textureBytes: ByteArray?,
         val colors: FloatArray?,
         val colorComponents: Int,
         val indices: IntArray,
@@ -78,6 +80,8 @@ object GlbLoader3D {
         val accessors = json.arr("accessors") ?: return null
         val bufferViews = json.arr("bufferViews") ?: return null
         val materials = json.arr("materials")
+        val textures = json.arr("textures")
+        val images = json.arr("images")
         val nodes = json.arr("nodes")
 
         val nodeTransforms = collectMeshNodeTransforms(json, nodes)
@@ -87,12 +91,12 @@ object GlbLoader3D {
         if (nodeTransforms.isNotEmpty()) {
             for ((meshIdx, mat4) in nodeTransforms) {
                 val meshObj = meshes.getOrNull(meshIdx) as? Map<*, *> ?: continue
-                extractMeshPrimitives(meshObj, mat4, accessors, bufferViews, materials, bin, primitives)
+                extractMeshPrimitives(meshObj, mat4, accessors, bufferViews, materials, textures, images, bin, primitives)
             }
         } else {
             for (item in meshes) {
                 val meshObj = item as? Map<*, *> ?: continue
-                extractMeshPrimitives(meshObj, null, accessors, bufferViews, materials, bin, primitives)
+                extractMeshPrimitives(meshObj, null, accessors, bufferViews, materials, textures, images, bin, primitives)
             }
         }
 
@@ -161,10 +165,15 @@ object GlbLoader3D {
         // Pass 2: write packed 10-float triangles directly without boxing
         val out = FloatArray(totalTriVertices * 10)
         var outIdx = 0
+        val sharedTextureBytes = primitives.firstNotNullOfOrNull { if (it.texCoords != null) it.textureBytes else null }
+        val hasUvTexture = sharedTextureBytes != null && primitives.any { it.texCoords != null }
+        val uvOut = if (hasUvTexture) FloatArray(totalTriVertices * 2) else null
+        var uvIdx = 0
 
         for (p in primitives) {
             val pos = p.positions
             val nrm = p.normals
+            val uvs = p.texCoords
             val col = p.colors
             val cComp = p.colorComponents
             val idxs = p.indices
@@ -289,12 +298,21 @@ object GlbLoader3D {
                     out[outIdx++] = cg
                     out[outIdx++] = cb
                     out[outIdx++] = ca
+                    if (uvOut != null) {
+                        if (uvs != null && vi * 2 + 1 < uvs.size) {
+                            uvOut[uvIdx++] = uvs[vi * 2]
+                            uvOut[uvIdx++] = uvs[vi * 2 + 1]
+                        } else {
+                            uvOut[uvIdx++] = 0f
+                            uvOut[uvIdx++] = 0f
+                        }
+                    }
                 }
                 t += 3
             }
         }
 
-        return MeshGeometry(out)
+        return MeshGeometry(out, uvOut, sharedTextureBytes)
     }
 
     private fun transformX(pos: FloatArray, vi: Int, nm: FloatArray?, cx: Float, scale: Float): Float {
@@ -327,6 +345,8 @@ object GlbLoader3D {
         accessors: List<*>,
         bufferViews: List<*>,
         materials: List<*>?,
+        textures: List<*>?,
+        images: List<*>?,
         bin: ByteBuffer,
         out: MutableList<PrimitiveSource>
     ) {
@@ -341,6 +361,9 @@ object GlbLoader3D {
             val pos = readVecFloatAccessor(posAccIdx, 3, accessors, bufferViews, bin) ?: continue
             val nrm = attrs.optInt("NORMAL")?.let {
                 readVecFloatAccessor(it, 3, accessors, bufferViews, bin)
+            }
+            val uvs = attrs.optInt("TEXCOORD_0")?.let {
+                readVecFloatAccessor(it, 2, accessors, bufferViews, bin)
             }
 
             var colorComp = 0
@@ -357,6 +380,7 @@ object GlbLoader3D {
             } ?: IntArray(vCount) { it }
 
             var br = 0.5f; var bg = 0.5f; var bb = 0.5f; var ba = 1f
+            var texBytes: ByteArray? = null
             val matIdx = prim.optInt("material")
             if (matIdx != null && materials != null) {
                 val mat = materials.getOrNull(matIdx) as? Map<*, *>
@@ -368,12 +392,32 @@ object GlbLoader3D {
                     bb = bcf.dbl(2, 0.5).toFloat().coerceIn(0f, 1f)
                     ba = if (bcf.size >= 4) bcf.dbl(3, 1.0).toFloat().coerceIn(0f, 1f) else 1f
                 }
+                val baseTexIdx = pbr?.obj("baseColorTexture")?.optInt("index")
+                if (baseTexIdx != null && textures != null && images != null) {
+                    val texObj = textures.getOrNull(baseTexIdx) as? Map<*, *>
+                    val imgIdx = texObj?.optInt("source")
+                    val imgObj = imgIdx?.let { images.getOrNull(it) as? Map<*, *> }
+                    val imgBvIdx = imgObj?.optInt("bufferView")
+                    val imgBv = imgBvIdx?.let { bufferViews.getOrNull(it) as? Map<*, *> }
+                    if (imgBv != null) {
+                        val imgOff = imgBv.int("byteOffset", 0)
+                        val imgLen = imgBv.int("byteLength", 0)
+                        if (imgLen > 0 && imgOff >= 0 && imgOff + imgLen <= bin.limit()) {
+                            texBytes = ByteArray(imgLen)
+                            val dup = bin.duplicate()
+                            dup.position(imgOff)
+                            dup.get(texBytes)
+                        }
+                    }
+                }
             }
 
             out.add(
                 PrimitiveSource(
                     positions = pos,
                     normals = nrm,
+                    texCoords = uvs,
+                    textureBytes = texBytes,
                     colors = colors,
                     colorComponents = colorComp,
                     indices = indices,

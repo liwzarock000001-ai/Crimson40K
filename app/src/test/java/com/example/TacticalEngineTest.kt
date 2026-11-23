@@ -577,9 +577,11 @@ class TacticalEngineTest {
         val glbMesh = com.example.ui.battle.MeshCatalog3D.getUnitMesh(com.example.model.UnitArchetype.TERMINATOR, "")
         val legacyMesh = com.example.ui.battle.UnitMeshSculptor3D.build(com.example.model.UnitArchetype.TERMINATOR, "")
 
-        // Verify the bundled assault_terminator.glb (120,000 tris = 360,000 vertices) is loaded instead of legacy geometry
-        assertEquals(360_000, glbMesh.vertexCount)
+        // Verify the bundled assault_terminatorH_S.glb (26,613 tris = 79,839 vertices) with UV texture is loaded
+        assertEquals(79_839, glbMesh.vertexCount)
         assertEquals(0, glbMesh.data.size % 10)
+        assertEquals(glbMesh.vertexCount * 2, glbMesh.texCoords?.size)
+        assertTrue((glbMesh.textureBytes?.size ?: 0) > 10_000)
 
         fun computeBounds(data: FloatArray): FloatArray {
             var minX = Float.POSITIVE_INFINITY

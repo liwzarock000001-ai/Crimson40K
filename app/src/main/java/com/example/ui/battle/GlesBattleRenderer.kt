@@ -1,7 +1,9 @@
 package com.example.ui.battle
 
+import android.graphics.BitmapFactory
 import android.opengl.GLES20
 import android.opengl.GLSurfaceView
+import android.opengl.GLUtils
 import android.opengl.Matrix
 import com.example.engine.MapGenerator
 import com.example.engine.TacticalRules
@@ -28,7 +30,12 @@ class GlesBattleRenderer(
 
     val sceneRef = AtomicReference(BattleUiState())
 
-    private class GpuVbo(val id: Int, val vertexCount: Int)
+    private class GpuVbo(
+        val id: Int,
+        val vertexCount: Int,
+        val uvVboId: Int = 0,
+        val texId: Int = 0
+    )
 
     private val vboCache = IdentityHashMap<MeshGeometry, GpuVbo>()
     private var lastBoundVboId = -1
@@ -42,6 +49,7 @@ class GlesBattleRenderer(
     private var aPos = 0
     private var aNormal = 0
     private var aColor = 0
+    private var aTexCoord = 0
     private var uMvp = 0
     private var uModel = 0
     private var uEyePos = 0
@@ -51,6 +59,8 @@ class GlesBattleRenderer(
     private var uTime = 0
     private var uGraphicsLevel = 0
     private var uBrightness = 0
+    private var uTexture = 0
+    private var uHasTexture = 0
 
     // Pre-allocated scratch matrices & vectors (0 allocations per frame)
     private val projMat = FloatArray(16)
@@ -105,6 +115,7 @@ class GlesBattleRenderer(
         aPos = GLES20.glGetAttribLocation(program, "aPos")
         aNormal = GLES20.glGetAttribLocation(program, "aNormal")
         aColor = GLES20.glGetAttribLocation(program, "aColor")
+        aTexCoord = GLES20.glGetAttribLocation(program, "aTexCoord")
         uMvp = GLES20.glGetUniformLocation(program, "uMvp")
         uModel = GLES20.glGetUniformLocation(program, "uModel")
         uEyePos = GLES20.glGetUniformLocation(program, "uEyePos")
@@ -114,6 +125,8 @@ class GlesBattleRenderer(
         uTime = GLES20.glGetUniformLocation(program, "uTime")
         uGraphicsLevel = GLES20.glGetUniformLocation(program, "uGraphicsLevel")
         uBrightness = GLES20.glGetUniformLocation(program, "uBrightness")
+        uTexture = GLES20.glGetUniformLocation(program, "uTexture")
+        uHasTexture = GLES20.glGetUniformLocation(program, "uHasTexture")
     }
 
     override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
@@ -604,12 +617,54 @@ class GlesBattleRenderer(
             GLES20.GL_STATIC_DRAW
         )
         GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, 0)
-        return GpuVbo(vboId, mesh.vertexCount)
+
+        var uvVboId = 0
+        var texId = 0
+        val uvBuf = mesh.uvBuffer
+        val uvs = mesh.texCoords
+        val texBytes = mesh.textureBytes
+        if (uvBuf != null && uvs != null && texBytes != null) {
+            val bmp = BitmapFactory.decodeByteArray(texBytes, 0, texBytes.size)
+            if (bmp != null) {
+                GLES20.glGenBuffers(1, genBuf, 0)
+                uvVboId = genBuf[0]
+                GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, uvVboId)
+                uvBuf.position(0)
+                GLES20.glBufferData(
+                    GLES20.GL_ARRAY_BUFFER,
+                    uvs.size * 4,
+                    uvBuf,
+                    GLES20.GL_STATIC_DRAW
+                )
+                GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, 0)
+
+                GLES20.glGenTextures(1, genBuf, 0)
+                texId = genBuf[0]
+                GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texId)
+                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR_MIPMAP_LINEAR)
+                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
+                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE)
+                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE)
+                GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, bmp, 0)
+                GLES20.glGenerateMipmap(GLES20.GL_TEXTURE_2D)
+                GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, 0)
+                bmp.recycle()
+            }
+        }
+        return GpuVbo(vboId, mesh.vertexCount, uvVboId, texId)
     }
 
     private fun deleteVbo(vbo: GpuVbo) {
         genBuf[0] = vbo.id
         GLES20.glDeleteBuffers(1, genBuf, 0)
+        if (vbo.uvVboId != 0) {
+            genBuf[0] = vbo.uvVboId
+            GLES20.glDeleteBuffers(1, genBuf, 0)
+        }
+        if (vbo.texId != 0) {
+            genBuf[0] = vbo.texId
+            GLES20.glDeleteTextures(1, genBuf, 0)
+        }
     }
 
     private fun drawVbo(
@@ -628,6 +683,9 @@ class GlesBattleRenderer(
         GLES20.glUniform1f(uUnlit, if (unlit) 1f else 0f)
         GLES20.glUniform1f(uIsUnit, if (isUnit) 1f else 0f)
 
+        val hasTex = vbo.uvVboId != 0 && vbo.texId != 0
+        GLES20.glUniform1f(uHasTexture, if (hasTex) 1f else 0f)
+
         if (lastBoundVboId != vbo.id) {
             lastBoundVboId = vbo.id
             GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, vbo.id)
@@ -635,6 +693,17 @@ class GlesBattleRenderer(
             GLES20.glVertexAttribPointer(aPos, 3, GLES20.GL_FLOAT, false, stride, 0)
             GLES20.glVertexAttribPointer(aNormal, 3, GLES20.GL_FLOAT, false, stride, 3 * 4)
             GLES20.glVertexAttribPointer(aColor, 4, GLES20.GL_FLOAT, false, stride, 6 * 4)
+            if (hasTex && aTexCoord >= 0) {
+                GLES20.glEnableVertexAttribArray(aTexCoord)
+                GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, vbo.uvVboId)
+                GLES20.glVertexAttribPointer(aTexCoord, 2, GLES20.GL_FLOAT, false, 2 * 4, 0)
+                GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
+                GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, vbo.texId)
+                GLES20.glUniform1i(uTexture, 0)
+            } else if (aTexCoord >= 0) {
+                GLES20.glDisableVertexAttribArray(aTexCoord)
+                GLES20.glVertexAttrib2f(aTexCoord, 0f, 0f)
+            }
         }
         GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, vbo.vertexCount)
     }
@@ -663,14 +732,17 @@ class GlesBattleRenderer(
             attribute vec3 aPos;
             attribute vec3 aNormal;
             attribute vec4 aColor;
+            attribute vec2 aTexCoord;
             varying vec3 vWorldPos;
             varying vec3 vNormal;
             varying vec4 vColor;
+            varying vec2 vTexCoord;
             void main() {
                 vec4 worldPos = uModel * vec4(aPos, 1.0);
                 vWorldPos = worldPos.xyz;
                 vNormal = normalize(mat3(uModel) * aNormal);
                 vColor = aColor;
+                vTexCoord = aTexCoord;
                 gl_Position = uMvp * vec4(aPos, 1.0);
             }
         """
@@ -684,17 +756,21 @@ class GlesBattleRenderer(
             uniform float uTime;
             uniform float uGraphicsLevel;
             uniform float uBrightness;
+            uniform sampler2D uTexture;
+            uniform float uHasTexture;
             varying vec3 vWorldPos;
             varying vec3 vNormal;
             varying vec4 vColor;
+            varying vec2 vTexCoord;
 
             float gritNoise(vec2 p) {
                 return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
             }
 
             void main() {
+                vec4 texSample = uHasTexture > 0.5 ? texture2D(uTexture, vTexCoord) : vec4(1.0);
                 if (uUnlit > 0.5) {
-                    vec4 unlitCol = vColor * uTint;
+                    vec4 unlitCol = vColor * uTint * texSample;
                     gl_FragColor = vec4(clamp(unlitCol.rgb * uBrightness, 0.0, 1.0), unlitCol.a);
                     return;
                 }
@@ -708,7 +784,7 @@ class GlesBattleRenderer(
                     return;
                 }
 
-                vec4 baseCol = vColor * uTint;
+                vec4 baseCol = vColor * uTint * texSample;
                 vec3 N = normalize(vNormal);
                 vec3 V = normalize(uEyePos - vWorldPos);
 

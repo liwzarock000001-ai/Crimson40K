@@ -20,7 +20,11 @@ import kotlin.math.sqrt
  * Interleaved vertex layout: [x, y, z, nx, ny, nz, r, g, b, a] (10 floats = 40 bytes per vertex).
  * Convention: a >= 1.5f marks self-illuminated emissive surfaces (eye lenses, plasma, hammer arcs, magma).
  */
-class MeshGeometry(val data: FloatArray) {
+class MeshGeometry(
+    val data: FloatArray,
+    val texCoords: FloatArray? = null,
+    val textureBytes: ByteArray? = null
+) {
     val vertexCount: Int = data.size / 10
     val buffer: FloatBuffer = ByteBuffer.allocateDirect(data.size * 4)
         .order(ByteOrder.nativeOrder())
@@ -29,6 +33,15 @@ class MeshGeometry(val data: FloatArray) {
             put(data)
             position(0)
         }
+    val uvBuffer: FloatBuffer? = texCoords?.let { uvs ->
+        ByteBuffer.allocateDirect(uvs.size * 4)
+            .order(ByteOrder.nativeOrder())
+            .asFloatBuffer()
+            .apply {
+                put(uvs)
+                position(0)
+            }
+    }
 }
 
 class MeshAccumulator {
@@ -642,6 +655,7 @@ object MeshCatalog3D {
         val devPaths = listOf(
             "src/main/assets/$fileName",
             "app/src/main/assets/$fileName",
+            "public/assets/$fileName",
             "public/assets/aistudio/$fileName"
         )
         for (path in devPaths) {
@@ -657,7 +671,7 @@ object MeshCatalog3D {
         synchronized(archetypeMeshes) {
             archetypeMeshes.getOrPut(archetype to variant) {
                 if (archetype == UnitArchetype.TERMINATOR && variant != "CLAWS") {
-                    openAssetStream("assault_terminator.glb")?.use { stream ->
+                    openAssetStream("assault_terminatorH_S.glb")?.use { stream ->
                         GlbLoader3D.loadMesh(
                             stream = stream,
                             targetHeight = 0.923f,
