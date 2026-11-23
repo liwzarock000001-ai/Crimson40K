@@ -78,6 +78,16 @@ fun factionPalette(faction: Faction): FactionThemePalette = when (faction) {
         panelBottom = MarinePanelBottom,
         buttonSurface = MarineSurface
     )
+    Faction.BLACK_LEGION -> FactionThemePalette(
+        primaryAccent = ImperialGold,
+        trimBorder = ImperialGold,
+        trimMuted = BorderSteel,
+        headerText = ImperialGold,
+        badgeText = EmeraldBuff,
+        panelTop = Color(0xFF1B2230),
+        panelBottom = VoidObsidian,
+        buttonSurface = Color(0xFF161C26)
+    )
     Faction.XENOS -> FactionThemePalette(
         primaryAccent = XenosViolet,
         trimBorder = XenosBorder,

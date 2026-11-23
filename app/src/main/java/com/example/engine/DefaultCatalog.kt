@@ -310,6 +310,51 @@ object DefaultCatalog {
             pistolDamage = 0
         ),
 
+        // --- BLACK LEGION (Chaos Space Marines) ---
+        UnitTemplate(
+            id = "legionaries",
+            name = "Legionaries",
+            faction = Faction.BLACK_LEGION,
+            archetype = UnitArchetype.LEGIONARY,
+            role = "Chaos Battleline Infantry",
+            points = 90,
+            squadSize = 5,
+            woundsPerModel = 2,
+            toughness = 4,
+            save = 3,
+            invulnSave = null,
+            armorPen = 1,
+            moveCm = 15, // 6"
+            strength = 5,
+            damage = 1,
+            attacksPerModel = 2,
+            range = 5, // 24"
+            ballisticSkill = 3,
+            weaponSkill = 3,
+            leadership = 6,
+            objectiveControl = 2,
+            skillName = "Veterans of the Long War",
+            skillDesc = "Auto-activates when starting to shoot or fight: Re-roll unmodified Wound rolls of 1 for 1 turn (shooting, melee & counter-attacks). Cooldown: 1 Turn.",
+            skillCooldown = 1,
+            passiveName = "Dark Pacts",
+            passiveDesc = "When selected to shoot or fight, may make a Dark Pact: take a 2D6 Leadership test (fail: D3 mortal wounds), then gain [LETHAL HITS] or [SUSTAINED HITS 1] for that phase.",
+            mainWeaponName = "Boltgun",
+            mainWeaponAssault = true,
+            meleeWeaponName = "Astartes Chainsword",
+            meleeAttacks = 4,
+            meleeWeaponSkill = 3,
+            meleeStrength = 5,
+            meleeArmorPen = 1,
+            meleeDamage = 1,
+            pistolWeaponName = "Bolt Pistol",
+            pistolAttacks = 1,
+            pistolDamage = 1,
+            pistolStrength = 4,
+            pistolArmorPen = 0,
+            pistolRange = 3,
+            pistolCooldown = 1
+        ),
+
         // --- TYRANIDS (Warhammer 40,000 11th Edition) ---
         UnitTemplate(
             id = "termagants",
@@ -629,6 +674,10 @@ object DefaultCatalog {
         RosterSlot("x4", "carnifex"),
         RosterSlot("x5", "genestealers"),
         RosterSlot("x6", "biovores")
+    )
+
+    fun defaultBlackLegionRoster(): List<RosterSlot> = listOf(
+        RosterSlot("bl1", "legionaries")
     )
 
     private fun profileToJson(p: com.example.model.WeaponProfile): JSONObject = JSONObject().apply {

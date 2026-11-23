@@ -1086,7 +1086,7 @@ class TacticalEngineTest {
     @Test
     fun allTwelveUnitsMatchWarhammer40k11thEditionStatsPointsAndMigrateOldConfigs() {
         val byId = DefaultCatalog.defaultTemplates.associateBy { it.id }
-        assertEquals(15, byId.size)
+        assertEquals(16, byId.size)
 
         // --- Ultramarines (11e) ---
         val intercessors = byId.getValue("intercessors")
@@ -1236,6 +1236,168 @@ class TacticalEngineTest {
         assertEquals(6, leapers.attacksPerModel) // 6A S5 AP-1 D1
         assertEquals(1, leapers.armorPen)
         assertEquals(1, leapers.damage)
+
+        // --- Black Legion ---
+        val legionaries = byId.getValue("legionaries")
+        assertEquals(Faction.BLACK_LEGION, legionaries.faction)
+        assertEquals(UnitArchetype.LEGIONARY, legionaries.archetype)
+        assertEquals("Veterans of the Long War", legionaries.skillName)
+        assertEquals(1, legionaries.skillCooldown)
+        assertEquals("Dark Pacts", legionaries.passiveName)
+        assertEquals(5, legionaries.squadSize)
+        assertEquals(3, legionaries.save)
+    }
+
+    @Test
+    fun blackLegionLegionariesAutoActivateRerollWoundOnesAndDarkPactsWork() {
+        val openMap = Array(MapGenerator.GRID_H) { Array(MapGenerator.GRID_W) { TerrainType.OPEN } }
+        val legTpl = DefaultCatalog.defaultTemplates.first { it.id == "legionaries" }
+        val marineTpl = DefaultCatalog.defaultTemplates.first { it.id == "intercessors" }
+
+        val legionaries = BattleUnit(
+            uid = "bl_1",
+            template = legTpl,
+            faction = Faction.BLACK_LEGION,
+            x = 2,
+            y = 10,
+            facing = Facing.EAST,
+            totalWounds = legTpl.maxTotalWounds,
+            maxTotalWounds = legTpl.maxTotalWounds,
+            moveCmLeft = legTpl.moveCm.toFloat(),
+            ownerPlayerId = "player"
+        )
+        val rangedTarget = BattleUnit(
+            uid = "m_far",
+            template = marineTpl,
+            faction = Faction.MARINES,
+            x = 6,
+            y = 10,
+            facing = Facing.WEST,
+            totalWounds = 30,
+            maxTotalWounds = 30,
+            moveCmLeft = 0f,
+            ownerPlayerId = "AI"
+        )
+
+        // 1. Previews show Reroll Wound 1s ready + Dark Pact options
+        val basePreview = TacticalRules.canTarget(legionaries, rangedTarget, WeaponMode.MAIN, openMap, listOf(legionaries, rangedTarget))!!
+        assertTrue(basePreview.rerollWoundOnes)
+        assertFalse(basePreview.lethalHits)
+        assertEquals(0, basePreview.sustainedHits)
+
+        val lethalPreview = TacticalRules.canTarget(
+            legionaries, rangedTarget, WeaponMode.MAIN, openMap, listOf(legionaries, rangedTarget),
+            darkPactChoice = com.example.model.DarkPactChoice.LETHAL_HITS
+        )!!
+        assertTrue(lethalPreview.lethalHits)
+        assertEquals(com.example.model.DarkPactChoice.LETHAL_HITS, lethalPreview.darkPactChoice)
+
+        val sustainedPreview = TacticalRules.canTarget(
+            legionaries, rangedTarget, WeaponMode.MAIN, openMap, listOf(legionaries, rangedTarget),
+            darkPactChoice = com.example.model.DarkPactChoice.SUSTAINED_HITS_1
+        )!!
+        assertEquals(1, sustainedPreview.sustainedHits)
+
+        // 2. Deterministic RNG: Fail 2D6 Ld test (2 + 2 = 4 < 6), suffer D3=2 mortal wounds (4 models remain -> 8 boltgun attacks),
+        //    then roll Hit=6 (Lethal Hit -> auto-wound without Wound roll, Save=1 fail),
+        //    and remaining Hit=3, Wound=1 -> reroll Wound=6!
+        val deterministicRolls = intArrayOf(
+            2, 2, // 2D6 Ld = 4 (fail 6+)
+            2,    // D3 mortal wounds = 2 (Legionaries 10W -> 8W = 4 alive models = 8 attacks)
+            6, 1, // Atk 1: Hit=6 (Lethal auto-wound, NO wound roll), Save=1 (fail -> -1W)
+            3, 1, 6, 6 // Atk 2: Hit=3, Wound=1 (re-rolled!) -> 6 (pass!), Save=6 (saved)
+        )
+        var rollIdx = 0
+        val testRng = object : Random() {
+            override fun nextBits(bitCount: Int): Int = 0
+            override fun nextInt(from: Int, until: Int): Int {
+                // Remaining attacks miss cleanly on Hit=2
+                val v = if (rollIdx < deterministicRolls.size) deterministicRolls[rollIdx] else 2
+                rollIdx++
+                return v.coerceIn(from, until - 1)
+            }
+        }
+
+        val outcome = TacticalRules.resolveAttack(
+            attacker = legionaries,
+            primaryTarget = rangedTarget,
+            allUnits = listOf(legionaries, rangedTarget),
+            mode = WeaponMode.MAIN,
+            map = openMap,
+            rng = testRng,
+            darkPactChoice = com.example.model.DarkPactChoice.LETHAL_HITS
+        )
+
+        // Auto-activated Veterans of the Long War (Reroll Wound 1s) with 1 turn cooldown & took 2 MW from failed Dark Pact
+        assertTrue(outcome.updatedAttacker.legionaryWoundRerollBuffActive)
+        assertEquals(1, outcome.updatedAttacker.skillCooldownLeft)
+        assertEquals(8, outcome.updatedAttacker.totalWounds)
+        assertEquals(4, outcome.updatedAttacker.aliveModels)
+
+        val log = outcome.logEntries.first()
+        val pactStep = log.steps.first { it.phaseName == "DARK PACT" }
+        assertEquals(0, pactStep.passed)
+        assertEquals(1, pactStep.failed)
+        assertEquals(listOf(2, 2), pactStep.diceValues)
+
+        val hitStep = log.steps.first { it.phaseName == "HIT" }
+        assertEquals(8, hitStep.rolled) // 4 surviving models x 2 attacks each!
+        assertTrue(hitStep.note.contains("LETHAL HITS"))
+
+        val woundStep = log.steps.first { it.phaseName == "WOUND" }
+        assertEquals(1, woundStep.rolled) // Atk 1 auto-wounded via Lethal Hits; only Atk 2 rolled wound!
+        assertTrue(woundStep.note.contains("RE-ROLL 1s"))
+
+        // 3. Sustained Hits 1 with passed 2D6 Leadership test (4 + 3 = 7 >= 6) -> 0 self-damage, Hit 6 adds +1 hit
+        val susRolls = intArrayOf(
+            4, 3, // 2D6 Ld = 7 (pass 6+)
+            6, 4, 1, 4, 1 // Atk 1: Hit=6 (+1 Sustained -> 2 hits): Wound 4/Save 1 (-1W), Wound 4/Save 1 (-1W)
+        )
+        var susIdx = 0
+        val susRng = object : Random() {
+            override fun nextBits(bitCount: Int): Int = 0
+            override fun nextInt(from: Int, until: Int): Int {
+                val v = if (susIdx < susRolls.size) susRolls[susIdx] else 2
+                susIdx++
+                return v.coerceIn(from, until - 1)
+            }
+        }
+        val susOutcome = TacticalRules.resolveAttack(
+            attacker = legionaries,
+            primaryTarget = rangedTarget,
+            allUnits = listOf(legionaries, rangedTarget),
+            mode = WeaponMode.MAIN,
+            map = openMap,
+            rng = susRng,
+            darkPactChoice = com.example.model.DarkPactChoice.SUSTAINED_HITS_1
+        )
+        assertEquals(10, susOutcome.updatedAttacker.totalWounds)
+        assertEquals(2, susOutcome.totalDamageDealt)
+        assertEquals(2, susOutcome.hits)
+
+        // 4. Veterans buff persists for melee counter-attacks and re-rolls Wound rolls of 1
+        val adjMarine = rangedTarget.copy(x = 3, worldX = 3f)
+        val counterRolls = intArrayOf(
+            3, 1, 6, 1 // Atk 1: Hit=3, Wound=1 (re-rolled!) -> 6 (pass!), Save=1 (fail -> -1W)
+        )
+        var cIdx = 0
+        val counterRng = object : Random() {
+            override fun nextBits(bitCount: Int): Int = 0
+            override fun nextInt(from: Int, until: Int): Int {
+                val v = if (cIdx < counterRolls.size) counterRolls[cIdx] else 2
+                cIdx++
+                return v.coerceIn(from, until - 1)
+            }
+        }
+        val counter = TacticalRules.resolveMeleeCounterAttack(
+            counterAttacker = outcome.updatedAttacker,
+            target = adjMarine,
+            map = openMap,
+            rng = counterRng
+        )!!
+        assertEquals(1, counter.totalDamageDealt)
+        val cWoundStep = counter.logEntry!!.steps.first { it.phaseName == "WOUND" }
+        assertTrue(cWoundStep.note.contains("RE-ROLL 1s"))
     }
 
     @Test

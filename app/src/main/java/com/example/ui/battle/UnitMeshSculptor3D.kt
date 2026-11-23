@@ -38,6 +38,7 @@ object UnitMeshSculptor3D {
             UnitArchetype.HELLBLASTER,
             UnitArchetype.ASSAULT_MARINE,
             UnitArchetype.CAPTAIN -> buildPrimarisUltramarine(m, archetype)
+            UnitArchetype.LEGIONARY -> buildBlackLegionLegionary(m)
 
             UnitArchetype.TERMAGANT -> buildTermagant(m)
             UnitArchetype.HORMAGAUNT -> buildHormagaunt(m)
@@ -50,6 +51,241 @@ object UnitMeshSculptor3D {
             UnitArchetype.SPORE_MINE -> buildSporeMine(m)
         }
         return m.build()
+    }
+
+    private fun buildBlackLegionLegionary(m: MeshAccumulator) {
+        val s = 1.0f
+        // Abaddon Black armor with subtle slate specular highlight, Retributor Gold trim, Balthasar Brass, Rakarth Flesh bone horns
+        val blBlackR = 0.08f; val blBlackG = 0.09f; val blBlackB = 0.11f
+        val blBlackHiR = 0.14f; val blBlackHiG = 0.15f; val blBlackHiB = 0.18f
+        val blGoldR = 0.86f; val blGoldG = 0.66f; val blGoldB = 0.25f
+        val blBrassR = 0.74f; val blBrassG = 0.54f; val blBrassB = 0.24f
+        val boneR = 0.84f; val boneG = 0.78f; val boneB = 0.60f
+        val leatherR = 0.40f; val leatherG = 0.25f; val leatherB = 0.15f
+
+        // 1. Tabletop Miniature Base (Steel Legion Drab rim, gravel top, pale grass tufts)
+        m.addCylinder(0f, 0.002f, 0f, 0.180f, 0.172f, 0.026f, 16, 0.47f, 0.39f, 0.27f)
+        m.addCylinder(0f, 0.026f, 0f, 0.172f, 0.168f, 0.006f, 16, 0.33f, 0.28f, 0.20f)
+        // Dry Grass Tufts around feet
+        m.addOrientedEllipsoid(-0.04f * s, 0.034f, 0.095f * s, 0.042f, 0.013f, 0.032f, latSegs = 3, lonSegs = 6, r = 0.52f, g = 0.56f, b = 0.26f)
+        m.addOrientedEllipsoid(0.085f * s, 0.034f, -0.055f * s, 0.040f, 0.013f, 0.030f, latSegs = 3, lonSegs = 6, r = 0.54f, g = 0.58f, b = 0.28f)
+        m.addOrientedEllipsoid(0.095f * s, 0.034f, 0.035f * s, 0.032f, 0.011f, 0.028f, latSegs = 3, lonSegs = 6, r = 0.48f, g = 0.52f, b = 0.24f)
+        val by = 0.032f
+
+        // 2. Planted Chaos Power Armor Legs (Right leg = +Z / Left leg = -Z)
+        for (side in floatArrayOf(-1f, 1f)) {
+            val isLeft = side < 0f
+            val footX = if (isLeft) 0.020f * s else 0.032f * s
+            val footZ = side * 0.096f * s
+            val yawDeg = if (isLeft) -16f else 18f
+
+            // Heavy Sabaton Boots with gold ankle/toe trim
+            m.addOrientedBox(footX + 0.018f * s, by + 0.015f * s, footZ, 0.122f * s, 0.030f * s, 0.076f * s, rotYDeg = yawDeg, r = blBlackR, g = blBlackG, b = blBlackB)
+            m.addOrientedBox(footX + 0.046f * s, by + 0.022f * s, footZ, 0.048f * s, 0.018f * s, 0.068f * s, rotYDeg = yawDeg, r = blGoldR, g = blGoldG, b = blGoldB)
+
+            // Flared Lower Greaves
+            val kneeX = footX + 0.008f * s
+            val kneeY = by + 0.195f * s
+            val kneeZ = side * 0.090f * s
+            m.addOrientedCylinder(footX, by + 0.038f * s, footZ, kneeX, kneeY, kneeZ, 0.056f * s, 0.048f * s, 10, r = blBlackR, g = blBlackG, b = blBlackB)
+            // Gold Chaos Trim framing the greave & knee
+            m.addArcTube(kneeX + 0.012f * s, kneeY - 0.008f * s, kneeZ, 0.046f * s, 0.044f * s, 0.010f * s, rotYDeg = yawDeg, startDeg = -70f, endDeg = 70f, arcSegs = 8, tubeSegs = 4, r = blGoldR, g = blGoldG, b = blGoldB)
+            m.addOrientedBox(footX + 0.044f * s, by + 0.055f * s, footZ, 0.014f * s, 0.024f * s, 0.056f * s, rotYDeg = yawDeg, r = blGoldR, g = blGoldG, b = blGoldB)
+
+            if (isLeft) {
+                // Left Leg (-Z, viewer's right in front view): Sculpted Gold Chaos Arrow Pointing Up Shin
+                m.addOrientedBox(footX + 0.046f * s, by + 0.115f * s, footZ, 0.014f * s, 0.082f * s, 0.014f * s, rotYDeg = yawDeg, r = blGoldR, g = blGoldG, b = blGoldB)
+                m.addOrientedBox(footX + 0.046f * s, by + 0.145f * s, footZ - 0.012f * s, 0.014f * s, 0.034f * s, 0.012f * s, rotXDeg = 35f, rotYDeg = yawDeg, r = blGoldR, g = blGoldG, b = blGoldB)
+                m.addOrientedBox(footX + 0.046f * s, by + 0.145f * s, footZ + 0.012f * s, 0.014f * s, 0.034f * s, 0.012f * s, rotXDeg = -35f, rotYDeg = yawDeg, r = blGoldR, g = blGoldG, b = blGoldB)
+                m.addOrientedEllipsoid(kneeX + 0.042f * s, kneeY, kneeZ, 0.024f * s, 0.032f * s, 0.032f * s, rotYDeg = yawDeg, latSegs = 4, lonSegs = 8, r = blBlackHiR, g = blBlackHiG, b = blBlackHiB)
+            } else {
+                // Right Leg (+Z, viewer's left in front view): Ornate Gold Horned Daemon Skull Knee Guard
+                m.addOrientedEllipsoid(kneeX + 0.044f * s, kneeY, kneeZ, 0.026f * s, 0.030f * s, 0.030f * s, rotYDeg = yawDeg, latSegs = 4, lonSegs = 8, r = blGoldR, g = blGoldG, b = blGoldB)
+                m.addOrientedCylinder(kneeX + 0.046f * s, kneeY + 0.012f * s, kneeZ - 0.016f * s, kneeX + 0.056f * s, kneeY + 0.040f * s, kneeZ - 0.026f * s, 0.007f * s, 0.002f * s, 6, r = boneR, g = boneG, b = boneB)
+                m.addOrientedCylinder(kneeX + 0.046f * s, kneeY + 0.012f * s, kneeZ + 0.016f * s, kneeX + 0.056f * s, kneeY + 0.040f * s, kneeZ + 0.026f * s, 0.007f * s, 0.002f * s, 6, r = boneR, g = boneG, b = boneB)
+            }
+
+            // Thighs with gold outer trim
+            val hipY = by + 0.315f * s
+            val hipZ = side * 0.068f * s
+            m.addOrientedCylinder(kneeX, kneeY, kneeZ, 0f, hipY, hipZ, 0.046f * s, 0.054f * s, 10, r = blBlackR, g = blBlackG, b = blBlackB)
+            m.addOrientedBox(0.024f * s, by + 0.255f * s, side * 0.080f * s, 0.014f * s, 0.056f * s, 0.024f * s, r = blGoldR, g = blGoldG, b = blGoldB)
+        }
+        // Right Thigh (+Z, viewer's left): Brown Leather Holster & Pouch
+        m.addOrientedBox(-0.005f * s, by + 0.255f * s, 0.120f * s, 0.052f * s, 0.090f * s, 0.028f * s, rotZDeg = 8f, r = leatherR, g = leatherG, b = leatherB)
+        m.addOrientedBox(-0.005f * s, by + 0.285f * s, 0.125f * s, 0.056f * s, 0.024f * s, 0.026f * s, rotZDeg = 8f, r = blGoldR, g = blGoldG, b = blGoldB)
+
+        // 3. Front Segmented Black/Gold Chaos Tabard & Flanking Chainmail Curtains (Hanging down center +X!)
+        // Steel chainmail curtains flanking left/right
+        m.addOrientedBox(0.066f * s, by + 0.200f * s, -0.036f * s, 0.014f * s, 0.165f * s, 0.030f * s, rotZDeg = 6f, r = STEEL_R * 0.72f, g = STEEL_G * 0.72f, b = STEEL_B * 0.72f)
+        m.addOrientedBox(0.066f * s, by + 0.200f * s, 0.036f * s, 0.014f * s, 0.165f * s, 0.030f * s, rotZDeg = 6f, r = STEEL_R * 0.72f, g = STEEL_G * 0.72f, b = STEEL_B * 0.72f)
+        // Center black armor-plate tabard strap with gold jagged Chaos chevron borders
+        m.addOrientedBox(0.078f * s, by + 0.215f * s, 0f, 0.018f * s, 0.175f * s, 0.048f * s, rotZDeg = 8f, r = blBlackR, g = blBlackG, b = blBlackB)
+        for (i in 0..3) {
+            val ty = by + 0.275f * s - i * 0.038f * s
+            val tx = 0.088f * s - i * 0.004f * s
+            m.addOrientedBox(tx, ty, 0f, 0.012f * s, 0.016f * s, 0.052f * s, rotZDeg = 8f, r = blGoldR, g = blGoldG, b = blGoldB)
+            m.addOrientedBox(tx + 0.004f * s, ty - 0.014f * s, 0f, 0.012f * s, 0.014f * s, 0.022f * s, rotXDeg = 45f, r = blGoldR, g = blGoldG, b = blGoldB)
+        }
+        // Waist Belt & Ornate Gold Chaos Belt Buckle
+        m.addCylinder(0f, by + 0.305f * s, 0f, 0.098f * s, 0.094f * s, 0.048f * s, 12, blBlackR, blBlackG, blBlackB)
+        m.addOrientedEllipsoid(0.096f * s, by + 0.330f * s, 0f, 0.020f * s, 0.024f * s, 0.028f * s, latSegs = 4, lonSegs = 8, r = blGoldR, g = blGoldG, b = blGoldB)
+
+        // 4. Torso Cuirass with Ornate Gold Chaos Trim & Spiked Gorget Collar
+        m.addOrientedEllipsoid(0.010f * s, by + 0.455f * s, 0f, 0.106f * s, 0.110f * s, 0.132f * s, latSegs = 6, lonSegs = 10, r = blBlackR, g = blBlackG, b = blBlackB)
+        // Gold Pectoral Trim & Collar Rim
+        m.addArcTube(0.012f * s, by + 0.535f * s, 0f, 0.082f * s, 0.090f * s, 0.020f * s, startDeg = -85f, endDeg = 85f, arcSegs = 10, tubeSegs = 5, r = blGoldR, g = blGoldG, b = blGoldB)
+        m.addArcTube(-0.018f * s, by + 0.556f * s, 0f, 0.084f * s, 0.094f * s, 0.018f * s, startDeg = 85f, endDeg = 275f, arcSegs = 8, tubeSegs = 5, r = blGoldR, g = blGoldG, b = blGoldB)
+        // Gold Ribbed Abdomen / Chest Trim
+        m.addOrientedBox(0.102f * s, by + 0.470f * s, 0f, 0.016f * s, 0.085f * s, 0.085f * s, rotXDeg = 45f, r = blGoldR, g = blGoldG, b = blGoldB)
+
+        // 5. Chaos Power Backpack with Wide Splayed Stabilizer Arms & Brass Multi-Hole Vent Spheres
+        m.addOrientedBox(-0.108f * s, by + 0.485f * s, 0f, 0.096f * s, 0.165f * s, 0.142f * s, r = blBlackR, g = blBlackG, b = blBlackB)
+        // Central raised power core dome + brass grille
+        m.addOrientedEllipsoid(-0.145f * s, by + 0.520f * s, 0f, 0.048f * s, 0.048f * s, 0.048f * s, latSegs = 4, lonSegs = 8, r = blBlackHiR, g = blBlackHiG, b = blBlackHiB)
+        m.addOrientedCylinder(-0.115f * s, by + 0.565f * s, 0f, -0.125f * s, by + 0.640f * s, 0f, 0.026f * s, 0.022f * s, 8, r = blBrassR, g = blBrassG, b = blBrassB)
+        // Small center chaos spikes on backpack top
+        m.addOrientedCylinder(-0.112f * s, by + 0.625f * s, -0.018f * s, -0.118f * s, by + 0.675f * s, -0.026f * s, 0.008f * s, 0.002f * s, 6, r = blGoldR, g = blGoldG, b = blGoldB)
+        m.addOrientedCylinder(-0.112f * s, by + 0.625f * s, 0.018f * s, -0.118f * s, by + 0.675f * s, 0.026f * s, 0.008f * s, 0.002f * s, 6, r = blGoldR, g = blGoldG, b = blGoldB)
+        // Wide Splayed Exhaust Arms (-Z and +Z) ending in Brass Spherical Vent Balls (just like photo!)
+        for (side in floatArrayOf(-1f, 1f)) {
+            val armStartZ = side * 0.060f * s
+            val armMidZ = side * 0.155f * s
+            val armEndZ = side * 0.228f * s
+            val armY0 = by + 0.545f * s
+            val armY1 = by + 0.618f * s
+            val armX0 = -0.122f * s
+            val armX1 = -0.135f * s
+            m.addOrientedCylinder(armX0, armY0, armStartZ, armX1, armY1 - 0.015f * s, armMidZ, 0.028f * s, 0.024f * s, 8, r = blBlackR, g = blBlackG, b = blBlackB)
+            m.addOrientedCylinder(armX1, armY1 - 0.015f * s, armMidZ, armX1 + 0.010f * s, armY1, armEndZ, 0.024f * s, 0.026f * s, 8, r = blBlackHiR, g = blBlackHiG, b = blBlackHiB)
+            // Gold band & sharp Chaos fin on exhaust arm
+            m.addOrientedCylinder(armX1, armY1, armMidZ, armX1, armY1 + 0.050f * s, armMidZ - side * 0.012f * s, 0.010f * s, 0.002f * s, 6, r = blGoldR, g = blGoldG, b = blGoldB)
+            // Antique Brass Spherical Multi-Hole Exhaust Vent at tip
+            val vx = armX1 + 0.014f * s
+            val vy = armY1
+            val vz = armEndZ
+            m.addOrientedEllipsoid(vx, vy, vz, 0.038f * s, 0.038f * s, 0.038f * s, latSegs = 5, lonSegs = 10, r = blBrassR, g = blBrassG, b = blBrassB)
+            // Dark recessed thruster vent ports on the brass ball (matching the dotted nozzle look in photo!)
+            m.addOrientedEllipsoid(vx + 0.026f * s, vy + 0.012f * s, vz + side * 0.012f * s, 0.010f * s, 0.010f * s, 0.010f * s, latSegs = 3, lonSegs = 6, r = 0.04f, g = 0.04f, b = 0.05f)
+            m.addOrientedEllipsoid(vx + 0.026f * s, vy - 0.012f * s, vz + side * 0.012f * s, 0.010f * s, 0.010f * s, 0.010f * s, latSegs = 3, lonSegs = 6, r = 0.04f, g = 0.04f, b = 0.05f)
+            m.addOrientedEllipsoid(vx, vy, vz + side * 0.032f * s, 0.012f * s, 0.012f * s, 0.010f * s, latSegs = 3, lonSegs = 6, r = 0.04f, g = 0.04f, b = 0.05f)
+        }
+
+        // 6. Iconic Black Legion Horned Chaos Helmet (Matches photo silhouette!)
+        val helmY = by + 0.608f * s
+        val helmX = 0.014f * s
+        // Main Coal-Black Cranium
+        m.addOrientedEllipsoid(helmX, helmY, 0f, 0.076f * s, 0.078f * s, 0.068f * s, latSegs = 6, lonSegs = 10, r = blBlackR, g = blBlackG, b = blBlackB)
+        // Gold Chaos Brow & Cheek Trim Ridge
+        m.addOrientedBox(helmX + 0.056f * s, helmY + 0.026f * s, 0f, 0.024f * s, 0.014f * s, 0.072f * s, r = blGoldR, g = blGoldG, b = blGoldB)
+        m.addOrientedBox(helmX + 0.058f * s, helmY + 0.024f * s, 0f, 0.026f * s, 0.028f * s, 0.014f * s, r = blGoldR, g = blGoldG, b = blGoldB)
+        // Steel Snarling Vox-Grill Mouthpiece (distinctive vertical metal bars on front of mask in photo!)
+        m.addOrientedBox(helmX + 0.064f * s, helmY - 0.026f * s, 0f, 0.036f * s, 0.038f * s, 0.048f * s, rotZDeg = -14f, r = blBlackHiR, g = blBlackHiG, b = blBlackHiB)
+        for (gz in floatArrayOf(-0.016f, -0.008f, 0f, 0.008f, 0.016f)) {
+            m.addOrientedBox(helmX + 0.082f * s, helmY - 0.026f * s, gz * s, 0.008f * s, 0.028f * s, 0.005f * s, rotZDeg = -14f, r = STEEL_R, g = STEEL_G, b = STEEL_B)
+        }
+        // Gold Trim border around bottom jaw
+        m.addOrientedBox(helmX + 0.054f * s, helmY - 0.044f * s, 0f, 0.042f * s, 0.012f * s, 0.056f * s, rotZDeg = -12f, r = blGoldR, g = blGoldG, b = blGoldB)
+        // Menacing Glowing Red Eye Lenses
+        m.addOrientedBox(helmX + 0.068f * s, helmY + 0.008f * s, -0.021f * s, 0.018f * s, 0.012f * s, 0.022f * s, rotXDeg = -14f, rotYDeg = 18f, r = 0.98f, g = 0.14f, b = 0.12f, a = E)
+        m.addOrientedBox(helmX + 0.068f * s, helmY + 0.008f * s, 0.021f * s, 0.018f * s, 0.012f * s, 0.022f * s, rotXDeg = 14f, rotYDeg = -18f, r = 0.98f, g = 0.14f, b = 0.12f, a = E)
+
+        // Two Large Curved Ribbed Horns + Center Forehead Crest Horn (exact silhouette from photo!)
+        for (side in floatArrayOf(-1f, 1f)) {
+            val hbZ = side * 0.052f * s
+            val hmZ = side * 0.106f * s
+            val htZ = side * 0.088f * s
+            // Gold horn collar socket at temple
+            m.addOrientedCylinder(helmX + 0.008f * s, helmY + 0.028f * s, hbZ * 0.85f, helmX + 0.018f * s, helmY + 0.048f * s, hbZ * 1.10f, 0.022f * s, 0.020f * s, 8, r = blGoldR, g = blGoldG, b = blGoldB)
+            // Lower horn curve sweeping out & up
+            m.addOrientedCylinder(helmX + 0.018f * s, helmY + 0.048f * s, hbZ * 1.05f, helmX + 0.036f * s, helmY + 0.112f * s, hmZ, 0.019f * s, 0.014f * s, 8, r = boneR, g = boneG, b = boneB)
+            // Upper horn tip curving sharply inward & up
+            m.addOrientedCylinder(helmX + 0.036f * s, helmY + 0.112f * s, hmZ, helmX + 0.052f * s, helmY + 0.188f * s, htZ, 0.014f * s, 0.002f * s, 8, r = boneR * 0.92f, g = boneG * 0.90f, b = boneB * 0.85f)
+        }
+        // Center Forehead Gold-Trimmed Horn Crest curving up-forward
+        m.addOrientedCylinder(helmX + 0.058f * s, helmY + 0.042f * s, 0f, helmX + 0.078f * s, helmY + 0.105f * s, 0f, 0.014f * s, 0.008f * s, 6, r = blGoldR, g = blGoldG, b = blGoldB)
+        m.addOrientedCylinder(helmX + 0.078f * s, helmY + 0.105f * s, 0f, helmX + 0.068f * s, helmY + 0.165f * s, 0f, 0.008f * s, 0.002f * s, 6, r = boneR, g = boneG, b = boneB)
+
+        // 7. Baroque Gold-Trimmed Black Pauldrons (with Gold 8-Pointed Chaos Star on Left Pauldron -Z!)
+        for (side in floatArrayOf(-1f, 1f)) {
+            val pz = side * 0.156f * s
+            val py = by + 0.502f * s
+            // Coal-black dome shell
+            m.addOrientedEllipsoid(0f, py, pz, 0.102f * s, 0.094f * s, 0.090f * s, rotXDeg = side * 14f, phiEndDeg = 108f, latSegs = 5, lonSegs = 12, r = blBlackR, g = blBlackG, b = blBlackB)
+            // Heavy Gold Chaos Rim framing the pauldron
+            m.addArcTube(0f, py - 0.022f * s, pz, 0.098f * s, 0.088f * s, 0.016f * s, rotXDeg = side * 14f, startDeg = 0f, endDeg = 360f, arcSegs = 12, tubeSegs = 4, r = blGoldR, g = blGoldG, b = blGoldB)
+            // Pointed Chaos Trim Spokes at corners of rim
+            m.addOrientedBox(0f, py + 0.058f * s, pz + side * 0.056f * s, 0.024f * s, 0.024f * s, 0.014f * s, rotYDeg = 45f, r = blGoldR, g = blGoldG, b = blGoldB)
+
+            if (side < 0f) {
+                // Left Pauldron (-Z, clearly visible in photo!): Raised Gold 8-Pointed Chaos Star
+                val sz = pz - 0.086f * s
+                m.addOrientedEllipsoid(0f, py + 0.005f * s, sz, 0.018f * s, 0.018f * s, 0.008f * s, latSegs = 3, lonSegs = 6, r = blGoldR, g = blGoldG, b = blGoldB)
+                m.addOrientedBox(0f, py + 0.005f * s, sz, 0.008f * s, 0.068f * s, 0.008f * s, r = blGoldR, g = blGoldG, b = blGoldB)
+                m.addOrientedBox(0f, py + 0.005f * s, sz, 0.068f * s, 0.008f * s, 0.008f * s, r = blGoldR, g = blGoldG, b = blGoldB)
+                m.addOrientedBox(0f, py + 0.005f * s, sz, 0.008f * s, 0.056f * s, 0.008f * s, rotZDeg = 45f, r = blGoldR, g = blGoldG, b = blGoldB)
+                m.addOrientedBox(0f, py + 0.005f * s, sz, 0.056f * s, 0.008f * s, 0.008f * s, rotZDeg = 45f, r = blGoldR, g = blGoldG, b = blGoldB)
+            } else {
+                // Right Pauldron (+Z): Jagged Gold Chaos Trim Arrow
+                m.addOrientedBox(0f, py + 0.010f * s, pz + 0.086f * s, 0.044f * s, 0.044f * s, 0.010f * s, rotZDeg = 45f, r = blGoldR, g = blGoldG, b = blGoldB)
+            }
+        }
+
+        // 8. Coal-Black Chaos Arms with Gold Wrist Cuffs holding Boltgun Across Chest
+        fun buildChaosArm(
+            shX: Float, shY: Float, shZ: Float,
+            elX: Float, elY: Float, elZ: Float,
+            hdX: Float, hdY: Float, hdZ: Float
+        ) {
+            m.addOrientedEllipsoid(elX, elY, elZ, 0.036f * s, 0.036f * s, 0.036f * s, latSegs = 3, lonSegs = 6, r = IRON_R, g = IRON_G, b = IRON_B)
+            m.addOrientedCylinder(shX, shY, shZ, elX, elY, elZ, 0.044f * s, 0.038f * s, 8, r = blBlackR, g = blBlackG, b = blBlackB)
+            m.addOrientedCylinder(elX, elY, elZ, hdX, hdY, hdZ, 0.036f * s, 0.044f * s, 8, r = blBlackHiR, g = blBlackHiG, b = blBlackHiB)
+            // Gold Chaos Gauntlet Trim Cuff
+            val cuffX = elX + (hdX - elX) * 0.78f
+            val cuffY = elY + (hdY - elY) * 0.78f
+            val cuffZ = elZ + (hdZ - elZ) * 0.78f
+            m.addOrientedCylinder(cuffX, cuffY, cuffZ, hdX, hdY, hdZ, 0.046f * s, 0.045f * s, 8, r = blGoldR, g = blGoldG, b = blGoldB)
+            m.addOrientedEllipsoid(hdX, hdY, hdZ, 0.034f * s, 0.034f * s, 0.032f * s, latSegs = 3, lonSegs = 6, r = blBlackR, g = blBlackG, b = blBlackB)
+        }
+
+        // Left arm (-Z) reaches across front to cradle boltgun barrel/handguard
+        buildChaosArm(
+            shX = 0f, shY = by + 0.485f * s, shZ = -0.156f * s,
+            elX = 0.055f * s, elY = by + 0.370f * s, elZ = -0.140f * s,
+            hdX = 0.148f * s, hdY = by + 0.378f * s, hdZ = -0.025f * s
+        )
+        // Right arm (+Z) holds rear grip & trigger
+        buildChaosArm(
+            shX = 0f, shY = by + 0.485f * s, shZ = 0.156f * s,
+            elX = 0.035f * s, elY = by + 0.370f * s, elZ = 0.150f * s,
+            hdX = 0.125f * s, hdY = by + 0.375f * s, hdZ = 0.095f * s
+        )
+
+        // 9. Chaos Boltgun held horizontally across chest (pointing front-left +X/-Z, matching photo!)
+        val bgX = 0.158f * s
+        val bgY = by + 0.392f * s
+        val bgZ = 0.020f * s
+        val gunYaw = 58f // Angled across chest toward viewer's right / front-left
+        val radYaw = Math.toRadians(gunYaw.toDouble())
+        val dirX = kotlin.math.cos(radYaw).toFloat()
+        val dirZ = -kotlin.math.sin(radYaw).toFloat()
+
+        // Main Boltgun Receiver Casing (dark gunmetal/black)
+        m.addOrientedBox(bgX, bgY, bgZ, 0.190f * s, 0.068f * s, 0.044f * s, rotYDeg = gunYaw, r = 0.14f, g = 0.15f, b = 0.18f)
+        // Metallic Steel Upper Shroud & Sight Rail
+        m.addOrientedBox(bgX, bgY + 0.038f * s, bgZ, 0.165f * s, 0.018f * s, 0.034f * s, rotYDeg = gunYaw, r = STEEL_R * 0.85f, g = STEEL_G * 0.85f, b = STEEL_B * 0.85f)
+        // Gold Chaos Skull Icon mounted near front side of receiver (matching photo!)
+        m.addOrientedEllipsoid(bgX + dirX * 0.035f * s + 0.020f * s, bgY + 0.008f * s, bgZ + dirZ * 0.035f * s, 0.016f * s, 0.018f * s, 0.016f * s, latSegs = 3, lonSegs = 6, r = blGoldR, g = blGoldG, b = blGoldB)
+        // Curved Sickle Box Magazine below receiver
+        m.addOrientedBox(bgX + dirX * 0.010f * s, bgY - 0.052f * s, bgZ + dirZ * 0.010f * s, 0.046f * s, 0.064f * s, 0.028f * s, rotYDeg = gunYaw, rotZDeg = 14f, r = IRON_R * 1.15f, g = IRON_G * 1.15f, b = IRON_B * 1.15f)
+        // Heavy Steel Barrel & Muzzle Bore extending forward
+        val mStartX = bgX + dirX * 0.088f * s
+        val mStartZ = bgZ + dirZ * 0.088f * s
+        val mEndX = bgX + dirX * 0.155f * s
+        val mEndZ = bgZ + dirZ * 0.155f * s
+        m.addOrientedCylinder(mStartX, bgY + 0.006f * s, mStartZ, mEndX, bgY + 0.006f * s, mEndZ, 0.022f * s, 0.020f * s, 8, r = STEEL_R, g = STEEL_G, b = STEEL_B)
+        // Drilled dark barrel muzzle bore
+        m.addOrientedCylinder(mEndX - dirX * 0.006f * s, bgY + 0.006f * s, mEndZ - dirZ * 0.006f * s, mEndX + dirX * 0.004f * s, bgY + 0.006f * s, mEndZ + dirZ * 0.004f * s, 0.011f * s, 0.011f * s, 6, r = 0.03f, g = 0.03f, b = 0.04f)
     }
 
     private fun buildAssaultTerminator(m: MeshAccumulator, useLightningClaws: Boolean = false) {

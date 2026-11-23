@@ -4,6 +4,7 @@ import androidx.compose.runtime.Immutable
 
 enum class Faction(val displayName: String, val badgeTag: String) {
     MARINES("Ultramarines", "XIII: ULTRAMARINES"),
+    BLACK_LEGION("Black Legion", "LEGION: BLACK LEGION"),
     XENOS("Tyranids", "HIVE FLEET: TYRANIDS")
 }
 
@@ -54,6 +55,7 @@ enum class UnitArchetype {
     TERMINATOR,
     DREADNOUGHT,
     CAPTAIN,
+    LEGIONARY,
     TERMAGANT,
     HORMAGAUNT,
     WARRIOR,
@@ -223,7 +225,8 @@ data class BattleUnit(
     val ownerPlayerName: String = "",
     val markedByTeam: Int? = null,
     val meleeChargeBuffActive: Boolean = false,
-    val bladeguardRerollBuffActive: Boolean = false
+    val bladeguardRerollBuffActive: Boolean = false,
+    val legionaryWoundRerollBuffActive: Boolean = false
 ) {
     val pos: GridPos get() = GridPos(x, y)
     val worldPos: WorldPos get() = WorldPos(worldX, worldY)
@@ -232,8 +235,8 @@ data class BattleUnit(
     val isMarked: Boolean get() = markedByTeam != null
     val effectiveTeam: Int
         get() = when (ownerPlayerId) {
-            "p1", "p2" -> 0
-            "p3", "p4", "AI" -> 1
+            "p1", "p2", "player" -> 0
+            "p3", "p4", "AI", "ai" -> 1
             else -> if (faction == Faction.MARINES) 0 else 1
         }
     fun isEnemyOf(other: BattleUnit): Boolean = effectiveTeam != other.effectiveTeam
@@ -292,6 +295,12 @@ enum class CoverTag(val label: String) {
     COVER("COVER")
 }
 
+enum class DarkPactChoice(val label: String) {
+    NONE("NO PACT"),
+    LETHAL_HITS("LETHAL HITS"),
+    SUSTAINED_HITS_1("SUSTAINED 1")
+}
+
 @Immutable
 data class TargetPreview(
     val targetUid: String,
@@ -311,6 +320,9 @@ data class TargetPreview(
     val weaponMode: WeaponMode,
     val weaponName: String = "",
     val sustainedHits: Int = 0,
+    val lethalHits: Boolean = false,
+    val rerollWoundOnes: Boolean = false,
+    val darkPactChoice: DarkPactChoice = DarkPactChoice.NONE,
     val markedBonusApplied: Boolean = false,
     val inRange: Boolean,
     val hasLos: Boolean
@@ -360,7 +372,11 @@ data class TurnSplashData(
     val xenosModelsAlive: Int,
     val playerKills: Int,
     val playerLosses: Int,
-    val commanderLabel: String = ""
+    val commanderLabel: String = "",
+    val playerFaction: Faction = Faction.MARINES,
+    val enemyFaction: Faction = Faction.XENOS,
+    val playerModelsAlive: Int = marineModelsAlive,
+    val enemyModelsAlive: Int = xenosModelsAlive
 )
 
 @Immutable
@@ -470,6 +486,8 @@ data class CoopState(
 data class SettingsState(
     val soundVolume: Float = 0.8f,
     val sfxEnabled: Boolean = true,
+    val bgmVolume: Float = 0.8f,
+    val bgmEnabled: Boolean = true,
     val graphicsLevel: Int = 3, // 1 = Low, 2 = Medium, 3 = High, 4 = Ultra
     val screenBrightness: Float = 1.0f
 )

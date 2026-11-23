@@ -253,19 +253,21 @@ fun Battlefield3DView(
                 if (sx < -60f || sx > size.width + 60f || sy < -40f || sy > size.height + 40f) continue
 
                 val isSelected = unit.uid == st.selectedUnitUid
-                val isTeam0 = if (st.isCoopMode) unit.effectiveTeam == 0 else unit.faction == Faction.MARINES
+                val isTeam0 = if (st.isCoopMode) unit.effectiveTeam == 0 else unit.faction == st.playerFaction
                 val borderCol = when {
                     isSelected && isTeam0 -> Color(0xFFD9E2EE)
                     isSelected -> Color(0xFFFFB5B5)
                     st.isCoopMode && isTeam0 -> Color(0xFF3A8FD6)
                     st.isCoopMode -> Color(0xFFC9444C)
                     unit.faction == Faction.MARINES -> Color(0xFF345B91)
+                    unit.faction == Faction.BLACK_LEGION -> Color(0xFFB38E46)
                     else -> Color(0xFF6B3680)
                 }
                 val fillCol = when {
                     st.isCoopMode && isTeam0 -> Color(0xFF3A8FD6)
                     st.isCoopMode -> Color(0xFFC9444C)
                     unit.faction == Faction.MARINES -> Color(0xFF3B669E)
+                    unit.faction == Faction.BLACK_LEGION -> Color(0xFFC99E44)
                     else -> Color(0xFF7D4394)
                 }
                 val woundsFrac = (unit.totalWounds.toFloat() / unit.maxTotalWounds.coerceAtLeast(1)).coerceIn(0f, 1f)

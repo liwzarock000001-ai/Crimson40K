@@ -106,6 +106,8 @@ fun SetupScreen(
     state: SetupUiState,
     onBackToMenu: () -> Unit,
     onToggleSide: () -> Unit,
+    onSelectPlayerFaction: (Faction) -> Unit,
+    onSelectEnemyFaction: (Faction) -> Unit,
     onPointLimitChange: (Int) -> Unit,
     onSave: () -> Unit,
     onReset: () -> Unit,
@@ -148,7 +150,7 @@ fun SetupScreen(
                     .weight(1f)
                     .fillMaxWidth()
             ) {
-                val isWide = maxWidth >= 700.dp
+                val isWide = maxWidth >= 840.dp
                 val listState = rememberLazyListState()
                 LazyColumn(
                     state = listState,
@@ -160,65 +162,48 @@ fun SetupScreen(
                         item {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
                                 verticalAlignment = Alignment.Top
                             ) {
-                                FactionSetupCard(
-                                    faction = Faction.MARINES,
-                                    isPlayer = state.playerFaction == Faction.MARINES,
-                                    roster = state.marineRoster,
-                                    templates = state.templates,
-                                    totalPoints = state.marinePoints,
-                                    pointLimit = state.pointLimit,
-                                    onRandomize = { onRandomize(Faction.MARINES) },
-                                    onAddUnit = { onAddUnit(Faction.MARINES, it) },
-                                    onRemoveSlot = { onRemoveSlot(Faction.MARINES, it) },
-                                    onEditTemplate = onEditTemplate,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                FactionSetupCard(
-                                    faction = Faction.XENOS,
-                                    isPlayer = state.playerFaction == Faction.XENOS,
-                                    roster = state.xenosRoster,
-                                    templates = state.templates,
-                                    totalPoints = state.xenosPoints,
-                                    pointLimit = state.pointLimit,
-                                    onRandomize = { onRandomize(Faction.XENOS) },
-                                    onAddUnit = { onAddUnit(Faction.XENOS, it) },
-                                    onRemoveSlot = { onRemoveSlot(Faction.XENOS, it) },
-                                    onEditTemplate = onEditTemplate,
-                                    modifier = Modifier.weight(1f)
-                                )
+                                Faction.entries.forEach { faction ->
+                                    FactionSetupCard(
+                                        faction = faction,
+                                        isPlayer = state.playerFaction == faction,
+                                        isEnemy = state.enemyFaction == faction,
+                                        roster = state.rosterFor(faction),
+                                        templates = state.templates,
+                                        totalPoints = state.pointsFor(faction),
+                                        pointLimit = state.pointLimit,
+                                        onSelectPlayer = { onSelectPlayerFaction(faction) },
+                                        onSelectEnemy = { onSelectEnemyFaction(faction) },
+                                        onRandomize = { onRandomize(faction) },
+                                        onAddUnit = { onAddUnit(faction, it) },
+                                        onRemoveSlot = { onRemoveSlot(faction, it) },
+                                        onEditTemplate = onEditTemplate,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
                             }
                         }
                     } else {
-                        item {
-                            FactionSetupCard(
-                                faction = Faction.MARINES,
-                                isPlayer = state.playerFaction == Faction.MARINES,
-                                roster = state.marineRoster,
-                                templates = state.templates,
-                                totalPoints = state.marinePoints,
-                                pointLimit = state.pointLimit,
-                                onRandomize = { onRandomize(Faction.MARINES) },
-                                onAddUnit = { onAddUnit(Faction.MARINES, it) },
-                                onRemoveSlot = { onRemoveSlot(Faction.MARINES, it) },
-                                onEditTemplate = onEditTemplate
-                            )
-                        }
-                        item {
-                            FactionSetupCard(
-                                faction = Faction.XENOS,
-                                isPlayer = state.playerFaction == Faction.XENOS,
-                                roster = state.xenosRoster,
-                                templates = state.templates,
-                                totalPoints = state.xenosPoints,
-                                pointLimit = state.pointLimit,
-                                onRandomize = { onRandomize(Faction.XENOS) },
-                                onAddUnit = { onAddUnit(Faction.XENOS, it) },
-                                onRemoveSlot = { onRemoveSlot(Faction.XENOS, it) },
-                                onEditTemplate = onEditTemplate
-                            )
+                        Faction.entries.forEach { faction ->
+                            item(key = faction.name) {
+                                FactionSetupCard(
+                                    faction = faction,
+                                    isPlayer = state.playerFaction == faction,
+                                    isEnemy = state.enemyFaction == faction,
+                                    roster = state.rosterFor(faction),
+                                    templates = state.templates,
+                                    totalPoints = state.pointsFor(faction),
+                                    pointLimit = state.pointLimit,
+                                    onSelectPlayer = { onSelectPlayerFaction(faction) },
+                                    onSelectEnemy = { onSelectEnemyFaction(faction) },
+                                    onRandomize = { onRandomize(faction) },
+                                    onAddUnit = { onAddUnit(faction, it) },
+                                    onRemoveSlot = { onRemoveSlot(faction, it) },
+                                    onEditTemplate = onEditTemplate
+                                )
+                            }
                         }
                     }
                 }
@@ -272,7 +257,6 @@ private fun SetupHeader(
                 )
         )
         val pal = factionPalette(state.playerFaction)
-        val isMarines = state.playerFaction == Faction.MARINES
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -388,7 +372,7 @@ private fun SetupHeader(
                         enabled = state.canDeploy,
                         shape = grimdarkBevelShape(5.dp),
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = if (isMarines) MarineBright else XenosViolet,
+                            containerColor = pal.primaryAccent,
                             contentColor = TextPrimary
                         ),
                         border = BorderStroke(1.dp, pal.trimBorder),
@@ -412,73 +396,63 @@ private fun SetupHeader(
                     .background(InputDark.copy(alpha = 0.92f))
                     .border(1.dp, pal.trimMuted, CutCornerShape(4.dp))
                     .padding(horizontal = 10.dp, vertical = 5.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                val marineOver = state.marinePoints > state.pointLimit
-                val xenosOver = state.xenosPoints > state.pointLimit
-                val marineLeft = (state.pointLimit - state.marinePoints).coerceAtLeast(0)
-                val xenosLeft = (state.pointLimit - state.xenosPoints).coerceAtLeast(0)
-                val marineRatio = (state.marinePoints.toFloat() / state.pointLimit.coerceAtLeast(1).toFloat()).coerceIn(0f, 1f)
-                val xenosRatio = (state.xenosPoints.toFloat() / state.pointLimit.coerceAtLeast(1).toFloat()).coerceIn(0f, 1f)
-
-                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("ULTRAMARINES: ${state.marinePoints} / ${state.pointLimit} PT", style = MaterialTheme.typography.labelSmall, color = MarineBright, fontWeight = FontWeight.Bold)
-                        Text(
-                            text = if (marineOver) "OVER!" else "${marineLeft} PT LEFT",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = if (marineOver) CrimsonSoft else EmeraldBuff,
-                            fontWeight = FontWeight.Bold
-                        )
+                Faction.entries.forEach { faction ->
+                    val fPal = factionPalette(faction)
+                    val pts = state.pointsFor(faction)
+                    val over = pts > state.pointLimit
+                    val ratio = (pts.toFloat() / state.pointLimit.coerceAtLeast(1).toFloat()).coerceIn(0f, 1f)
+                    val roleTag = when (faction) {
+                        state.playerFaction -> "YOU"
+                        state.enemyFaction -> "FOE"
+                        else -> ""
                     }
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(5.dp)
-                            .clip(CutCornerShape(2.dp))
-                            .background(PanelIronBottom)
-                    ) {
+                    val shortName = when (faction) {
+                        Faction.MARINES -> "MARINES"
+                        Faction.BLACK_LEGION -> "BLACK LEGION"
+                        Faction.XENOS -> "TYRANIDS"
+                    }
+                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = if (roleTag.isNotEmpty()) "$shortName ($roleTag)" else shortName,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = fPal.headerText,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false)
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Text(
+                                text = if (over) "OVER!" else "$pts/${state.pointLimit}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (over) CrimsonSoft else fPal.primaryAccent,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                softWrap = false
+                            )
+                        }
                         Box(
                             modifier = Modifier
-                                .fillMaxHeight()
-                                .fillMaxWidth(marineRatio)
-                                .background(if (marineOver) CrimsonSoft else MarineBright)
-                        )
-                    }
-                }
-
-                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("TYRANIDS: ${state.xenosPoints} / ${state.pointLimit} PT", style = MaterialTheme.typography.labelSmall, color = XenosViolet, fontWeight = FontWeight.Bold)
-                        Text(
-                            text = if (xenosOver) "OVER!" else "${xenosLeft} PT LEFT",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = if (xenosOver) CrimsonSoft else EmeraldBuff,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(5.dp)
-                            .clip(CutCornerShape(2.dp))
-                            .background(PanelIronBottom)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxHeight()
-                                .fillMaxWidth(xenosRatio)
-                                .background(if (xenosOver) CrimsonSoft else XenosViolet)
-                        )
+                                .fillMaxWidth()
+                                .height(5.dp)
+                                .clip(CutCornerShape(2.dp))
+                                .background(PanelIronBottom)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxHeight()
+                                    .fillMaxWidth(ratio)
+                                    .background(if (over) CrimsonSoft else fPal.primaryAccent)
+                            )
+                        }
                     }
                 }
             }
@@ -535,20 +509,32 @@ private fun SetupHeader(
 private fun FactionSetupCard(
     faction: Faction,
     isPlayer: Boolean,
+    isEnemy: Boolean,
     roster: List<RosterSlot>,
     templates: Map<String, UnitTemplate>,
     totalPoints: Int,
     pointLimit: Int,
+    onSelectPlayer: () -> Unit,
+    onSelectEnemy: () -> Unit,
     onRandomize: () -> Unit,
     onAddUnit: (String) -> Unit,
     onRemoveSlot: (String) -> Unit,
     onEditTemplate: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val isMarines = faction == Faction.MARINES
     val pal = factionPalette(faction)
     val overBudget = totalPoints > pointLimit
     val catalog = templates.values.filter { it.faction == faction }
+    val crestRes = when (faction) {
+        Faction.MARINES -> R.drawable.img_marine_crest
+        Faction.BLACK_LEGION -> R.drawable.img_black_legion_crest
+        Faction.XENOS -> R.drawable.img_xenos_crest
+    }
+    val rolePrefix = when {
+        isPlayer -> "COMMANDER"
+        isEnemy -> "HOSTILE"
+        else -> "RESERVE"
+    }
 
     GrimdarkBevelPanel(
         modifier = modifier.fillMaxWidth(),
@@ -573,9 +559,7 @@ private fun FactionSetupCard(
                     modifier = Modifier.weight(1f)
                 ) {
                     Image(
-                        painter = painterResource(
-                            id = if (isMarines) R.drawable.img_marine_crest else R.drawable.img_xenos_crest
-                        ),
+                        painter = painterResource(id = crestRes),
                         contentDescription = "${faction.displayName} Crest",
                         contentScale = ContentScale.Crop,
                         modifier = Modifier
@@ -585,7 +569,7 @@ private fun FactionSetupCard(
                     )
                     Column {
                         Text(
-                            text = "${if (isPlayer) "COMMANDER" else "HOSTILE"}: ${faction.displayName.uppercase()}",
+                            text = "$rolePrefix: ${faction.displayName.uppercase()}",
                             style = MaterialTheme.typography.titleMedium,
                             color = pal.headerText,
                             maxLines = 1,
@@ -637,10 +621,65 @@ private fun FactionSetupCard(
                 }
             }
 
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedButton(
+                    onClick = onSelectPlayer,
+                    shape = grimdarkBevelShape(4.dp),
+                    border = BorderStroke(1.dp, if (isPlayer) pal.trimBorder else DividerIron),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        containerColor = if (isPlayer) pal.buttonSurface else InputDark,
+                        contentColor = if (isPlayer) pal.headerText else TextMuted
+                    ),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(34.dp)
+                        .testTag("select_player_${faction.name.lowercase()}")
+                ) {
+                    Text(
+                        text = if (isPlayer) "ACTIVE COMMANDER" else "PLAY AS FACTION",
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                OutlinedButton(
+                    onClick = onSelectEnemy,
+                    shape = grimdarkBevelShape(4.dp),
+                    border = BorderStroke(1.dp, if (isEnemy) CrimsonSoft else DividerIron),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        containerColor = if (isEnemy) CrimsonSurface else InputDark,
+                        contentColor = if (isEnemy) CrimsonSoft else TextMuted
+                    ),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(34.dp)
+                        .testTag("select_enemy_${faction.name.lowercase()}")
+                ) {
+                    Text(
+                        text = if (isEnemy) "HOSTILE ENEMY" else "SET AS ENEMY",
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+
             HorizontalDivider(color = DividerIron)
 
             Text(
-                text = if (isMarines) "DEPLOYED STRIKE FORCE (${roster.size})" else "DEPLOYED TYRANIDS (${roster.size})",
+                text = when (faction) {
+                    Faction.MARINES -> "DEPLOYED STRIKE FORCE (${roster.size})"
+                    Faction.BLACK_LEGION -> "DEPLOYED WARBAND (${roster.size})"
+                    Faction.XENOS -> "DEPLOYED TYRANIDS (${roster.size})"
+                },
                 style = MaterialTheme.typography.labelSmall,
                 color = pal.badgeText
             )
@@ -678,7 +717,11 @@ private fun FactionSetupCard(
 
             Spacer(Modifier.height(2.dp))
             Text(
-                text = if (isMarines) "ARMORY REINFORCEMENTS" else "TYRANID BIO-STRAINS",
+                text = when (faction) {
+                    Faction.MARINES -> "ARMORY REINFORCEMENTS"
+                    Faction.BLACK_LEGION -> "WARP-FORGED REINFORCEMENTS"
+                    Faction.XENOS -> "TYRANID BIO-STRAINS"
+                },
                 style = MaterialTheme.typography.labelSmall,
                 color = TextMuted
             )
@@ -898,7 +941,6 @@ private fun SetupFooter(
     state: SetupUiState
 ) {
     val pal = factionPalette(state.playerFaction)
-    val isMarines = state.playerFaction == Faction.MARINES
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -924,8 +966,11 @@ private fun SetupFooter(
             }
             if (state.validationWarning == null && state.statusMessage == null) {
                 Text(
-                    text = if (isMarines) "ULTRAMARINES COGITATOR READY • DEPLOY STRIKE FORCE"
-                    else "HIVE SYNAPSE LINK ARMED • UNLEASH THE TYRANIDS",
+                    text = when (state.playerFaction) {
+                        Faction.MARINES -> "ULTRAMARINES COGITATOR READY • DEPLOY STRIKE FORCE"
+                        Faction.BLACK_LEGION -> "BLACK LEGION WARBAND ARMED • LET THE GALAXY BURN"
+                        Faction.XENOS -> "HIVE SYNAPSE LINK ARMED • UNLEASH THE TYRANIDS"
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = pal.badgeText
                 )

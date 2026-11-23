@@ -222,66 +222,83 @@ class GlesBattleRenderer(
             val selVis = unitVisPos[selectedUnit.uid]
             val sx = selVis?.get(0) ?: selectedUnit.worldX
             val sz = selVis?.get(1) ?: selectedUnit.worldY
-            val isMarineSel = selectedUnit.faction == Faction.MARINES
             Matrix.setIdentityM(modelMat, 0)
             Matrix.translateM(modelMat, 0, sx, 0.012f, sz)
-            if (isMarineSel) {
-                drawVbo(tileVbo, 0.72f, 0.78f, 0.86f, 0.20f, unlit = true)
-                drawVbo(ringVbo, 0.84f, 0.89f, 0.96f, 0.92f, unlit = true)
-            } else {
-                drawVbo(tileVbo, 0.65f, 0.36f, 0.78f, 0.20f, unlit = true)
-                drawVbo(ringVbo, 0.78f, 0.56f, 0.86f, 0.92f, unlit = true)
+            when (selectedUnit.faction) {
+                Faction.MARINES -> {
+                    drawVbo(tileVbo, 0.72f, 0.78f, 0.86f, 0.20f, unlit = true)
+                    drawVbo(ringVbo, 0.84f, 0.89f, 0.96f, 0.92f, unlit = true)
+                }
+                Faction.BLACK_LEGION -> {
+                    drawVbo(tileVbo, 0.78f, 0.58f, 0.22f, 0.22f, unlit = true)
+                    drawVbo(ringVbo, 0.94f, 0.74f, 0.30f, 0.92f, unlit = true)
+                }
+                Faction.XENOS -> {
+                    drawVbo(tileVbo, 0.65f, 0.36f, 0.78f, 0.20f, unlit = true)
+                    drawVbo(ringVbo, 0.78f, 0.56f, 0.86f, 0.92f, unlit = true)
+                }
             }
 
-            // Charge 12 cm Ring & Preview Path OR Red Shooting/Melee Range Ring (when not moving/using placement skill)
-            if (!isTeleportMode && !isSeedSporeMineMode && state.chargeModeActive && state.canCommandUnit(selectedUnit)) {
-                val chargeRadiusTiles = (12.0f / TacticalRules.CM_PER_TILE) + TacticalRules.MELEE_MAX_CENTER_TILES
-                Matrix.setIdentityM(modelMat, 0)
-                Matrix.translateM(modelMat, 0, sx, 0.020f, sz)
-                Matrix.scaleM(modelMat, 0, chargeRadiusTiles, 1f, chargeRadiusTiles)
-                drawVbo(rangeRingVbo, 1.0f, 0.45f, 0.12f, 0.72f + pulse * 0.20f, unlit = true)
-
-                val cPreview = state.chargePreview
-                if (cPreview != null && cPreview.path.isNotEmpty()) {
-                    var prevX = sx
-                    var prevZ = sz
-                    for (i in cPreview.path.indices) {
-                        val wp = cPreview.path[i]
-                        val dx = wp.x - prevX
-                        val dz = wp.y - prevZ
-                        val segDist = sqrt(dx * dx + dz * dz)
-                        if (segDist > 0.02f) {
-                            val angleDeg = -(atan2(dz, dx) * 180.0 / PI).toFloat()
-                            Matrix.setIdentityM(modelMat, 0)
-                            Matrix.translateM(modelMat, 0, (prevX + wp.x) * 0.5f, 0.052f, (prevZ + wp.y) * 0.5f)
-                            Matrix.rotateM(modelMat, 0, angleDeg, 0f, 1f, 0f)
-                            Matrix.scaleM(modelMat, 0, segDist, 0.036f, 0.070f)
-                            drawVbo(cubeVbo, 1.0f, 0.58f, 0.14f, 0.94f, unlit = true)
-                        }
-                        prevX = wp.x
-                        prevZ = wp.y
-                    }
+            // Range Rings & Preview Paths
+            if (!isTeleportMode && !isSeedSporeMineMode && state.canCommandUnit(selectedUnit)) {
+                if (state.chargeModeActive) {
+                    val chargeRadiusTiles = (12.0f / TacticalRules.CM_PER_TILE) + TacticalRules.MELEE_MAX_CENTER_TILES
                     Matrix.setIdentityM(modelMat, 0)
-                    Matrix.translateM(modelMat, 0, cPreview.destinationX, 0.024f, cPreview.destinationY)
-                    Matrix.scaleM(modelMat, 0, 0.65f + pulse * 0.15f, 1f, 0.65f + pulse * 0.15f)
-                    drawVbo(ringVbo, 1.0f, 0.65f, 0.16f, 0.96f, unlit = true)
+                    Matrix.translateM(modelMat, 0, sx, 0.020f, sz)
+                    Matrix.scaleM(modelMat, 0, chargeRadiusTiles, 1f, chargeRadiusTiles)
+                    drawVbo(rangeRingVbo, 1.0f, 0.45f, 0.12f, 0.72f + pulse * 0.20f, unlit = true)
+
+                    val cPreview = state.chargePreview
+                    if (cPreview != null && cPreview.path.isNotEmpty()) {
+                        var prevX = sx
+                        var prevZ = sz
+                        for (i in cPreview.path.indices) {
+                            val wp = cPreview.path[i]
+                            val dx = wp.x - prevX
+                            val dz = wp.y - prevZ
+                            val segDist = sqrt(dx * dx + dz * dz)
+                            if (segDist > 0.02f) {
+                                val angleDeg = -(atan2(dz, dx) * 180.0 / PI).toFloat()
+                                Matrix.setIdentityM(modelMat, 0)
+                                Matrix.translateM(modelMat, 0, (prevX + wp.x) * 0.5f, 0.052f, (prevZ + wp.y) * 0.5f)
+                                Matrix.rotateM(modelMat, 0, angleDeg, 0f, 1f, 0f)
+                                Matrix.scaleM(modelMat, 0, segDist, 0.036f, 0.070f)
+                                drawVbo(cubeVbo, 1.0f, 0.58f, 0.14f, 0.94f, unlit = true)
+                            }
+                            prevX = wp.x
+                            prevZ = wp.y
+                        }
+                        Matrix.setIdentityM(modelMat, 0)
+                        Matrix.translateM(modelMat, 0, cPreview.destinationX, 0.024f, cPreview.destinationY)
+                        Matrix.scaleM(modelMat, 0, 0.65f + pulse * 0.15f, 1f, 0.65f + pulse * 0.15f)
+                        drawVbo(ringVbo, 1.0f, 0.65f, 0.16f, 0.96f, unlit = true)
+                    }
+                } else {
+                    // Blue Movement Range Circle (remaining move distance in cm)
+                    val moveRadiusTiles = (selectedUnit.moveCmLeft / TacticalRules.CM_PER_TILE).coerceAtLeast(0.5f)
+                    Matrix.setIdentityM(modelMat, 0)
+                    Matrix.translateM(modelMat, 0, sx, 0.019f, sz)
+                    Matrix.scaleM(modelMat, 0, moveRadiusTiles, 1f, moveRadiusTiles)
+                    drawVbo(rangeRingVbo, 0.20f, 0.78f, 1.0f, 0.65f + pulse * 0.20f, unlit = true)
+
+                    if (!state.moveModeActive) {
+                        val activeMode = state.weaponMode
+                        val isEngaged = TacticalRules.isEngagedInMelee(selectedUnit, state.units)
+                        val atkRange = when {
+                            selectedUnit.hasCharged && activeMode == WeaponMode.MAIN -> 1
+                            isEngaged && activeMode == WeaponMode.MAIN && (!selectedUnit.template.mainWeaponPistol || selectedUnit.hasShot) -> 1
+                            else -> TacticalRules.weaponRange(selectedUnit, activeMode)
+                        }
+                        val isMeleeRange = atkRange <= 1
+                        val attackReady = TacticalRules.canUseMode(selectedUnit, activeMode, state.units)
+                        val rangeRadiusTiles = if (isMeleeRange) TacticalRules.MELEE_MAX_CENTER_TILES else atkRange.toFloat() + 0.45f
+                        val rangeAlpha = if (attackReady) 0.72f + pulse * 0.18f else 0.28f
+                        Matrix.setIdentityM(modelMat, 0)
+                        Matrix.translateM(modelMat, 0, sx, 0.020f, sz)
+                        Matrix.scaleM(modelMat, 0, rangeRadiusTiles, 1f, rangeRadiusTiles)
+                        drawVbo(rangeRingVbo, 0.96f, 0.16f, 0.18f, rangeAlpha, unlit = true)
+                    }
                 }
-            } else if (!isTeleportMode && !isSeedSporeMineMode && !state.moveModeActive && state.canCommandUnit(selectedUnit)) {
-                val activeMode = state.weaponMode
-                val isEngaged = TacticalRules.isEngagedInMelee(selectedUnit, state.units)
-                val atkRange = when {
-                    selectedUnit.hasCharged && activeMode == WeaponMode.MAIN -> 1
-                    isEngaged && activeMode == WeaponMode.MAIN && (!selectedUnit.template.mainWeaponPistol || selectedUnit.hasShot) -> 1
-                    else -> TacticalRules.weaponRange(selectedUnit, activeMode)
-                }
-                val isMeleeRange = atkRange <= 1
-                val attackReady = TacticalRules.canUseMode(selectedUnit, activeMode, state.units)
-                val rangeRadiusTiles = if (isMeleeRange) TacticalRules.MELEE_MAX_CENTER_TILES else atkRange.toFloat() + 0.45f
-                val rangeAlpha = if (attackReady) 0.72f + pulse * 0.18f else 0.28f
-                Matrix.setIdentityM(modelMat, 0)
-                Matrix.translateM(modelMat, 0, sx, 0.020f, sz)
-                Matrix.scaleM(modelMat, 0, rangeRadiusTiles, 1f, rangeRadiusTiles)
-                drawVbo(rangeRingVbo, 0.96f, 0.16f, 0.18f, rangeAlpha, unlit = true)
             }
 
             // CM Ruler Preview Path & Landing Ring (visible only to active controlling player)
@@ -359,8 +376,12 @@ class GlesBattleRenderer(
             val rg: Float
             val rb: Float
             when {
-                isSelected && (!state.isCoopMode && unit.faction == Faction.MARINES || state.isCoopMode && unit.effectiveTeam == 0) -> {
-                    rr = 0.76f; rg = 0.82f; rb = 0.90f
+                isSelected && (!state.isCoopMode && unit.faction == state.playerFaction || state.isCoopMode && unit.effectiveTeam == 0) -> {
+                    if (unit.faction == Faction.BLACK_LEGION) {
+                        rr = 0.92f; rg = 0.72f; rb = 0.28f
+                    } else {
+                        rr = 0.76f; rg = 0.82f; rb = 0.90f
+                    }
                 }
                 isSelected -> { rr = 0.76f; rg = 0.56f; rb = 0.86f }
                 isChargeable -> { rr = 1.00f; rg = 0.52f; rb = 0.14f }
@@ -369,6 +390,7 @@ class GlesBattleRenderer(
                 state.isCoopMode && unit.effectiveTeam == 0 -> { rr = 0.18f; rg = 0.62f; rb = 0.88f }
                 state.isCoopMode && unit.effectiveTeam == 1 -> { rr = 0.82f; rg = 0.24f; rb = 0.32f }
                 unit.faction == Faction.MARINES -> { rr = 0.22f; rg = 0.38f; rb = 0.60f }
+                unit.faction == Faction.BLACK_LEGION -> { rr = 0.78f; rg = 0.58f; rb = 0.20f }
                 else -> { rr = 0.44f; rg = 0.21f; rb = 0.52f }
             }
 
@@ -387,9 +409,24 @@ class GlesBattleRenderer(
             Matrix.translateM(modelMat, 0, ux, 0.01f, uz)
             val yawDeg = unit.facingDeg
             Matrix.rotateM(modelMat, 0, yawDeg, 0f, 1f, 0f)
-            val arrowR = if (isSelected && unit.faction == Faction.MARINES) 0.86f else if (isSelected) 0.80f else rr
-            val arrowG = if (isSelected && unit.faction == Faction.MARINES) 0.90f else if (isSelected) 0.68f else rg
-            val arrowB = if (isSelected && unit.faction == Faction.MARINES) 0.96f else if (isSelected) 0.86f else rb
+            val arrowR = when {
+                isSelected && unit.faction == Faction.MARINES -> 0.86f
+                isSelected && unit.faction == Faction.BLACK_LEGION -> 0.94f
+                isSelected -> 0.80f
+                else -> rr
+            }
+            val arrowG = when {
+                isSelected && unit.faction == Faction.MARINES -> 0.90f
+                isSelected && unit.faction == Faction.BLACK_LEGION -> 0.76f
+                isSelected -> 0.68f
+                else -> rg
+            }
+            val arrowB = when {
+                isSelected && unit.faction == Faction.MARINES -> 0.96f
+                isSelected && unit.faction == Faction.BLACK_LEGION -> 0.34f
+                isSelected -> 0.86f
+                else -> rb
+            }
             drawVbo(arrowVbo, arrowR, arrowG, arrowB, 0.92f, unlit = true)
 
             val count = unit.aliveModels.coerceIn(1, 5)

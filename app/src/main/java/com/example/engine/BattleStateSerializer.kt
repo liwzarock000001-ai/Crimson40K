@@ -9,6 +9,7 @@ import com.example.model.CoopRosterUnit
 import com.example.model.CoopSlotMode
 import com.example.model.CoopState
 import com.example.model.CoverTag
+import com.example.model.DarkPactChoice
 import com.example.model.DiceStepDetail
 import com.example.model.Facing
 import com.example.model.Faction
@@ -59,6 +60,7 @@ object BattleStateSerializer {
                 put("markedByTeam", u.markedByTeam ?: -1)
                 put("meleeChargeBuffActive", u.meleeChargeBuffActive)
                 put("bladeguardRerollBuffActive", u.bladeguardRerollBuffActive)
+                put("legionaryWoundRerollBuffActive", u.legionaryWoundRerollBuffActive)
             })
         }
         return arr.toString()
@@ -109,7 +111,8 @@ object BattleStateSerializer {
                         ownerPlayerName = o.optString("ownerPlayerName", ""),
                         markedByTeam = o.optInt("markedByTeam", -1).let { if (it >= 0) it else null },
                         meleeChargeBuffActive = o.optBoolean("meleeChargeBuffActive", false),
-                        bladeguardRerollBuffActive = o.optBoolean("bladeguardRerollBuffActive", false)
+                        bladeguardRerollBuffActive = o.optBoolean("bladeguardRerollBuffActive", false),
+                        legionaryWoundRerollBuffActive = o.optBoolean("legionaryWoundRerollBuffActive", false)
                     )
                 )
             }
@@ -131,6 +134,7 @@ object BattleStateSerializer {
         obj.put("templatesJson", DefaultCatalog.serializeTemplates(templates))
         obj.put("selectedUnitUid", state.selectedUnitUid ?: "")
         obj.put("weaponMode", state.weaponMode.name)
+        obj.put("selectedDarkPact", state.selectedDarkPact.name)
         obj.put("cmStepChoice", state.cmStepChoice.toDouble())
         obj.put("moveModeActive", state.moveModeActive)
         obj.put("chargeModeActive", state.chargeModeActive)
@@ -195,6 +199,9 @@ object BattleStateSerializer {
                 put("weaponMode", tp.weaponMode.name)
                 put("weaponName", tp.weaponName)
                 put("sustainedHits", tp.sustainedHits)
+                put("lethalHits", tp.lethalHits)
+                put("rerollWoundOnes", tp.rerollWoundOnes)
+                put("darkPactChoice", tp.darkPactChoice.name)
                 put("markedBonusApplied", tp.markedBonusApplied)
                 put("inRange", tp.inRange)
                 put("hasLos", tp.hasLos)
@@ -344,6 +351,9 @@ object BattleStateSerializer {
             val parsedWeaponMode = runCatching {
                 WeaponMode.valueOf(o.optString("weaponMode", WeaponMode.MAIN.name))
             }.getOrDefault(WeaponMode.MAIN)
+            val parsedDarkPact = runCatching {
+                DarkPactChoice.valueOf(o.optString("selectedDarkPact", DarkPactChoice.NONE.name))
+            }.getOrDefault(DarkPactChoice.NONE)
             val parsedCmStepChoice = o.optDouble("cmStepChoice", 3.0).toFloat()
             val parsedMoveMode = o.optBoolean("moveModeActive", false)
             val parsedChargeMode = o.optBoolean("chargeModeActive", false)
@@ -401,6 +411,11 @@ object BattleStateSerializer {
                     weaponMode = runCatching { WeaponMode.valueOf(tp.optString("weaponMode", WeaponMode.MAIN.name)) }.getOrDefault(WeaponMode.MAIN),
                     weaponName = tp.optString("weaponName", ""),
                     sustainedHits = tp.optInt("sustainedHits", 0),
+                    lethalHits = tp.optBoolean("lethalHits", false),
+                    rerollWoundOnes = tp.optBoolean("rerollWoundOnes", false),
+                    darkPactChoice = runCatching {
+                        DarkPactChoice.valueOf(tp.optString("darkPactChoice", DarkPactChoice.NONE.name))
+                    }.getOrDefault(DarkPactChoice.NONE),
                     markedBonusApplied = tp.optBoolean("markedBonusApplied", false),
                     inRange = tp.optBoolean("inRange", true),
                     hasLos = tp.optBoolean("hasLos", true)
@@ -416,6 +431,7 @@ object BattleStateSerializer {
                 units = units,
                 selectedUnitUid = selUid,
                 weaponMode = parsedWeaponMode,
+                selectedDarkPact = parsedDarkPact,
                 cmStepChoice = parsedCmStepChoice,
                 isAnimating = parsedIsAnimating,
                 isAiThinking = o.optBoolean("isAiThinking", false),

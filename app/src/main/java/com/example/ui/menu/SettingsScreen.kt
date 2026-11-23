@@ -161,10 +161,32 @@ fun SettingsScreen(
                             )
                         }
 
-                        Text("Master Volume: ${(state.soundVolume * 100).toInt()}%", style = MaterialTheme.typography.labelSmall, color = TextMuted)
+                        Text("SFX Master Volume: ${(state.soundVolume * 100).toInt()}%", style = MaterialTheme.typography.labelSmall, color = TextMuted)
                         Slider(
                             value = state.soundVolume,
                             onValueChange = { onUpdateSettings(state.copy(soundVolume = it)) },
+                            valueRange = 0f..1f
+                        )
+
+                        HorizontalDivider(color = DividerIron, modifier = Modifier.padding(vertical = 4.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Enable Background Music (BGM)", style = MaterialTheme.typography.bodySmall, color = TextMuted)
+                            Switch(
+                                checked = state.bgmEnabled,
+                                onCheckedChange = { onUpdateSettings(state.copy(bgmEnabled = it)) },
+                                colors = SwitchDefaults.colors(checkedThumbColor = TacticalCyan)
+                            )
+                        }
+
+                        Text("BGM Music Volume: ${(state.bgmVolume * 100).toInt()}%", style = MaterialTheme.typography.labelSmall, color = TextMuted)
+                        Slider(
+                            value = state.bgmVolume,
+                            onValueChange = { onUpdateSettings(state.copy(bgmVolume = it)) },
                             valueRange = 0f..1f
                         )
                     }

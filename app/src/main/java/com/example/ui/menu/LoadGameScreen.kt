@@ -259,7 +259,7 @@ fun LoadGameScreen(
 
                                 if (savedBattle != null) {
                                     Text(
-                                        text = "Round ${savedBattle.round} • Commander: ${savedBattle.playerFaction} • Marines ${savedBattle.marineModelsAlive} vs Swarm ${savedBattle.xenosModelsAlive}",
+                                        text = "Round ${savedBattle.round} • Commander: ${savedBattle.playerFaction} • Kills ${savedBattle.playerKills} / Losses ${savedBattle.enemyKills}",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = WarmAmber
                                     )

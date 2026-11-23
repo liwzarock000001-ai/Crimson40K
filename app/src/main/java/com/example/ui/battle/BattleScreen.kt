@@ -94,6 +94,7 @@ import com.example.model.BattleSummary
 import com.example.model.BattleUnit
 import com.example.model.ChargePreview
 import com.example.model.CoverTag
+import com.example.model.DarkPactChoice
 import com.example.model.Faction
 import com.example.model.MovePreview
 import com.example.model.TargetPreview
@@ -146,6 +147,7 @@ fun BattleScreen(
     onConfirmCharge: () -> Unit,
     onCancelCharge: () -> Unit,
     onConfirmStrike: () -> Unit,
+    onSelectDarkPact: (DarkPactChoice) -> Unit = {},
     onSelectWeaponMode: (WeaponMode) -> Unit,
     onRotateUnit: (Boolean) -> Unit,
     onFightFirst: () -> Unit = {},
@@ -255,8 +257,10 @@ fun BattleScreen(
                     activeCoopPlayerName = if (state.isDeploymentPhase) state.deploymentTurnPlayerName else state.activeCoopPlayerName,
                     autoFocusCamera = state.autoFocusCamera,
                     soundEnabled = state.soundEnabled,
-                    marineAliveModels = state.marineAliveModels,
-                    xenosAliveModels = state.xenosAliveModels,
+                    playerFaction = state.playerFaction,
+                    enemyFaction = state.resolvedEnemyFaction,
+                    playerAliveModels = state.playerAliveModels,
+                    enemyAliveModels = state.enemyAliveModels,
                     onToggleAutoFocus = onToggleAutoFocus,
                     onCenterCamera = onCenterCamera,
                     onRotateCamera = remember {
@@ -420,6 +424,10 @@ fun BattleScreen(
                 state.targetPreview?.let { preview ->
                     TargetPreviewBanner(
                         preview = preview,
+                        canChooseDarkPact = selectedUnit?.template?.archetype == UnitArchetype.LEGIONARY,
+                        leadershipNeeded = selectedUnit?.template?.leadership ?: 6,
+                        selectedDarkPact = state.selectedDarkPact,
+                        onSelectDarkPact = onSelectDarkPact,
                         onStrike = onConfirmStrike
                     )
                 }
@@ -600,8 +608,10 @@ private fun TopHudOverlay(
     activeCoopPlayerName: String,
     autoFocusCamera: Boolean,
     soundEnabled: Boolean,
-    marineAliveModels: Int,
-    xenosAliveModels: Int,
+    playerFaction: Faction,
+    enemyFaction: Faction,
+    playerAliveModels: Int,
+    enemyAliveModels: Int,
     onToggleAutoFocus: () -> Unit,
     onCenterCamera: () -> Unit,
     onRotateCamera: () -> Unit,
@@ -772,16 +782,18 @@ private fun TopHudOverlay(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        val pPal = factionPalette(playerFaction)
+                        val ePal = factionPalette(enemyFaction)
                         Text(
-                            text = "ULTRAMARINES: $marineAliveModels",
+                            text = "${playerFaction.displayName.uppercase()}: $playerAliveModels",
                             style = MaterialTheme.typography.labelSmall,
-                            color = MarineText
+                            color = pPal.headerText
                         )
                         Text("|", style = MaterialTheme.typography.labelSmall, color = pal.trimMuted)
                         Text(
-                            text = "TYRANIDS: $xenosAliveModels",
+                            text = "${enemyFaction.displayName.uppercase()}: $enemyAliveModels",
                             style = MaterialTheme.typography.labelSmall,
-                            color = XenosText
+                            color = ePal.headerText
                         )
                         Text("|", style = MaterialTheme.typography.labelSmall, color = pal.trimMuted)
                         Text(
@@ -845,9 +857,14 @@ private fun HudIconButton(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun TargetPreviewBanner(
     preview: TargetPreview,
+    canChooseDarkPact: Boolean,
+    leadershipNeeded: Int,
+    selectedDarkPact: DarkPactChoice,
+    onSelectDarkPact: (DarkPactChoice) -> Unit,
     onStrike: () -> Unit
 ) {
     val tagBg = when (preview.coverTag) {
@@ -866,7 +883,7 @@ private fun TargetPreviewBanner(
         topColor = Color(0xF5211014),
         bottomColor = Color(0xF511090C),
         accentBarColor = ImperialGold,
-        modifier = Modifier.widthIn(max = 420.dp)
+        modifier = Modifier.widthIn(max = 460.dp)
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
@@ -907,11 +924,30 @@ private fun TargetPreviewBanner(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                if (preview.markedBonusApplied || preview.sustainedHits > 0) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                if (preview.markedBonusApplied || preview.sustainedHits > 0 || preview.lethalHits || preview.rerollWoundOnes) {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(5.dp),
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
                         if (preview.markedBonusApplied) {
                             Text(
                                 text = "◎ MARKED (+1 HIT)",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = WarmAmber,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        if (preview.rerollWoundOnes) {
+                            Text(
+                                text = "[REROLL WOUND 1s]",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = ImperialGold,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        if (preview.lethalHits) {
+                            Text(
+                                text = "[LETHAL HITS]",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = WarmAmber,
                                 fontWeight = FontWeight.Bold
@@ -942,6 +978,57 @@ private fun TargetPreviewBanner(
                     style = MaterialTheme.typography.bodySmall,
                     color = WarmAmber
                 )
+                if (canChooseDarkPact) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = "DARK PACT (OPTIONAL) • LD $leadershipNeeded+ (FAIL: D3 MW)",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = ImperialGold
+                    )
+                    Spacer(Modifier.height(3.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                        DarkPactChoice.entries.forEach { choice ->
+                            val isSelected = selectedDarkPact == choice
+                            val chipColor = when (choice) {
+                                DarkPactChoice.NONE -> TextMuted
+                                DarkPactChoice.LETHAL_HITS -> WarmAmber
+                                DarkPactChoice.SUSTAINED_HITS_1 -> EmeraldBuff
+                            }
+                            val chipBg = if (isSelected) {
+                                when (choice) {
+                                    DarkPactChoice.NONE -> PanelIronTop
+                                    DarkPactChoice.LETHAL_HITS -> Color(0xFF3A1A0AL)
+                                    DarkPactChoice.SUSTAINED_HITS_1 -> EmeraldSurface
+                                }
+                            } else InputDark
+                            val chipShape = CutCornerShape(4.dp)
+                            Box(
+                                modifier = Modifier
+                                    .height(32.dp)
+                                    .clip(chipShape)
+                                    .background(chipBg)
+                                    .border(
+                                        width = if (isSelected) 1.3.dp else 0.8.dp,
+                                        color = if (isSelected) chipColor else BorderSteel,
+                                        shape = chipShape
+                                    )
+                                    .clickable { onSelectDarkPact(choice) }
+                                    .padding(horizontal = 7.dp)
+                                    .testTag("dark_pact_${choice.name.lowercase()}"),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = choice.label,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (isSelected) chipColor else TextMuted,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                            }
+                        }
+                    }
+                }
             }
 
             Button(
@@ -1087,6 +1174,9 @@ private fun UnitStatusCard(
                     }
                     if (unit.isMarked) {
                         StatPill("MARKED", "+1 RANGED HIT", WarmAmber)
+                    }
+                    if (unit.legionaryWoundRerollBuffActive) {
+                        StatPill("VETERANS", "REROLL W1 (1T)", WarmAmber)
                     }
                 }
 
@@ -1764,11 +1854,12 @@ private fun ActionDock(
                 val isLeaper = selected.template.archetype == UnitArchetype.VON_RYANS_LEAPER
                 val isAssaultMarine = selected.template.archetype == UnitArchetype.ASSAULT_MARINE
                 val isBladeguard = selected.template.archetype == UnitArchetype.BLADEGUARD
+                val isLegionary = selected.template.archetype == UnitArchetype.LEGIONARY
                 val isMeleeSkill = TacticalRules.modeUsesMelee(selected, WeaponMode.SKILL)
-                val isUtilitySkill = isTerminator || isBiovore || isSporeMine || selected.template.archetype == UnitArchetype.HORMAGAUNT || isLeaper || isAssaultMarine || isBladeguard
+                val isUtilitySkill = isTerminator || isBiovore || isSporeMine || selected.template.archetype == UnitArchetype.HORMAGAUNT || isLeaper || isAssaultMarine || isBladeguard || isLegionary
                 val skillReady = enabled && TacticalRules.canUseMode(selected, WeaponMode.SKILL, allUnits)
                 val isSkillOn = weaponMode == WeaponMode.SKILL
-                val isBuffActive = selected.isCloaked || selected.meleeChargeBuffActive || selected.bladeguardRerollBuffActive
+                val isBuffActive = selected.isCloaked || selected.meleeChargeBuffActive || selected.bladeguardRerollBuffActive || selected.legionaryWoundRerollBuffActive
                 val skillSubtitle = when {
                     isBuffActive -> "ACTIVE 1T"
                     selected.skillCooldownLeft > 0 -> "CD ${selected.skillCooldownLeft}"
@@ -1782,6 +1873,7 @@ private fun ActionDock(
                     isAssaultMarine && (!selected.hasCharged || !isEngaged) -> "NEED CHG"
                     isAssaultMarine -> "+1S +1AP"
                     isBladeguard -> "REROLL 1s"
+                    isLegionary -> "REROLL W1"
                     selected.hasCharged && !isMeleeSkill -> "MELEE"
                     isEngaged && !isMeleeSkill && !isLeaper && (isTerminator || !selected.template.mainWeaponPistol) -> "IN MELEE"
                     selected.hasAdvanced && !selected.template.mainWeaponAssault && !isUtilitySkill && !isMeleeSkill -> "NO ADV"
@@ -1927,18 +2019,28 @@ private fun TurnSplashCard(splash: TurnSplashData, onClick: () -> Unit) {
             Spacer(Modifier.height(2.dp))
             Text(
                 text = splash.commanderLabel.ifEmpty {
-                    if (splash.isPlayerTurn) "COMMANDER TURN" else "TYRANIDS ACTIVATION"
+                    if (splash.isPlayerTurn) "COMMANDER TURN" else "${splash.activeFaction.displayName.uppercase()} ACTIVATION"
                 },
                 style = MaterialTheme.typography.titleMedium,
                 color = pal.headerText
             )
             HorizontalDivider(color = DividerIron, modifier = Modifier.padding(vertical = 6.dp))
+            val pShort = when (splash.playerFaction) {
+                Faction.MARINES -> "MARINES"
+                Faction.BLACK_LEGION -> "LEGION"
+                Faction.XENOS -> "TYRANIDS"
+            }
+            val eShort = when (splash.enemyFaction) {
+                Faction.MARINES -> "MARINES"
+                Faction.BLACK_LEGION -> "LEGION"
+                Faction.XENOS -> "TYRANIDS"
+            }
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                SplashStatBox("MARINES", "${splash.marineModelsAlive}", MarineText, Modifier.weight(1f))
-                SplashStatBox("TYRANIDS", "${splash.xenosModelsAlive}", XenosText, Modifier.weight(1f))
+                SplashStatBox(pShort, "${splash.playerModelsAlive}", factionPalette(splash.playerFaction).headerText, Modifier.weight(1f))
+                SplashStatBox(eShort, "${splash.enemyModelsAlive}", factionPalette(splash.enemyFaction).headerText, Modifier.weight(1f))
                 SplashStatBox("KILLS", "${splash.playerKills}", EmeraldBuff, Modifier.weight(1f))
                 SplashStatBox("LOSS", "${splash.playerLosses}", CrimsonSoft, Modifier.weight(1f))
             }

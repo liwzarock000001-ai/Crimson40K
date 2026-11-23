@@ -112,6 +112,7 @@ import com.example.ui.theme.WarmAmber
 import com.example.ui.theme.XenosSurface
 import com.example.ui.theme.XenosText
 import com.example.ui.theme.XenosViolet
+import com.example.ui.theme.factionPalette
 import com.example.ui.theme.grimdarkBevelShape
 import com.example.viewmodel.UiState
 import kotlinx.coroutines.delay
@@ -924,7 +925,8 @@ private fun PlayerSlotsPane(
                         isSelected = state.selectedConfigPlayerId == player.id,
                         onSelect = { onSelectPlayer(player.id) },
                         onToggleFaction = {
-                            val next = if (player.faction == Faction.MARINES) Faction.XENOS else Faction.MARINES
+                            val all = Faction.entries
+                            val next = all[(all.indexOf(player.faction) + 1) % all.size]
                             onToggleFaction(player.id, next)
                         },
                         onCycleMode = { onCycleSlotMode(player.id) }
@@ -955,7 +957,8 @@ private fun PlayerSlotsPane(
                         isSelected = state.selectedConfigPlayerId == player.id,
                         onSelect = { onSelectPlayer(player.id) },
                         onToggleFaction = {
-                            val next = if (player.faction == Faction.MARINES) Faction.XENOS else Faction.MARINES
+                            val all = Faction.entries
+                            val next = all[(all.indexOf(player.faction) + 1) % all.size]
                             onToggleFaction(player.id, next)
                         },
                         onCycleMode = { onCycleSlotMode(player.id) }
@@ -963,11 +966,18 @@ private fun PlayerSlotsPane(
                 }
 
                 item {
-                    val team1HasMarines = team1Players.any { it.isActive && it.faction == Faction.MARINES }
-                    val aiFaction = if (team1HasMarines) Faction.XENOS else Faction.MARINES
+                    val team1Primary = team1Players.firstOrNull { it.isActive }?.faction ?: Faction.MARINES
+                    val aiFaction = when (team1Primary) {
+                        Faction.MARINES -> Faction.XENOS
+                        Faction.BLACK_LEGION, Faction.XENOS -> Faction.MARINES
+                    }
                     if (!team2HasUnits) {
-                        val aiCrestRes = if (aiFaction == Faction.MARINES) R.drawable.img_marine_crest else R.drawable.img_xenos_crest
-                        val aiAccent = if (aiFaction == Faction.MARINES) MarineBright else XenosViolet
+                        val aiCrestRes = when (aiFaction) {
+                            Faction.MARINES -> R.drawable.img_marine_crest
+                            Faction.BLACK_LEGION -> R.drawable.img_black_legion_crest
+                            Faction.XENOS -> R.drawable.img_xenos_crest
+                        }
+                        val aiAccent = factionPalette(aiFaction).primaryAccent
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -1085,11 +1095,15 @@ private fun Dow3PlayerSlotCard(
     onToggleFaction: () -> Unit,
     onCycleMode: () -> Unit
 ) {
-    val isMarines = player.faction == Faction.MARINES
-    val factionColor = if (isMarines) MarineBright else XenosViolet
-    val factionBg = if (isMarines) MarineSurface else XenosSurface
-    val factionText = if (isMarines) MarineText else XenosText
-    val crestRes = if (isMarines) R.drawable.img_marine_crest else R.drawable.img_xenos_crest
+    val pal = factionPalette(player.faction)
+    val factionColor = pal.primaryAccent
+    val factionBg = pal.buttonSurface
+    val factionText = pal.badgeText
+    val crestRes = when (player.faction) {
+        Faction.MARINES -> R.drawable.img_marine_crest
+        Faction.BLACK_LEGION -> R.drawable.img_black_legion_crest
+        Faction.XENOS -> R.drawable.img_xenos_crest
+    }
     val totalPts = assignedUnits.sumOf { templates[it.templateId]?.points ?: 0 }
     val overLimit = totalPts > pointLimit
     val ptRatio = (totalPts.toFloat() / pointLimit.coerceAtLeast(1).toFloat()).coerceIn(0f, 1f)
@@ -1234,7 +1248,11 @@ private fun Dow3PlayerSlotCard(
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = if (isMarines) "MARINES" else "TYRANIDS",
+                    text = when (player.faction) {
+                        Faction.MARINES -> "MARINES"
+                        Faction.BLACK_LEGION -> "BLACK LEGION"
+                        Faction.XENOS -> "TYRANIDS"
+                    },
                     style = MaterialTheme.typography.labelSmall,
                     color = factionText,
                     fontWeight = FontWeight.Bold,
@@ -1305,9 +1323,12 @@ private fun CommanderLoadoutPane(
     onEditTemplate: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val isMarines = player.faction == Faction.MARINES
-    val accent = if (isMarines) MarineBright else XenosViolet
-    val crestRes = if (isMarines) R.drawable.img_marine_crest else R.drawable.img_xenos_crest
+    val accent = factionPalette(player.faction).primaryAccent
+    val crestRes = when (player.faction) {
+        Faction.MARINES -> R.drawable.img_marine_crest
+        Faction.BLACK_LEGION -> R.drawable.img_black_legion_crest
+        Faction.XENOS -> R.drawable.img_xenos_crest
+    }
     val totalPts = assignedUnits.sumOf { templates[it.templateId]?.points ?: 0 }
     val overLimit = totalPts > pointLimit
     val remainingPts = (pointLimit - totalPts).coerceAtLeast(0)
@@ -1776,8 +1797,9 @@ private fun AllFactionStatsDialog(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    StatsFilterChip("ALL", filterFaction == null, ImperialGold, { filterFaction = null }, Modifier.weight(1f))
-                    StatsFilterChip("ULTRAMARINES", filterFaction == Faction.MARINES, MarineBright, { filterFaction = Faction.MARINES }, Modifier.weight(1f))
+                    StatsFilterChip("ALL", filterFaction == null, ImperialGold, { filterFaction = null }, Modifier.weight(0.8f))
+                    StatsFilterChip("MARINES", filterFaction == Faction.MARINES, MarineBright, { filterFaction = Faction.MARINES }, Modifier.weight(1f))
+                    StatsFilterChip("BLACK LEGION", filterFaction == Faction.BLACK_LEGION, ImperialGold, { filterFaction = Faction.BLACK_LEGION }, Modifier.weight(1.2f))
                     StatsFilterChip("TYRANIDS", filterFaction == Faction.XENOS, XenosViolet, { filterFaction = Faction.XENOS }, Modifier.weight(1f))
                 }
 
@@ -1799,7 +1821,7 @@ private fun AllFactionStatsDialog(
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     items(filteredUnits, key = { it.id }) { tpl ->
-                        val facColor = if (tpl.faction == Faction.MARINES) MarineBright else XenosViolet
+                        val facColor = factionPalette(tpl.faction).primaryAccent
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()

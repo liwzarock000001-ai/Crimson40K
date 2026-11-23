@@ -3,6 +3,7 @@ package com.example.engine
 import com.example.model.BattleUnit
 import com.example.model.ChargePreview
 import com.example.model.CoverTag
+import com.example.model.DarkPactChoice
 import com.example.model.Faction
 import com.example.model.GridPos
 import com.example.model.TerrainType
@@ -17,7 +18,12 @@ sealed interface AiDecision {
     data class SelfSkill(val unitUid: String) : AiDecision
     data class Teleport(val unitUid: String, val targetPos: GridPos) : AiDecision
     data class SeedSporeMine(val unitUid: String, val targetPos: GridPos) : AiDecision
-    data class Attack(val attackerUid: String, val targetUid: String, val mode: WeaponMode) : AiDecision
+    data class Attack(
+        val attackerUid: String,
+        val targetUid: String,
+        val mode: WeaponMode,
+        val darkPactChoice: DarkPactChoice = DarkPactChoice.NONE
+    ) : AiDecision
     data object TurnComplete : AiDecision
 }
 
@@ -64,6 +70,7 @@ object AiController {
                     UnitArchetype.VON_RYANS_LEAPER -> distToNearest <= 7 && !unit.isCloaked
                     UnitArchetype.ASSAULT_MARINE, UnitArchetype.GENESTEALER -> true
                     UnitArchetype.BLADEGUARD -> !unit.bladeguardRerollBuffActive && (isEngaged || distToNearest <= 5)
+                    UnitArchetype.LEGIONARY -> false // Auto-activates when starting shooting/fighting
                     else -> distToNearest > 2
                 }
                 if (selfSkill != null && shouldTriggerSelf) {
@@ -96,7 +103,7 @@ object AiController {
             // 2. Check best attack from current position
             val bestAttack = findBestAttackFrom(unit, unit.x, unit.y, enemies, units, map)
             if (bestAttack != null) {
-                return AiDecision.Attack(unit.uid, bestAttack.first.uid, bestAttack.second)
+                return AiDecision.Attack(unit.uid, bestAttack.first.uid, bestAttack.second, bestAttack.third)
             }
 
             // Forced Melee Duel Lock: if engaged with living enemy, cannot Charge elsewhere, Advance, or Move away
@@ -184,6 +191,13 @@ object AiController {
         return AiDecision.TurnComplete
     }
 
+    private fun chooseAiDarkPact(unit: BattleUnit, enemy: BattleUnit, mode: WeaponMode, isMelee: Boolean): DarkPactChoice {
+        if (unit.template.archetype != UnitArchetype.LEGIONARY) return DarkPactChoice.NONE
+        if (unit.totalWounds <= 3) return DarkPactChoice.NONE
+        val strength = TacticalRules.weaponStrength(unit, mode, isMeleeOverride = isMelee)
+        return if (enemy.template.toughness >= strength) DarkPactChoice.LETHAL_HITS else DarkPactChoice.SUSTAINED_HITS_1
+    }
+
     private fun findBestAttackFrom(
         unit: BattleUnit,
         atkX: Int,
@@ -191,10 +205,10 @@ object AiController {
         enemies: List<BattleUnit>,
         allUnits: List<BattleUnit>,
         map: Array<Array<TerrainType>>
-    ): Pair<BattleUnit, WeaponMode>? {
+    ): Triple<BattleUnit, WeaponMode, DarkPactChoice>? {
         val engagedAtPos = TacticalRules.isEngagedInMeleeAt(unit, atkX.toFloat(), atkY.toFloat(), allUnits)
         if (!unit.canShoot && !unit.canFight && !engagedAtPos) return null
-        var best: Pair<BattleUnit, WeaponMode>? = null
+        var best: Triple<BattleUnit, WeaponMode, DarkPactChoice>? = null
         var bestScore = Float.NEGATIVE_INFINITY
 
         for (mIdx in MODES.indices) {
@@ -210,8 +224,13 @@ object AiController {
                 val enemy = enemies[eIdx]
                 // Fast distance early-exit before LOS/cover math
                 if (maxOf(abs(atkX - enemy.x), abs(atkY - enemy.y)) > range + 1) continue
-                val preview = TacticalRules.canTargetFrom(unit, atkX, atkY, enemy, mode, map, allUnits) ?: continue
-                if (!preview.inRange || !preview.hasLos) continue
+                val basePreview = TacticalRules.canTargetFrom(unit, atkX, atkY, enemy, mode, map, allUnits) ?: continue
+                if (!basePreview.inRange || !basePreview.hasLos) continue
+
+                val pactChoice = chooseAiDarkPact(unit, enemy, mode, basePreview.isMelee)
+                val preview = if (pactChoice != DarkPactChoice.NONE) {
+                    TacticalRules.canTargetFrom(unit, atkX, atkY, enemy, mode, map, allUnits, pactChoice) ?: basePreview
+                } else basePreview
 
                 var score = preview.expectedTotalDamage.toFloat()
                 if (preview.expectedTotalDamage >= enemy.totalWounds) score += 250f
@@ -227,7 +246,7 @@ object AiController {
                 }
                 if (score > bestScore) {
                     bestScore = score
-                    best = enemy to mode
+                    best = Triple(enemy, mode, pactChoice)
                 }
             }
         }

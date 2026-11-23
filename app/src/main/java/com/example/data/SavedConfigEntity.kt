@@ -7,8 +7,10 @@ import androidx.room.PrimaryKey
 data class SavedConfigEntity(
     @PrimaryKey val id: Int = 1,
     val playerFaction: String,
+    val enemyFaction: String = "",
     val pointLimit: Int,
     val marineRosterJson: String,
+    val blackLegionRosterJson: String = "",
     val xenosRosterJson: String,
     val customTemplatesJson: String,
     val updatedAt: Long = System.currentTimeMillis()

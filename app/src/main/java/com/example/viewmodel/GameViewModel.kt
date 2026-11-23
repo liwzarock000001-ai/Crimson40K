@@ -16,6 +16,7 @@ import com.example.engine.AiDecision
 import com.example.engine.BattleStateSerializer
 import com.example.engine.DefaultCatalog
 import com.example.engine.MapGenerator
+import com.example.engine.BackgroundMusicPlayer
 import com.example.engine.SoundEffects
 import com.example.engine.SoundType
 import com.example.engine.TacticalRules
@@ -29,6 +30,7 @@ import com.example.model.CoopPlayer
 import com.example.model.CoopRosterUnit
 import com.example.model.CoopSlotMode
 import com.example.model.CoopState
+import com.example.model.DarkPactChoice
 import com.example.model.DiceStepDetail
 import com.example.model.Facing
 import com.example.model.Faction
@@ -68,24 +70,45 @@ import kotlin.random.Random
 @Immutable
 data class SetupUiState(
     val playerFaction: Faction = Faction.MARINES,
+    val enemyFaction: Faction = Faction.BLACK_LEGION,
     val pointLimit: Int = 2000,
     val templates: Map<String, UnitTemplate> = DefaultCatalog.defaultTemplates.associateBy { it.id },
     val marineRoster: List<RosterSlot> = DefaultCatalog.defaultMarineRoster(),
+    val blackLegionRoster: List<RosterSlot> = DefaultCatalog.defaultBlackLegionRoster(),
     val xenosRoster: List<RosterSlot> = DefaultCatalog.defaultXenosRoster(),
     val editingTemplateId: String? = null,
     val statusMessage: String? = null
 ) {
     val marinePoints: Int
         get() = marineRoster.sumOf { templates[it.templateId]?.points ?: 0 }
+    val blackLegionPoints: Int
+        get() = blackLegionRoster.sumOf { templates[it.templateId]?.points ?: 0 }
     val xenosPoints: Int
         get() = xenosRoster.sumOf { templates[it.templateId]?.points ?: 0 }
+    fun rosterFor(faction: Faction): List<RosterSlot> = when (faction) {
+        Faction.MARINES -> marineRoster
+        Faction.BLACK_LEGION -> blackLegionRoster
+        Faction.XENOS -> xenosRoster
+    }
+    fun pointsFor(faction: Faction): Int = when (faction) {
+        Faction.MARINES -> marinePoints
+        Faction.BLACK_LEGION -> blackLegionPoints
+        Faction.XENOS -> xenosPoints
+    }
     val validationWarning: String?
-        get() = when {
-            marineRoster.isEmpty() -> "Ultramarines require at least 1 squad."
-            xenosRoster.isEmpty() -> "Tyranids require at least 1 squad."
-            marinePoints > pointLimit -> "Ultramarines exceed $pointLimit pt limit."
-            xenosPoints > pointLimit -> "Tyranids exceed $pointLimit pt limit."
-            else -> null
+        get() {
+            val playerRoster = rosterFor(playerFaction)
+            val enemyRoster = rosterFor(enemyFaction)
+            val playerPts = pointsFor(playerFaction)
+            val enemyPts = pointsFor(enemyFaction)
+            return when {
+                playerFaction == enemyFaction -> "Commander and Enemy must be different factions."
+                playerRoster.isEmpty() -> "${playerFaction.displayName} require at least 1 squad."
+                enemyRoster.isEmpty() -> "${enemyFaction.displayName} require at least 1 squad."
+                playerPts > pointLimit -> "${playerFaction.displayName} exceed $pointLimit pt limit."
+                enemyPts > pointLimit -> "${enemyFaction.displayName} exceed $pointLimit pt limit."
+                else -> null
+            }
         }
     val canDeploy: Boolean get() = validationWarning == null
 }
@@ -96,10 +119,12 @@ data class BattleUiState(
     val round: Int = 1,
     val activeFaction: Faction = Faction.MARINES,
     val playerFaction: Faction = Faction.MARINES,
+    val enemyFaction: Faction = Faction.XENOS,
     val map: SectorMap = SectorMap(1L, MapGenerator.generateSectorMap(1L)),
     val units: List<BattleUnit> = emptyList(),
     val selectedUnitUid: String? = null,
     val weaponMode: WeaponMode = WeaponMode.MAIN,
+    val selectedDarkPact: DarkPactChoice = DarkPactChoice.NONE,
     val moveModeActive: Boolean = false,
     val cmStepChoice: Float = 3f,
     val movePreview: MovePreview? = null,
@@ -112,7 +137,7 @@ data class BattleUiState(
     val chargePreview: ChargePreview? = null,
     val projectiles: List<ProjectileVfx> = emptyList(),
     val floatingTexts: List<FloatingTextVfx> = emptyList(),
-    val autoFocusCamera: Boolean = true,
+    val autoFocusCamera: Boolean = false,
     val focusGridPos: GridPos? = null,
     val centerTrigger: Int = 0,
     val soundEnabled: Boolean = true,
@@ -162,7 +187,18 @@ data class BattleUiState(
 
     val selectedUnit: BattleUnit? get() = units.firstOrNull { it.uid == selectedUnitUid && it.isAlive }
     val marineAliveModels: Int get() = units.filter { it.faction == Faction.MARINES && it.isAlive }.sumOf { it.aliveModels }
+    val blackLegionAliveModels: Int get() = units.filter { it.faction == Faction.BLACK_LEGION && it.isAlive }.sumOf { it.aliveModels }
     val xenosAliveModels: Int get() = units.filter { it.faction == Faction.XENOS && it.isAlive }.sumOf { it.aliveModels }
+    val resolvedEnemyFaction: Faction
+        get() = units.firstOrNull { it.faction != playerFaction }?.faction ?: enemyFaction
+    val playerAliveModels: Int
+        get() = units.filter {
+            it.isAlive && if (isCoopMode) it.effectiveTeam == 0 else it.faction == playerFaction
+        }.sumOf { it.aliveModels }
+    val enemyAliveModels: Int
+        get() = units.filter {
+            it.isAlive && if (isCoopMode) it.effectiveTeam == 1 else it.faction != playerFaction
+        }.sumOf { it.aliveModels }
 
     fun canCommandUnit(unit: BattleUnit, isRemoteClientAction: Boolean = false): Boolean {
         if (!unit.isAlive || isDeploymentPhase) return false
@@ -196,6 +232,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         SettingsState(
             soundVolume = prefs.getFloat("sound_volume", 0.8f).coerceIn(0f, 1f),
             sfxEnabled = prefs.getBoolean("sfx_enabled", true),
+            bgmVolume = prefs.getFloat("bgm_volume", 0.8f).coerceIn(0f, 1f),
+            bgmEnabled = prefs.getBoolean("bgm_enabled", true),
             graphicsLevel = prefs.getInt("graphics_level", 3).coerceIn(1, 4),
             screenBrightness = prefs.getFloat("screen_brightness", 1.0f).coerceIn(0.5f, 1.5f)
         )
@@ -229,6 +267,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         val initialSettings = _settingsState.value
         sound.enabled = initialSettings.sfxEnabled
         sound.volume = initialSettings.soundVolume
+        BackgroundMusicPlayer.init(application)
+        BackgroundMusicPlayer.setVolume(initialSettings.bgmVolume)
+        BackgroundMusicPlayer.setEnabled(initialSettings.bgmEnabled)
         _battleState.update {
             it.copy(
                 soundEnabled = initialSettings.sfxEnabled,
@@ -250,15 +291,22 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             val saved = repository.getSavedConfigOnce()
             if (saved != null) {
                 val faction = runCatching { Faction.valueOf(saved.playerFaction) }.getOrDefault(Faction.MARINES)
+                val parsedEnemy = saved.enemyFaction.takeIf { it.isNotBlank() }
+                    ?.let { runCatching { Faction.valueOf(it) }.getOrNull() }
+                    ?.takeIf { it != faction }
+                    ?: if (faction == Faction.MARINES) Faction.BLACK_LEGION else Faction.MARINES
                 val templates = DefaultCatalog.deserializeTemplates(saved.customTemplatesJson)
                 val marines = DefaultCatalog.deserializeRoster(saved.marineRosterJson, DefaultCatalog.defaultMarineRoster())
+                val blackLegion = DefaultCatalog.deserializeRoster(saved.blackLegionRosterJson, DefaultCatalog.defaultBlackLegionRoster())
                 val xenos = DefaultCatalog.deserializeRoster(saved.xenosRosterJson, DefaultCatalog.defaultXenosRoster())
                 _setupState.update {
                     it.copy(
                         playerFaction = faction,
+                        enemyFaction = parsedEnemy,
                         pointLimit = saved.pointLimit.coerceIn(1000, 5000),
                         templates = templates,
                         marineRoster = marines,
+                        blackLegionRoster = blackLegion,
                         xenosRoster = xenos,
                         statusMessage = "Loaded saved Skirmish roster."
                     )
@@ -305,18 +353,28 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             if (units.isEmpty()) return@launch
             val playerFaction = runCatching { Faction.valueOf(saved.playerFaction) }.getOrDefault(Faction.MARINES)
             val activeFaction = runCatching { Faction.valueOf(saved.activeFaction) }.getOrDefault(playerFaction)
+            val normalizedUnits = units.map { u ->
+                if (u.ownerPlayerId == "PLAYER") {
+                    u.copy(ownerPlayerId = if (u.faction == playerFaction) "player" else "AI")
+                } else u
+            }
+            val enemyFaction = normalizedUnits.firstOrNull { it.faction != playerFaction }?.faction
+                ?: if (playerFaction == Faction.MARINES) Faction.XENOS else Faction.MARINES
             val rawMap = MapGenerator.generateSectorMap(saved.mapId)
             val map = SectorMap(saved.mapId, rawMap)
-            val firstUnit = units.firstOrNull { it.faction == playerFaction && it.isAlive }
+            val firstUnit = normalizedUnits.firstOrNull { it.faction == playerFaction && it.isAlive }
             val settings = _settingsState.value
+            val playerModels = normalizedUnits.filter { it.faction == playerFaction && it.isAlive }.sumOf { it.aliveModels }
+            val enemyModels = normalizedUnits.filter { it.faction != playerFaction && it.isAlive }.sumOf { it.aliveModels }
 
             val loadedState = BattleUiState(
                 active = true,
                 round = saved.round.coerceAtLeast(1),
                 activeFaction = activeFaction,
                 playerFaction = playerFaction,
+                enemyFaction = enemyFaction,
                 map = map,
-                units = TacticalRules.applyAuras(units),
+                units = TacticalRules.applyAuras(normalizedUnits),
                 selectedUnitUid = firstUnit?.uid,
                 autoFocusCamera = true,
                 focusGridPos = firstUnit?.pos,
@@ -330,11 +388,15 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     round = saved.round,
                     activeFaction = activeFaction,
                     isPlayerTurn = activeFaction == playerFaction,
-                    marineModelsAlive = units.filter { it.faction == Faction.MARINES && it.isAlive }.sumOf { it.aliveModels },
-                    xenosModelsAlive = units.filter { it.faction == Faction.XENOS && it.isAlive }.sumOf { it.aliveModels },
+                    marineModelsAlive = normalizedUnits.filter { it.faction == Faction.MARINES && it.isAlive }.sumOf { it.aliveModels },
+                    xenosModelsAlive = normalizedUnits.filter { it.faction == Faction.XENOS && it.isAlive }.sumOf { it.aliveModels },
                     playerKills = saved.playerKills,
                     playerLosses = saved.enemyKills,
-                    commanderLabel = "SAVED SKIRMISH RESUMED"
+                    commanderLabel = "SAVED SKIRMISH RESUMED",
+                    playerFaction = playerFaction,
+                    enemyFaction = enemyFaction,
+                    playerModelsAlive = playerModels,
+                    enemyModelsAlive = enemyModels
                 )
             )
             _battleState.value = recomputeSelectionOverlays(loadedState)
@@ -481,10 +543,10 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             }
             val updatedUnits = if (currentPlayer != null && currentPlayer.faction != faction) {
                 val others = state.assignedUnits.filterNot { it.ownerPlayerId == playerId }
-                val starterIds = if (faction == Faction.MARINES) {
-                    listOf("intercessors", "hellblasters")
-                } else {
-                    listOf("warriors", "termagants")
+                val starterIds = when (faction) {
+                    Faction.MARINES -> listOf("intercessors", "hellblasters")
+                    Faction.BLACK_LEGION -> listOf("legionaries", "legionaries")
+                    Faction.XENOS -> listOf("warriors", "termagants")
                 }
                 val replacements = starterIds.map { tid ->
                     CoopRosterUnit("c_${nextIdCounter++}", playerId, tid)
@@ -535,10 +597,10 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             // Ensure an AI_BOT slot has starter squads if empty so it deploys right away
             val hasUnits = state.assignedUnits.any { it.ownerPlayerId == playerId }
             val updatedUnits = if (nextMode == CoopSlotMode.AI_BOT && !hasUnits) {
-                val starterIds = if (targetPlayer.faction == Faction.MARINES) {
-                    listOf("intercessors", "hellblasters")
-                } else {
-                    listOf("warriors", "termagants")
+                val starterIds = when (targetPlayer.faction) {
+                    Faction.MARINES -> listOf("intercessors", "hellblasters")
+                    Faction.BLACK_LEGION -> listOf("legionaries", "legionaries")
+                    Faction.XENOS -> listOf("warriors", "termagants")
                 }
                 state.assignedUnits + starterIds.map { tid ->
                     CoopRosterUnit("c_${nextIdCounter++}", playerId, tid)
@@ -706,15 +768,18 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         val team1HasUnits = activePlayers.any { it.id in listOf("p3", "p4") && coop.assignedUnits.any { u -> u.ownerPlayerId == it.id } }
-        val team0HasMarines = activePlayers.any { p ->
-            p.id in listOf("p1", "p2") && p.faction == Faction.MARINES && coop.assignedUnits.any { u -> u.ownerPlayerId == p.id }
-        }
+        val team0PrimaryFaction = activePlayers.firstOrNull { p ->
+            p.id in listOf("p1", "p2") && coop.assignedUnits.any { u -> u.ownerPlayerId == p.id }
+        }?.faction ?: Faction.MARINES
         if (!team1HasUnits && coop.spawnAiEnemyIfSameFaction) {
-            val aiFaction = if (team0HasMarines) Faction.XENOS else Faction.MARINES
-            val aiTemplateIds = if (aiFaction == Faction.XENOS) {
-                listOf("carnifex", "warriors", "von_ryans_leaper", "termagants", "hormagaunts")
-            } else {
-                listOf("captain", "dreadnought", "terminators", "bladeguard_veterans", "hellblasters", "intercessors", "assault_intercessors")
+            val aiFaction = when (team0PrimaryFaction) {
+                Faction.MARINES -> Faction.XENOS
+                Faction.BLACK_LEGION, Faction.XENOS -> Faction.MARINES
+            }
+            val aiTemplateIds = when (aiFaction) {
+                Faction.XENOS -> listOf("carnifex", "warriors", "von_ryans_leaper", "termagants", "hormagaunts")
+                Faction.BLACK_LEGION -> listOf("legionaries", "legionaries", "legionaries")
+                Faction.MARINES -> listOf("captain", "dreadnought", "terminators", "bladeguard_veterans", "hellblasters", "intercessors", "assault_intercessors")
             }
             for (tid in aiTemplateIds) {
                 val tpl = templates[tid] ?: continue
@@ -896,7 +961,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             "TOGGLE_CHARGE" -> toggleChargeMode(fromLanClient = true, desiredActive = left)
             "CONFIRM_CHARGE" -> confirmChargeRoll(fromLanClient = true)
             "CANCEL_CHARGE" -> cancelChargePreview(fromLanClient = true)
-            "STRIKE" -> confirmStrike(fromLanClient = true)
+            "SELECT_DARK_PACT" -> cm?.toInt()?.let { DarkPactChoice.entries.getOrNull(it) }?.let { selectDarkPact(it, fromLanClient = true) }
+            "STRIKE" -> confirmStrike(fromLanClient = true, darkPactOverride = cm?.toInt()?.let { DarkPactChoice.entries.getOrNull(it) })
             "WEAPON_MODE" -> if (mode != null) selectWeaponMode(mode, fromLanClient = true)
             "ROTATE" -> if (left != null) rotateSelectedUnit(left, fromLanClient = true)
             "FIGHT_FIRST" -> triggerFightFirst(fromLanClient = true)
@@ -921,16 +987,21 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     fun updateSettings(newSettings: SettingsState) {
         val clamped = newSettings.copy(
             soundVolume = newSettings.soundVolume.coerceIn(0f, 1f),
+            bgmVolume = newSettings.bgmVolume.coerceIn(0f, 1f),
             graphicsLevel = newSettings.graphicsLevel.coerceIn(1, 4),
             screenBrightness = newSettings.screenBrightness.coerceIn(0.5f, 1.5f)
         )
         sound.enabled = clamped.sfxEnabled
         sound.volume = clamped.soundVolume
+        BackgroundMusicPlayer.setEnabled(clamped.bgmEnabled)
+        BackgroundMusicPlayer.setVolume(clamped.bgmVolume)
         sound.play(SoundType.CLICK)
         _settingsState.value = clamped
         prefs.edit {
             putFloat("sound_volume", clamped.soundVolume)
             putBoolean("sfx_enabled", clamped.sfxEnabled)
+            putFloat("bgm_volume", clamped.bgmVolume)
+            putBoolean("bgm_enabled", clamped.bgmEnabled)
             putInt("graphics_level", clamped.graphicsLevel)
             putFloat("screen_brightness", clamped.screenBrightness)
         }
@@ -948,15 +1019,22 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             runCatching {
                 val saved = repository.getSavedConfigOnce() ?: return@launch
                 val faction = runCatching { Faction.valueOf(saved.playerFaction) }.getOrDefault(Faction.MARINES)
+                val parsedEnemy = saved.enemyFaction.takeIf { it.isNotBlank() }
+                    ?.let { runCatching { Faction.valueOf(it) }.getOrNull() }
+                    ?.takeIf { it != faction }
+                    ?: if (faction == Faction.MARINES) Faction.BLACK_LEGION else Faction.MARINES
                 val templates = DefaultCatalog.deserializeTemplates(saved.customTemplatesJson)
                 val marines = DefaultCatalog.deserializeRoster(saved.marineRosterJson, DefaultCatalog.defaultMarineRoster())
+                val blackLegion = DefaultCatalog.deserializeRoster(saved.blackLegionRosterJson, DefaultCatalog.defaultBlackLegionRoster())
                 val xenos = DefaultCatalog.deserializeRoster(saved.xenosRosterJson, DefaultCatalog.defaultXenosRoster())
                 _setupState.update {
                     it.copy(
                         playerFaction = faction,
+                        enemyFaction = parsedEnemy,
                         pointLimit = saved.pointLimit.coerceIn(1000, 5000),
                         templates = templates,
                         marineRoster = marines,
+                        blackLegionRoster = blackLegion,
                         xenosRoster = xenos
                     )
                 }
@@ -967,9 +1045,27 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     // --- SETUP ACTIONS ---
     fun togglePlayerFaction() {
         sound.play(SoundType.CLICK)
-        _setupState.update {
-            val next = if (it.playerFaction == Faction.MARINES) Faction.XENOS else Faction.MARINES
-            it.copy(playerFaction = next, statusMessage = null)
+        _setupState.update { state ->
+            val all = Faction.entries
+            val next = all[(all.indexOf(state.playerFaction) + 1) % all.size]
+            val nextEnemy = if (state.enemyFaction == next) state.playerFaction else state.enemyFaction
+            state.copy(playerFaction = next, enemyFaction = nextEnemy, statusMessage = null)
+        }
+    }
+
+    fun selectPlayerFaction(faction: Faction) {
+        sound.play(SoundType.CLICK)
+        _setupState.update { state ->
+            val nextEnemy = if (state.enemyFaction == faction) state.playerFaction else state.enemyFaction
+            state.copy(playerFaction = faction, enemyFaction = nextEnemy, statusMessage = null)
+        }
+    }
+
+    fun selectEnemyFaction(faction: Faction) {
+        sound.play(SoundType.CLICK)
+        _setupState.update { state ->
+            val nextPlayer = if (state.playerFaction == faction) state.enemyFaction else state.playerFaction
+            state.copy(playerFaction = nextPlayer, enemyFaction = faction, statusMessage = null)
         }
     }
 
@@ -984,7 +1080,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         _setupState.update { state ->
             val tpl = state.templates[templateId]
             val cost = tpl?.points ?: 0
-            val used = if (faction == Faction.MARINES) state.marinePoints else state.xenosPoints
+            val used = state.pointsFor(faction)
             if (used + cost > state.pointLimit) {
                 val left = (state.pointLimit - used).coerceAtLeast(0)
                 return@update state.copy(
@@ -992,10 +1088,10 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 )
             }
             val slot = RosterSlot("slot_${nextIdCounter++}", templateId)
-            if (faction == Faction.MARINES) {
-                state.copy(marineRoster = state.marineRoster + slot, statusMessage = null)
-            } else {
-                state.copy(xenosRoster = state.xenosRoster + slot, statusMessage = null)
+            when (faction) {
+                Faction.MARINES -> state.copy(marineRoster = state.marineRoster + slot, statusMessage = null)
+                Faction.BLACK_LEGION -> state.copy(blackLegionRoster = state.blackLegionRoster + slot, statusMessage = null)
+                Faction.XENOS -> state.copy(xenosRoster = state.xenosRoster + slot, statusMessage = null)
             }
         }
     }
@@ -1003,10 +1099,10 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     fun removeRosterSlot(faction: Faction, slotId: String) {
         sound.play(SoundType.CLICK)
         _setupState.update { state ->
-            if (faction == Faction.MARINES) {
-                state.copy(marineRoster = state.marineRoster.filterNot { it.slotId == slotId }, statusMessage = null)
-            } else {
-                state.copy(xenosRoster = state.xenosRoster.filterNot { it.slotId == slotId }, statusMessage = null)
+            when (faction) {
+                Faction.MARINES -> state.copy(marineRoster = state.marineRoster.filterNot { it.slotId == slotId }, statusMessage = null)
+                Faction.BLACK_LEGION -> state.copy(blackLegionRoster = state.blackLegionRoster.filterNot { it.slotId == slotId }, statusMessage = null)
+                Faction.XENOS -> state.copy(xenosRoster = state.xenosRoster.filterNot { it.slotId == slotId }, statusMessage = null)
             }
         }
     }
@@ -1033,10 +1129,10 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 val cheapest = pool.minBy { it.points }
                 chosen.add(RosterSlot("rnd_${nextIdCounter++}", cheapest.id))
             }
-            if (faction == Faction.MARINES) {
-                state.copy(marineRoster = chosen, statusMessage = "Randomized Ultramarines ($spent pts)")
-            } else {
-                state.copy(xenosRoster = chosen, statusMessage = "Randomized Tyranids ($spent pts)")
+            when (faction) {
+                Faction.MARINES -> state.copy(marineRoster = chosen, statusMessage = "Randomized Ultramarines ($spent pts)")
+                Faction.BLACK_LEGION -> state.copy(blackLegionRoster = chosen, statusMessage = "Randomized Black Legion ($spent pts)")
+                Faction.XENOS -> state.copy(xenosRoster = chosen, statusMessage = "Randomized Tyranids ($spent pts)")
             }
         }
     }
@@ -1065,8 +1161,10 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 SavedConfigEntity(
                     id = 1,
                     playerFaction = s.playerFaction.name,
+                    enemyFaction = s.enemyFaction.name,
                     pointLimit = s.pointLimit,
                     marineRosterJson = DefaultCatalog.serializeRoster(s.marineRoster),
+                    blackLegionRosterJson = DefaultCatalog.serializeRoster(s.blackLegionRoster),
                     xenosRosterJson = DefaultCatalog.serializeRoster(s.xenosRoster),
                     customTemplatesJson = DefaultCatalog.serializeTemplates(s.templates)
                 )
@@ -1083,8 +1181,10 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 SavedConfigEntity(
                     id = 1,
                     playerFaction = s.playerFaction.name,
+                    enemyFaction = s.enemyFaction.name,
                     pointLimit = s.pointLimit,
                     marineRosterJson = DefaultCatalog.serializeRoster(s.marineRoster),
+                    blackLegionRosterJson = DefaultCatalog.serializeRoster(s.blackLegionRoster),
                     xenosRosterJson = DefaultCatalog.serializeRoster(s.xenosRoster),
                     customTemplatesJson = DefaultCatalog.serializeTemplates(s.templates)
                 )
@@ -1120,19 +1220,42 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         val map = SectorMap(mapId, rawMap)
         val spawned = mutableListOf<BattleUnit>()
 
-        // Spawn Marines on West edge (x = 1..2), Swarm on East edge (x = W-2..W-3)
-        spawnArmy(setup.marineRoster, setup.templates, Faction.MARINES, startCols = listOf(1, 2), Facing.EAST, rawMap, spawned)
-        spawnArmy(setup.xenosRoster, setup.templates, Faction.XENOS, startCols = listOf(MapGenerator.GRID_W - 2, MapGenerator.GRID_W - 3), Facing.WEST, rawMap, spawned)
+        // Spawn Player faction on West edge (x = 1..2), Enemy faction on East edge (x = W-2..W-3)
+        spawnArmy(
+            roster = setup.rosterFor(setup.playerFaction),
+            templates = setup.templates,
+            faction = setup.playerFaction,
+            ownerPlayerId = "player",
+            ownerPlayerName = "Commander",
+            startCols = listOf(1, 2),
+            facing = Facing.EAST,
+            map = rawMap,
+            out = spawned
+        )
+        spawnArmy(
+            roster = setup.rosterFor(setup.enemyFaction),
+            templates = setup.templates,
+            faction = setup.enemyFaction,
+            ownerPlayerId = "AI",
+            ownerPlayerName = "AI Command",
+            startCols = listOf(MapGenerator.GRID_W - 2, MapGenerator.GRID_W - 3),
+            facing = Facing.WEST,
+            map = rawMap,
+            out = spawned
+        )
 
         val unitsWithAuras = TacticalRules.applyAuras(spawned)
         val firstPlayerUnit = unitsWithAuras.firstOrNull { it.faction == setup.playerFaction }
         val settings = _settingsState.value
+        val playerModels = unitsWithAuras.filter { it.faction == setup.playerFaction }.sumOf { it.aliveModels }
+        val enemyModels = unitsWithAuras.filter { it.faction == setup.enemyFaction }.sumOf { it.aliveModels }
 
         val initialState = BattleUiState(
             active = true,
             round = 1,
             activeFaction = setup.playerFaction,
             playerFaction = setup.playerFaction,
+            enemyFaction = setup.enemyFaction,
             map = map,
             units = unitsWithAuras,
             selectedUnitUid = firstPlayerUnit?.uid,
@@ -1154,7 +1277,11 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 marineModelsAlive = unitsWithAuras.filter { it.faction == Faction.MARINES }.sumOf { it.aliveModels },
                 xenosModelsAlive = unitsWithAuras.filter { it.faction == Faction.XENOS }.sumOf { it.aliveModels },
                 playerKills = 0,
-                playerLosses = 0
+                playerLosses = 0,
+                playerFaction = setup.playerFaction,
+                enemyFaction = setup.enemyFaction,
+                playerModelsAlive = playerModels,
+                enemyModelsAlive = enemyModels
             )
         )
         _battleState.value = recomputeSelectionOverlays(initialState)
@@ -1166,6 +1293,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         roster: List<RosterSlot>,
         templates: Map<String, UnitTemplate>,
         faction: Faction,
+        ownerPlayerId: String,
+        ownerPlayerName: String,
         startCols: List<Int>,
         facing: Facing,
         map: Array<Array<TerrainType>>,
@@ -1188,7 +1317,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     moveCmLeft = tpl.moveCm.toFloat(),
                     worldX = pos.x.toFloat(),
                     worldY = pos.y.toFloat(),
-                    facingDeg = facing.yawDegrees()
+                    facingDeg = facing.yawDegrees(),
+                    ownerPlayerId = ownerPlayerId,
+                    ownerPlayerName = ownerPlayerName
                 )
             )
         }
@@ -1560,6 +1691,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 val updated = state.copy(
                     selectedUnitUid = unitHit.uid,
                     weaponMode = WeaponMode.MAIN,
+                    selectedDarkPact = DarkPactChoice.NONE,
                     moveModeActive = false,
                     movePreview = null,
                     targetPreview = null,
@@ -1606,7 +1738,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     spawnFloatingText(pos, "CHAMELEONIC CLOAK: UNTARGETABLE", 0xFF4CC9F0L)
                     return
                 }
-                val preview = TacticalRules.canTarget(sel, unitHit, state.weaponMode, state.map.rows, state.units)
+                val pactChoice = if (sel.template.archetype == UnitArchetype.LEGIONARY) state.selectedDarkPact else DarkPactChoice.NONE
+                val preview = TacticalRules.canTarget(sel, unitHit, state.weaponMode, state.map.rows, state.units, pactChoice)
                 if (preview != null && preview.inRange && preview.hasLos) {
                     sound.play(SoundType.CLICK)
                     _battleState.update { it.copy(targetPreview = preview, movePreview = null) }
@@ -2439,20 +2572,45 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun confirmStrike(fromLanClient: Boolean = false) {
+    fun selectDarkPact(choice: DarkPactChoice, fromLanClient: Boolean = false) {
         val state = _battleState.value
         if (!state.canAcceptInput(fromLanClient) || state.isDeploymentPhase) return
         if (shouldForwardToLanHost(fromLanClient)) {
-            forwardClientAction("STRIKE")
+            forwardClientAction("SELECT_DARK_PACT") { it.put("cm", choice.ordinal.toDouble()) }
+            return
+        }
+        val attacker = state.selectedUnit ?: return
+        if (attacker.template.archetype != UnitArchetype.LEGIONARY) return
+        sound.play(SoundType.CLICK)
+        val curPreview = state.targetPreview
+        val updatedPreview = if (curPreview != null) {
+            val target = state.units.firstOrNull { it.uid == curPreview.targetUid && it.isAlive }
+            if (target != null) {
+                TacticalRules.canTarget(attacker, target, curPreview.weaponMode, state.map.rows, state.units, choice)
+            } else curPreview
+        } else null
+        val next = state.copy(selectedDarkPact = choice, targetPreview = updatedPreview)
+        _battleState.value = next
+        syncCoopHostIfNeeded(next)
+    }
+
+    fun confirmStrike(fromLanClient: Boolean = false, darkPactOverride: DarkPactChoice? = null) {
+        val state = _battleState.value
+        if (!state.canAcceptInput(fromLanClient) || state.isDeploymentPhase) return
+        if (shouldForwardToLanHost(fromLanClient)) {
+            forwardClientAction("STRIKE") { it.put("cm", state.selectedDarkPact.ordinal.toDouble()) }
             return
         }
         val attacker = state.selectedUnit ?: return
         if (!state.canCommandUnit(attacker, fromLanClient)) return
         val preview = state.targetPreview ?: return
         val target = state.units.firstOrNull { it.uid == preview.targetUid && it.isAlive } ?: return
+        val pactChoice = if (attacker.template.archetype == UnitArchetype.LEGIONARY) {
+            darkPactOverride ?: preview.darkPactChoice
+        } else DarkPactChoice.NONE
         actionJob?.cancel()
         actionJob = viewModelScope.launch {
-            executeAttack(attacker.uid, target.uid, preview.weaponMode)
+            executeAttack(attacker.uid, target.uid, preview.weaponMode, darkPactChoice = pactChoice)
         }
     }
 
@@ -2489,7 +2647,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         attackerUid: String,
         targetUid: String,
         mode: WeaponMode,
-        skipCounterAttack: Boolean = false
+        skipCounterAttack: Boolean = false,
+        darkPactChoice: DarkPactChoice = DarkPactChoice.NONE
     ) {
         var state = _battleState.value
         var attacker = state.units.firstOrNull { it.uid == attackerUid && it.isAlive } ?: return
@@ -2583,6 +2742,13 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             target = nextTarget
         }
 
+        if (attacker.template.archetype == UnitArchetype.LEGIONARY &&
+            !attacker.legionaryWoundRerollBuffActive &&
+            attacker.skillCooldownLeft == 0
+        ) {
+            spawnFloatingText(attacker.pos, "⛧ VETERANS: REROLL WOUND 1s (1T)", 0xFFFFB703L)
+        }
+
         sound.play(
             when {
                 isMelee -> SoundType.MELEE
@@ -2595,25 +2761,36 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         _battleState.update { it.copy(isAnimating = true) }
         delay(2000L)
 
-        val outcome = TacticalRules.resolveAttack(attacker, target, state.units, mode, state.map.rows)
+        val outcome = TacticalRules.resolveAttack(
+            attacker = attacker,
+            primaryTarget = target,
+            allUnits = state.units,
+            mode = mode,
+            map = state.map.rows,
+            darkPactChoice = darkPactChoice
+        )
         val now = System.currentTimeMillis()
 
         val projColor = when {
             attacker.faction == Faction.MARINES && (mode == WeaponMode.SKILL || attacker.template.archetype == UnitArchetype.HELLBLASTER) -> 0xFF32C5FFL
             attacker.faction == Faction.MARINES -> 0xFFFFD166L
+            attacker.faction == Faction.BLACK_LEGION && mode == WeaponMode.SKILL -> 0xFFFF9E2CL
+            attacker.faction == Faction.BLACK_LEGION -> 0xFFE6A832L
             else -> 0xFFC77DFFL
         }
-        val proj = ProjectileVfx(
-            id = nextIdCounter++,
-            fromX = attacker.worldX,
-            fromY = attacker.worldY,
-            toX = target.worldX,
-            toY = target.worldY,
-            colorArgb = projColor,
-            isBeam = mode == WeaponMode.SKILL || attacker.template.archetype == UnitArchetype.HELLBLASTER,
-            isMelee = isMelee,
-            startTimeMs = now
-        )
+        val proj = if (outcome.updatedTargets.isNotEmpty()) {
+            ProjectileVfx(
+                id = nextIdCounter++,
+                fromX = attacker.worldX,
+                fromY = attacker.worldY,
+                toX = target.worldX,
+                toY = target.worldY,
+                colorArgb = projColor,
+                isBeam = mode == WeaponMode.SKILL || attacker.template.archetype == UnitArchetype.HELLBLASTER,
+                isMelee = isMelee,
+                startTimeMs = now
+            )
+        } else null
         val floats = outcome.floatingTexts.mapIndexed { idx, pair ->
             FloatingTextVfx(
                 id = nextIdCounter++,
@@ -2637,8 +2814,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         )
 
         val attackerIsSide0 = if (state.isCoopMode) attacker.effectiveTeam == 0 else attacker.faction == state.playerFaction
-        val addedPlayerKills = if (attackerIsSide0) outcome.killsCount else 0
-        val addedEnemyKills = if (!attackerIsSide0) outcome.killsCount else 0
+        val selfDied = attacker.isAlive && !outcome.updatedAttacker.isAlive
+        val addedPlayerKills = (if (attackerIsSide0) outcome.killsCount else 0) + (if (!attackerIsSide0 && selfDied) 1 else 0)
+        val addedEnemyKills = (if (!attackerIsSide0) outcome.killsCount else 0) + (if (attackerIsSide0 && selfDied) 1 else 0)
 
         val survivingAttacker = newUnits.firstOrNull { it.uid == attacker.uid }
         val counterDefenders = if (isMelee && !skipCounterAttack && !leaperPreStruck && survivingAttacker != null && survivingAttacker.isAlive) {
@@ -2654,6 +2832,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         val updated = state.copy(
             units = newUnits,
             weaponMode = WeaponMode.MAIN,
+            selectedDarkPact = DarkPactChoice.NONE,
             moveModeActive = false,
             movePreview = null,
             chargeModeActive = false,
@@ -2661,7 +2840,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             chargeableUids = emptySet(),
             targetPreview = null,
             isAnimating = willCounterAttack,
-            projectiles = (state.projectiles + proj).filter { now - it.startTimeMs < 1800 },
+            projectiles = (if (proj != null) state.projectiles + proj else state.projectiles).filter { now - it.startTimeMs < 1800 },
             floatingTexts = (state.floatingTexts + floats).filter { now - it.startTimeMs < 3200 },
             focusGridPos = if (state.autoFocusCamera) target.pos else state.focusGridPos,
             playerKills = state.playerKills + addedPlayerKills,
@@ -2701,7 +2880,11 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     )
                     if (counterOutcome != null) {
                         val counterNow = System.currentTimeMillis()
-                        val counterProjColor = if (liveDefender.faction == Faction.MARINES) 0xFFFFD166L else 0xFFC77DFFL
+                        val counterProjColor = when (liveDefender.faction) {
+                            Faction.MARINES -> 0xFFFFD166L
+                            Faction.BLACK_LEGION -> 0xFFE6A832L
+                            Faction.XENOS -> 0xFFC77DFFL
+                        }
                         val counterProj = ProjectileVfx(
                             id = nextIdCounter++,
                             fromX = liveDefender.worldX,
@@ -2797,6 +2980,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     UnitArchetype.VON_RYANS_LEAPER -> spawnFloatingText(selected.pos, "CHAMELEONIC CLOAK! (1T INVISIBLE)", 0xFF4CC9F0L)
                     UnitArchetype.ASSAULT_MARINE -> spawnFloatingText(selected.pos, "⚡ SHOCK ASSAULT! +1S +1AP MELEE", 0xFFFFD166L)
                     UnitArchetype.BLADEGUARD -> spawnFloatingText(selected.pos, "⚔️ REROLL 1s (HIT & SAVE 1T)", 0xFF4CC9F0L)
+                    UnitArchetype.LEGIONARY -> spawnFloatingText(selected.pos, "⛧ VETERANS: REROLL WOUND 1s (1T)", 0xFFFFB703L)
                     else -> spawnFloatingText(selected.pos, "BOUNDING LEAP!", 0xFF38D96CL)
                 }
                 val next = recomputeSelectionOverlays(
@@ -2813,6 +2997,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             state.copy(
                 selectedUnitUid = selected.uid,
                 weaponMode = nextMode,
+                selectedDarkPact = DarkPactChoice.NONE,
                 moveModeActive = false,
                 movePreview = null,
                 chargeModeActive = false,
@@ -2884,15 +3069,18 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         sound.play(SoundType.TURN_HORN)
 
         if (!state.isCoopMode) {
-            val aiFaction = if (state.playerFaction == Faction.MARINES) Faction.XENOS else Faction.MARINES
+            val aiFaction = state.units.firstOrNull { it.isAlive && it.faction != state.playerFaction }?.faction ?: state.enemyFaction
             val refreshedUnits = refreshFactionForNewTurn(clearTurnScopedMeleeBuffs(state.units), aiFaction)
             val firstAi = refreshedUnits.firstOrNull { it.faction == aiFaction && it.isAlive }
+            val playerModels = refreshedUnits.filter { it.faction == state.playerFaction && it.isAlive }.sumOf { it.aliveModels }
+            val enemyModels = refreshedUnits.filter { it.faction == aiFaction && it.isAlive }.sumOf { it.aliveModels }
 
             val updated = state.copy(
                 activeFaction = aiFaction,
                 units = TacticalRules.applyAuras(refreshedUnits),
                 selectedUnitUid = firstAi?.uid,
                 weaponMode = WeaponMode.MAIN,
+                selectedDarkPact = DarkPactChoice.NONE,
                 moveModeActive = false,
                 movePreview = null,
                 chargeModeActive = false,
@@ -2910,7 +3098,11 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     marineModelsAlive = refreshedUnits.filter { it.faction == Faction.MARINES && it.isAlive }.sumOf { it.aliveModels },
                     xenosModelsAlive = refreshedUnits.filter { it.faction == Faction.XENOS && it.isAlive }.sumOf { it.aliveModels },
                     playerKills = state.playerKills,
-                    playerLosses = state.enemyKills
+                    playerLosses = state.enemyKills,
+                    playerFaction = state.playerFaction,
+                    enemyFaction = aiFaction,
+                    playerModelsAlive = playerModels,
+                    enemyModelsAlive = enemyModels
                 )
             )
             _battleState.value = updated
@@ -2943,6 +3135,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 activeCoopPlayerId = player.id,
                 activeCoopPlayerName = player.name,
                 weaponMode = WeaponMode.MAIN,
+                selectedDarkPact = DarkPactChoice.NONE,
                 moveModeActive = false,
                 movePreview = null,
                 chargeModeActive = false,
@@ -2996,6 +3189,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     activeCoopPlayerId = "AI",
                     activeCoopPlayerName = "AI Command",
                     weaponMode = WeaponMode.MAIN,
+                    selectedDarkPact = DarkPactChoice.NONE,
                     moveModeActive = false,
                     movePreview = null,
                     chargeModeActive = false,
@@ -3134,7 +3328,12 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                         delay(700)
                     }
                     is AiDecision.Attack -> {
-                        executeAttack(decision.attackerUid, decision.targetUid, decision.mode)
+                        executeAttack(
+                            attackerUid = decision.attackerUid,
+                            targetUid = decision.targetUid,
+                            mode = decision.mode,
+                            darkPactChoice = decision.darkPactChoice
+                        )
                         delay(1300)
                     }
                     AiDecision.TurnComplete -> break
@@ -3151,12 +3350,16 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     val nextRound = endState.round + 1
                     val refreshed = TacticalRules.applyAuras(refreshFactionForNewTurn(clearTurnScopedMeleeBuffs(endState.units), endState.playerFaction))
                     val firstPlayer = refreshed.firstOrNull { it.faction == endState.playerFaction && it.isAlive }
+                    val resolvedEnemy = endState.units.firstOrNull { it.faction != endState.playerFaction }?.faction ?: endState.enemyFaction
+                    val playerModels = refreshed.filter { it.faction == endState.playerFaction && it.isAlive }.sumOf { it.aliveModels }
+                    val enemyModels = refreshed.filter { it.faction != endState.playerFaction && it.isAlive }.sumOf { it.aliveModels }
                     val nextState = endState.copy(
                         round = nextRound,
                         activeFaction = endState.playerFaction,
                         units = refreshed,
                         selectedUnitUid = firstPlayer?.uid,
                         weaponMode = WeaponMode.MAIN,
+                        selectedDarkPact = DarkPactChoice.NONE,
                         moveModeActive = false,
                         movePreview = null,
                         chargeModeActive = false,
@@ -3171,7 +3374,11 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                             marineModelsAlive = refreshed.filter { it.faction == Faction.MARINES && it.isAlive }.sumOf { it.aliveModels },
                             xenosModelsAlive = refreshed.filter { it.faction == Faction.XENOS && it.isAlive }.sumOf { it.aliveModels },
                             playerKills = endState.playerKills,
-                            playerLosses = endState.enemyKills
+                            playerLosses = endState.enemyKills,
+                            playerFaction = endState.playerFaction,
+                            enemyFaction = resolvedEnemy,
+                            playerModelsAlive = playerModels,
+                            enemyModelsAlive = enemyModels
                         )
                     )
                     _battleState.value = recomputeSelectionOverlays(nextState)
@@ -3207,7 +3414,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                         activeBuffLabel = if (nextBuffTurns > 0 || nextDamageReduction > 0 || nextStealthTurns > 0) u.activeBuffLabel else null,
                         markedByTeam = clearedMark,
                         meleeChargeBuffActive = false,
-                        bladeguardRerollBuffActive = false
+                        bladeguardRerollBuffActive = false,
+                        legionaryWoundRerollBuffActive = false
                     )
                 }
             }
@@ -3225,7 +3433,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         }
 
     private fun refreshFactionForNewTurn(units: List<BattleUnit>, faction: Faction): List<BattleUnit> {
-        val incomingTeam = if (faction == Faction.MARINES) 0 else 1
+        val incomingTeam = units.firstOrNull { it.faction == faction && it.isAlive }?.effectiveTeam
+            ?: if (faction == Faction.MARINES) 0 else 1
         return units.map { u ->
             if (!u.isAlive) u
             else {
@@ -3250,7 +3459,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                         activeBuffLabel = if (nextBuffTurns > 0 || nextDamageReduction > 0 || nextStealthTurns > 0) u.activeBuffLabel else null,
                         markedByTeam = clearedMark,
                         meleeChargeBuffActive = false,
-                        bladeguardRerollBuffActive = false
+                        bladeguardRerollBuffActive = false,
+                        legionaryWoundRerollBuffActive = false
                     )
                 }
             }
@@ -3367,14 +3577,18 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
 
-        val marinesAlive = state.units.any { it.faction == Faction.MARINES && it.isAlive }
-        val xenosAlive = state.units.any { it.faction == Faction.XENOS && it.isAlive }
-        if (marinesAlive && xenosAlive) return state
+        val playerAlive = state.units.any { it.faction == state.playerFaction && it.isAlive }
+        val enemyAlive = state.units.any { it.faction != state.playerFaction && it.isAlive }
+        if (playerAlive && enemyAlive) return state
 
         aiJob?.cancel()
         actionJob?.cancel()
         sound.play(SoundType.VICTORY)
-        val winner = if (marinesAlive) Faction.MARINES else Faction.XENOS
+        val winner = if (playerAlive) {
+            state.playerFaction
+        } else {
+            state.units.firstOrNull { it.faction != state.playerFaction }?.faction ?: state.enemyFaction
+        }
         val playerWon = winner == state.playerFaction
         val totalDmg = state.units.filter { it.faction == state.playerFaction }.sumOf { it.damageDealt }
 
