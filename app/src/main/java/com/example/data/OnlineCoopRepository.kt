@@ -13,6 +13,7 @@ import com.example.model.CoopRosterUnit
 import com.example.model.CoopSlotMode
 import com.example.model.CoopState
 import com.example.model.CoverTag
+import com.example.model.DarkPactChoice
 import com.example.model.DiceStepDetail
 import com.example.model.Facing
 import com.example.model.Faction
@@ -659,7 +660,11 @@ class OnlineCoopRepository(
         "ownerPlayerName" to u.ownerPlayerName,
         "markedByTeam" to (u.markedByTeam ?: -1),
         "meleeChargeBuffActive" to u.meleeChargeBuffActive,
-        "bladeguardRerollBuffActive" to u.bladeguardRerollBuffActive
+        "bladeguardRerollBuffActive" to u.bladeguardRerollBuffActive,
+        "legionaryWoundRerollBuffActive" to u.legionaryWoundRerollBuffActive,
+        "brutalisChargeBuffActive" to u.brutalisChargeBuffActive,
+        "brutalisAttackStacks" to u.brutalisAttackStacks,
+        "brutalisStackEarnedThisTurn" to u.brutalisStackEarnedThisTurn
     )
 
     private fun serializeBattleToNativeMap(
@@ -732,6 +737,14 @@ class OnlineCoopRepository(
                 "weaponMode" to tp.weaponMode.name,
                 "weaponName" to tp.weaponName,
                 "sustainedHits" to tp.sustainedHits,
+                "lethalHits" to tp.lethalHits,
+                "rerollWoundOnes" to tp.rerollWoundOnes,
+                "twinLinked" to tp.twinLinked,
+                "meltaBonus" to tp.meltaBonus,
+                "rapidFireBonus" to tp.rapidFireBonus,
+                "antiFlyTriggered" to tp.antiFlyTriggered,
+                "cleaveBonus" to tp.cleaveBonus,
+                "darkPactChoice" to tp.darkPactChoice.name,
                 "markedBonusApplied" to tp.markedBonusApplied,
                 "inRange" to tp.inRange,
                 "hasLos" to tp.hasLos
@@ -742,9 +755,11 @@ class OnlineCoopRepository(
             put("round", state.round)
             put("activeFaction", state.activeFaction.name)
             put("playerFaction", state.playerFaction.name)
+            put("enemyFaction", state.enemyFaction.name)
             put("mapId", state.map.id)
             put("selectedUnitUid", state.selectedUnitUid ?: "")
             put("weaponMode", state.weaponMode.name)
+            put("selectedDarkPact", state.selectedDarkPact.name)
             put("cmStepChoice", state.cmStepChoice.toDouble())
             put("moveModeActive", state.moveModeActive)
             put("chargeModeActive", state.chargeModeActive)
@@ -857,10 +872,18 @@ class OnlineCoopRepository(
                 "weaponSkill" to t.weaponSkill,
                 "leadership" to t.leadership,
                 "objectiveControl" to t.objectiveControl,
+                "baseDiameterMm" to t.baseDiameterMm,
+                "isFly" to t.isFly,
                 "mainWeaponName" to t.mainWeaponName,
                 "mainWeaponAssault" to t.mainWeaponAssault,
                 "mainWeaponPistol" to t.mainWeaponPistol,
                 "mainSustainedHits" to t.mainSustainedHits,
+                "mainMelta" to t.mainMelta,
+                "mainTwinLinked" to t.mainTwinLinked,
+                "mainRapidFire" to t.mainRapidFire,
+                "mainAntiFly" to t.mainAntiFly,
+                "mainCleave" to t.mainCleave,
+                "mainSustainedNonMonsterVehicle" to t.mainSustainedNonMonsterVehicle,
                 "meleeWeaponName" to t.meleeWeaponName,
                 "meleeAttacks" to t.meleeAttacks,
                 "meleeWeaponSkill" to t.meleeWeaponSkill,
@@ -868,6 +891,7 @@ class OnlineCoopRepository(
                 "meleeArmorPen" to t.meleeArmorPen,
                 "meleeDamage" to t.meleeDamage,
                 "meleeSustainedHits" to t.meleeSustainedHits,
+                "meleeTwinLinked" to t.meleeTwinLinked,
                 "pistolWeaponName" to t.pistolWeaponName,
                 "pistolAttacks" to t.pistolAttacks,
                 "pistolDamage" to t.pistolDamage,
@@ -876,6 +900,11 @@ class OnlineCoopRepository(
                 "pistolRange" to t.pistolRange,
                 "pistolCooldown" to t.pistolCooldown,
                 "pistolSustainedHits" to t.pistolSustainedHits,
+                "pistolIsPistol" to t.pistolIsPistol,
+                "pistolMelta" to t.pistolMelta,
+                "pistolTwinLinked" to t.pistolTwinLinked,
+                "pistolRapidFire" to t.pistolRapidFire,
+                "pistolAntiFly" to t.pistolAntiFly,
                 "skillName" to t.skillName,
                 "skillDesc" to t.skillDesc,
                 "skillCooldown" to t.skillCooldown,
@@ -883,6 +912,7 @@ class OnlineCoopRepository(
                 "passiveDesc" to t.passiveDesc,
                 "weaponChoice" to (t.weaponChoice?.name ?: ""),
                 "terminatorWeapon" to (t.terminatorWeapon?.name ?: ""),
+                "auxRangedProfile" to weaponProfileToMap(t.auxRangedProfile),
                 "warriorMeleeProfile" to weaponProfileToMap(t.warriorMeleeProfile),
                 "warriorRangedProfile" to weaponProfileToMap(t.warriorRangedProfile),
                 "terminatorHammerProfile" to weaponProfileToMap(t.terminatorHammerProfile),
@@ -903,7 +933,13 @@ class OnlineCoopRepository(
             "damage" to p.damage,
             "sustainedHits" to p.sustainedHits,
             "assault" to p.assault,
-            "pistol" to p.pistol
+            "pistol" to p.pistol,
+            "melta" to p.melta,
+            "twinLinked" to p.twinLinked,
+            "rapidFire" to p.rapidFire,
+            "antiFly" to p.antiFly,
+            "cleave" to p.cleave,
+            "sustainedNonMonsterVehicle" to p.sustainedNonMonsterVehicle
         )
     }
 
@@ -920,7 +956,13 @@ class OnlineCoopRepository(
             damage = (m["damage"] as? Number)?.toInt() ?: 1,
             sustainedHits = (m["sustainedHits"] as? Number)?.toInt() ?: 0,
             assault = (m["assault"] as? Boolean) ?: false,
-            pistol = (m["pistol"] as? Boolean) ?: false
+            pistol = (m["pistol"] as? Boolean) ?: false,
+            melta = (m["melta"] as? Number)?.toInt() ?: 0,
+            twinLinked = (m["twinLinked"] as? Boolean) ?: false,
+            rapidFire = (m["rapidFire"] as? Number)?.toInt() ?: 0,
+            antiFly = (m["antiFly"] as? Number)?.toInt() ?: 0,
+            cleave = (m["cleave"] as? Number)?.toInt() ?: 0,
+            sustainedNonMonsterVehicle = (m["sustainedNonMonsterVehicle"] as? Number)?.toInt() ?: 0
         )
     }
 
@@ -963,10 +1005,18 @@ class OnlineCoopRepository(
                 weaponSkill = (row["weaponSkill"] as? Number)?.toInt() ?: base.weaponSkill,
                 leadership = ((row["leadership"] as? Number)?.toInt() ?: base.leadership).coerceIn(4, 10),
                 objectiveControl = ((row["objectiveControl"] as? Number)?.toInt() ?: base.objectiveControl).coerceIn(0, 8),
+                baseDiameterMm = ((row["baseDiameterMm"] as? Number)?.toInt() ?: base.baseDiameterMm).coerceIn(25, 130),
+                isFly = (row["isFly"] as? Boolean) ?: base.isFly,
                 mainWeaponName = (row["mainWeaponName"] as? String) ?: base.mainWeaponName,
                 mainWeaponAssault = (row["mainWeaponAssault"] as? Boolean) ?: base.mainWeaponAssault,
                 mainWeaponPistol = (row["mainWeaponPistol"] as? Boolean) ?: base.mainWeaponPistol,
                 mainSustainedHits = (row["mainSustainedHits"] as? Number)?.toInt() ?: base.mainSustainedHits,
+                mainMelta = (row["mainMelta"] as? Number)?.toInt() ?: base.mainMelta,
+                mainTwinLinked = (row["mainTwinLinked"] as? Boolean) ?: base.mainTwinLinked,
+                mainRapidFire = (row["mainRapidFire"] as? Number)?.toInt() ?: base.mainRapidFire,
+                mainAntiFly = (row["mainAntiFly"] as? Number)?.toInt() ?: base.mainAntiFly,
+                mainCleave = (row["mainCleave"] as? Number)?.toInt() ?: base.mainCleave,
+                mainSustainedNonMonsterVehicle = (row["mainSustainedNonMonsterVehicle"] as? Number)?.toInt() ?: base.mainSustainedNonMonsterVehicle,
                 meleeWeaponName = (row["meleeWeaponName"] as? String) ?: base.meleeWeaponName,
                 meleeAttacks = (row["meleeAttacks"] as? Number)?.toInt() ?: base.meleeAttacks,
                 meleeWeaponSkill = (row["meleeWeaponSkill"] as? Number)?.toInt() ?: base.meleeWeaponSkill,
@@ -974,6 +1024,7 @@ class OnlineCoopRepository(
                 meleeArmorPen = (row["meleeArmorPen"] as? Number)?.toInt() ?: base.meleeArmorPen,
                 meleeDamage = (row["meleeDamage"] as? Number)?.toInt() ?: base.meleeDamage,
                 meleeSustainedHits = (row["meleeSustainedHits"] as? Number)?.toInt() ?: base.meleeSustainedHits,
+                meleeTwinLinked = (row["meleeTwinLinked"] as? Boolean) ?: base.meleeTwinLinked,
                 pistolWeaponName = (row["pistolWeaponName"] as? String) ?: base.pistolWeaponName,
                 pistolAttacks = (row["pistolAttacks"] as? Number)?.toInt() ?: base.pistolAttacks,
                 pistolDamage = (row["pistolDamage"] as? Number)?.toInt() ?: base.pistolDamage,
@@ -982,6 +1033,11 @@ class OnlineCoopRepository(
                 pistolRange = (row["pistolRange"] as? Number)?.toInt() ?: base.pistolRange,
                 pistolCooldown = (row["pistolCooldown"] as? Number)?.toInt() ?: base.pistolCooldown,
                 pistolSustainedHits = (row["pistolSustainedHits"] as? Number)?.toInt() ?: base.pistolSustainedHits,
+                pistolIsPistol = (row["pistolIsPistol"] as? Boolean) ?: base.pistolIsPistol,
+                pistolMelta = (row["pistolMelta"] as? Number)?.toInt() ?: base.pistolMelta,
+                pistolTwinLinked = (row["pistolTwinLinked"] as? Boolean) ?: base.pistolTwinLinked,
+                pistolRapidFire = (row["pistolRapidFire"] as? Number)?.toInt() ?: base.pistolRapidFire,
+                pistolAntiFly = (row["pistolAntiFly"] as? Number)?.toInt() ?: base.pistolAntiFly,
                 skillName = (row["skillName"] as? String) ?: base.skillName,
                 skillDesc = (row["skillDesc"] as? String) ?: base.skillDesc,
                 skillCooldown = (row["skillCooldown"] as? Number)?.toInt() ?: base.skillCooldown,
@@ -989,6 +1045,7 @@ class OnlineCoopRepository(
                 passiveDesc = (row["passiveDesc"] as? String) ?: base.passiveDesc,
                 weaponChoice = parsedChoice,
                 terminatorWeapon = parsedTermWeapon,
+                auxRangedProfile = parseWeaponProfile(row["auxRangedProfile"]) ?: base.auxRangedProfile,
                 warriorMeleeProfile = parseWeaponProfile(row["warriorMeleeProfile"]) ?: base.warriorMeleeProfile,
                 warriorRangedProfile = parseWeaponProfile(row["warriorRangedProfile"]) ?: base.warriorRangedProfile,
                 terminatorHammerProfile = parseWeaponProfile(row["terminatorHammerProfile"]) ?: base.terminatorHammerProfile,
@@ -1039,7 +1096,11 @@ class OnlineCoopRepository(
             ownerPlayerName = (row["ownerPlayerName"] as? String) ?: "",
             markedByTeam = (row["markedByTeam"] as? Number)?.toInt()?.let { if (it >= 0) it else null },
             meleeChargeBuffActive = (row["meleeChargeBuffActive"] as? Boolean) ?: false,
-            bladeguardRerollBuffActive = (row["bladeguardRerollBuffActive"] as? Boolean) ?: false
+            bladeguardRerollBuffActive = (row["bladeguardRerollBuffActive"] as? Boolean) ?: false,
+            legionaryWoundRerollBuffActive = (row["legionaryWoundRerollBuffActive"] as? Boolean) ?: false,
+            brutalisChargeBuffActive = (row["brutalisChargeBuffActive"] as? Boolean) ?: false,
+            brutalisAttackStacks = ((row["brutalisAttackStacks"] as? Number)?.toInt() ?: 0).coerceIn(0, 4),
+            brutalisStackEarnedThisTurn = (row["brutalisStackEarnedThisTurn"] as? Boolean) ?: false
         )
     }
 
@@ -1087,6 +1148,7 @@ class OnlineCoopRepository(
 
             val activeFacRaw = (battleMap["activeFaction"] as? String) ?: Faction.MARINES.name
             val playerFacRaw = (battleMap["playerFaction"] as? String) ?: Faction.MARINES.name
+            val enemyFacRaw = (battleMap["enemyFaction"] as? String) ?: Faction.XENOS.name
             val selUid = (battleMap["selectedUnitUid"] as? String)?.ifBlank { null }
             val activePid = (battleMap["activeCoopPlayerId"] as? String)?.ifBlank { null }
             val selPos = units.firstOrNull { it.uid == selUid }?.pos
@@ -1107,6 +1169,8 @@ class OnlineCoopRepository(
             val parsedLogs = parseCombatLogs(battleMap["combatLogs"] as? List<*>)
             val weaponModeRaw = (battleMap["weaponMode"] as? String) ?: WeaponMode.MAIN.name
             val parsedWeaponMode = enumValues<WeaponMode>().firstOrNull { it.name == weaponModeRaw } ?: WeaponMode.MAIN
+            val darkPactRaw = (battleMap["selectedDarkPact"] as? String) ?: DarkPactChoice.NONE.name
+            val parsedDarkPact = enumValues<DarkPactChoice>().firstOrNull { it.name == darkPactRaw } ?: DarkPactChoice.NONE
             val parsedCmStepChoice = (battleMap["cmStepChoice"] as? Number)?.toFloat() ?: 3f
             val parsedMoveMode = (battleMap["moveModeActive"] as? Boolean) ?: false
             val parsedChargeMode = (battleMap["chargeModeActive"] as? Boolean) ?: false
@@ -1148,6 +1212,7 @@ class OnlineCoopRepository(
                 val uid = (tp["targetUid"] as? String)?.takeIf { it.isNotBlank() } ?: return@let null
                 val cRaw = (tp["coverTag"] as? String) ?: CoverTag.OPEN.name
                 val mRaw = (tp["weaponMode"] as? String) ?: WeaponMode.MAIN.name
+                val dpRaw = (tp["darkPactChoice"] as? String) ?: DarkPactChoice.NONE.name
                 TargetPreview(
                     targetUid = uid,
                     targetName = (tp["targetName"] as? String) ?: "",
@@ -1166,6 +1231,14 @@ class OnlineCoopRepository(
                     weaponMode = enumValues<WeaponMode>().firstOrNull { it.name == mRaw } ?: WeaponMode.MAIN,
                     weaponName = (tp["weaponName"] as? String) ?: "",
                     sustainedHits = (tp["sustainedHits"] as? Number)?.toInt() ?: 0,
+                    lethalHits = (tp["lethalHits"] as? Boolean) ?: false,
+                    rerollWoundOnes = (tp["rerollWoundOnes"] as? Boolean) ?: false,
+                    twinLinked = (tp["twinLinked"] as? Boolean) ?: false,
+                    meltaBonus = (tp["meltaBonus"] as? Number)?.toInt() ?: 0,
+                    rapidFireBonus = (tp["rapidFireBonus"] as? Number)?.toInt() ?: 0,
+                    antiFlyTriggered = (tp["antiFlyTriggered"] as? Boolean) ?: false,
+                    cleaveBonus = (tp["cleaveBonus"] as? Number)?.toInt() ?: 0,
+                    darkPactChoice = enumValues<DarkPactChoice>().firstOrNull { it.name == dpRaw } ?: DarkPactChoice.NONE,
                     markedBonusApplied = (tp["markedBonusApplied"] as? Boolean) ?: false,
                     inRange = (tp["inRange"] as? Boolean) ?: true,
                     hasLos = (tp["hasLos"] as? Boolean) ?: true
@@ -1177,6 +1250,7 @@ class OnlineCoopRepository(
                 round = (battleMap["round"] as? Number)?.toInt() ?: 1,
                 activeFaction = enumValues<Faction>().firstOrNull { it.name == activeFacRaw } ?: Faction.MARINES,
                 playerFaction = enumValues<Faction>().firstOrNull { it.name == playerFacRaw } ?: Faction.MARINES,
+                enemyFaction = enumValues<Faction>().firstOrNull { it.name == enemyFacRaw } ?: Faction.XENOS,
                 map = sectorMap,
                 units = units,
                 reserveUnits = reserveUnits,
@@ -1187,6 +1261,7 @@ class OnlineCoopRepository(
                 selectedReserveUnitUid = preservedReserveUid,
                 selectedUnitUid = selUid,
                 weaponMode = parsedWeaponMode,
+                selectedDarkPact = parsedDarkPact,
                 cmStepChoice = parsedCmStepChoice,
                 isAnimating = parsedIsAnimating,
                 isAiThinking = (battleMap["aiThinking"] as? Boolean) ?: false,

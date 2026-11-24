@@ -209,6 +209,15 @@ fun StatEditDialog(
     var pistolCooldown by remember(template.id) { mutableStateOf(template.pistolCooldown.toString()) }
     var pistolSustainedHits by remember(template.id) { mutableStateOf(template.pistolSustainedHits.toString()) }
 
+    // Auxiliary Ranged Weapon (e.g. Twin Icarus ironhail heavy stubber)
+    val initAux = template.auxRangedProfile
+    var auxRange by remember(template.id) { mutableStateOf((initAux?.range ?: 6).toString()) }
+    var auxAttacks by remember(template.id) { mutableStateOf((initAux?.attacksPerModel ?: 3).toString()) }
+    var auxSkill by remember(template.id) { mutableStateOf((initAux?.skill ?: 3).toString()) }
+    var auxStrength by remember(template.id) { mutableStateOf((initAux?.strength ?: 4).toString()) }
+    var auxArmorPen by remember(template.id) { mutableStateOf((initAux?.armorPen ?: 0).toString()) }
+    var auxDamage by remember(template.id) { mutableStateOf((initAux?.damage ?: 1).toString()) }
+
     val isRangedNow = (range.toIntOrNull() ?: template.range) > 1
     val showBsOnNativeMelee = template.hasPistol ||
         template.archetype == UnitArchetype.CARNIFEX ||
@@ -264,7 +273,7 @@ fun StatEditDialog(
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Text(
-                            text = "UNIT PROFILE",
+                            text = if (template.baseDiameterMm > 32) "UNIT PROFILE • BASE ${template.baseDiameterMm}MM" else "UNIT PROFILE",
                             style = MaterialTheme.typography.labelMedium,
                             color = pal.trimBorder
                         )
@@ -443,15 +452,28 @@ fun StatEditDialog(
 
                         if (template.hasPistol) {
                             HorizontalDivider(color = DividerIron, modifier = Modifier.padding(top = 4.dp))
+                            val secHeader = if (template.pistolIsPistol) "PISTOL" else "RANGED WEAPON 1"
                             Text(
-                                text = "PISTOL: ${template.pistolWeaponName.uppercase()}",
+                                text = "$secHeader: ${template.pistolWeaponName.uppercase()}",
                                 style = MaterialTheme.typography.labelMedium,
                                 color = pal.trimBorder
                             )
-                            TwoFieldRow("Pistol Attacks (A)", pistolAttacks, { pistolAttacks = it }, "Pistol Damage (D)", pistolDamage, { pistolDamage = it })
-                            TwoFieldRow("Pistol Strength S", pistolStrength, { pistolStrength = it }, "Pistol Pen (0-5)", pistolArmorPen, { pistolArmorPen = it })
-                            TwoFieldRow("Pistol Range", pistolRange, { pistolRange = it }, "Pistol Cooldown", pistolCooldown, { pistolCooldown = it })
-                            StatTextField("Pistol Sustained Hits X (0-6)", pistolSustainedHits, { pistolSustainedHits = it })
+                            TwoFieldRow("Attacks (A)", pistolAttacks, { pistolAttacks = it }, "Damage (D)", pistolDamage, { pistolDamage = it })
+                            TwoFieldRow("Strength S", pistolStrength, { pistolStrength = it }, "Armor Pen (0-5)", pistolArmorPen, { pistolArmorPen = it })
+                            TwoFieldRow("Range (Tiles)", pistolRange, { pistolRange = it }, "Cooldown", pistolCooldown, { pistolCooldown = it })
+                            StatTextField("Sustained Hits X (0-6)", pistolSustainedHits, { pistolSustainedHits = it })
+                        }
+
+                        if (initAux != null) {
+                            HorizontalDivider(color = DividerIron, modifier = Modifier.padding(top = 4.dp))
+                            Text(
+                                text = "RANGED WEAPON 2: ${initAux.name.uppercase()}",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = TacticalCyan
+                            )
+                            TwoFieldRow("Range (Tiles)", auxRange, { auxRange = it }, "Attacks (A)", auxAttacks, { auxAttacks = it })
+                            TwoFieldRow("Ballistic BS (2-6+)", auxSkill, { auxSkill = it }, "Strength S (1-20)", auxStrength, { auxStrength = it })
+                            TwoFieldRow("Armor Pen (0-5)", auxArmorPen, { auxArmorPen = it }, "Damage (D)", auxDamage, { auxDamage = it })
                         }
                     }
 
@@ -489,6 +511,15 @@ fun StatEditDialog(
                                 val savedPistolCd = pistolCooldown.toIntOrNull()?.coerceIn(1, 6) ?: template.pistolCooldown
                                 val savedPistolSus = pistolSustainedHits.toIntOrNull()?.coerceIn(0, 6) ?: template.pistolSustainedHits
 
+                                val savedAux = initAux?.copy(
+                                    range = auxRange.toIntOrNull()?.coerceIn(2, 12) ?: initAux.range,
+                                    attacksPerModel = auxAttacks.toIntOrNull()?.coerceIn(1, 12) ?: initAux.attacksPerModel,
+                                    skill = auxSkill.toIntOrNull()?.coerceIn(2, 6) ?: initAux.skill,
+                                    strength = auxStrength.toIntOrNull()?.coerceIn(1, 20) ?: initAux.strength,
+                                    armorPen = auxArmorPen.toIntOrNull()?.coerceIn(0, 5) ?: initAux.armorPen,
+                                    damage = auxDamage.toIntOrNull()?.coerceIn(1, 500) ?: initAux.damage
+                                )
+
                                 val baseSaved = template.copy(
                                     points = commonPoints,
                                     squadSize = commonSquad,
@@ -506,7 +537,8 @@ fun StatEditDialog(
                                     pistolArmorPen = savedPistolAp,
                                     pistolRange = savedPistolR,
                                     pistolCooldown = savedPistolCd,
-                                    pistolSustainedHits = savedPistolSus
+                                    pistolSustainedHits = savedPistolSus,
+                                    auxRangedProfile = savedAux
                                 )
 
                                 val savedTemplate = when {

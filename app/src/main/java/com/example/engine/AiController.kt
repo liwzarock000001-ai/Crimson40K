@@ -28,7 +28,7 @@ sealed interface AiDecision {
 }
 
 object AiController {
-    private val MODES = arrayOf(WeaponMode.SKILL, WeaponMode.MAIN, WeaponMode.PISTOL)
+    private val MODES = arrayOf(WeaponMode.SKILL, WeaponMode.MAIN, WeaponMode.AUX_RANGED, WeaponMode.PISTOL)
 
     fun decideNextAction(
         aiFaction: Faction,
@@ -71,6 +71,7 @@ object AiController {
                     UnitArchetype.ASSAULT_MARINE, UnitArchetype.GENESTEALER -> true
                     UnitArchetype.BLADEGUARD -> !unit.bladeguardRerollBuffActive && (isEngaged || distToNearest <= 5)
                     UnitArchetype.LEGIONARY -> false // Auto-activates when starting shooting/fighting
+                    UnitArchetype.BRUTALIS_DREADNOUGHT -> false // Auto passive on charge/kill
                     else -> distToNearest > 2
                 }
                 if (selfSkill != null && shouldTriggerSelf) {
@@ -214,6 +215,13 @@ object AiController {
         for (mIdx in MODES.indices) {
             val mode = MODES[mIdx]
             if (!TacticalRules.canUseMode(unit, mode, allUnits)) continue
+            if (engagedAtPos) {
+                val isEngagedMelee = mode == WeaponMode.MAIN && !unit.template.mainWeaponPistol
+                val isEngagedPistol = (mode == WeaponMode.MAIN && unit.template.mainWeaponPistol) ||
+                    (mode == WeaponMode.PISTOL && unit.template.pistolIsPistol) ||
+                    (mode == WeaponMode.AUX_RANGED && unit.template.auxRangedProfile?.pistol == true)
+                if (!isEngagedMelee && !isEngagedPistol) continue
+            }
 
             val range = if (engagedAtPos && mode == WeaponMode.MAIN && !unit.template.mainWeaponPistol) {
                 1

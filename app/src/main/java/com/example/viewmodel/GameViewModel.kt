@@ -77,7 +77,8 @@ data class SetupUiState(
     val blackLegionRoster: List<RosterSlot> = DefaultCatalog.defaultBlackLegionRoster(),
     val xenosRoster: List<RosterSlot> = DefaultCatalog.defaultXenosRoster(),
     val editingTemplateId: String? = null,
-    val statusMessage: String? = null
+    val statusMessage: String? = null,
+    val statusIsError: Boolean = false
 ) {
     val marinePoints: Int
         get() = marineRoster.sumOf { templates[it.templateId]?.points ?: 0 }
@@ -190,7 +191,11 @@ data class BattleUiState(
     val blackLegionAliveModels: Int get() = units.filter { it.faction == Faction.BLACK_LEGION && it.isAlive }.sumOf { it.aliveModels }
     val xenosAliveModels: Int get() = units.filter { it.faction == Faction.XENOS && it.isAlive }.sumOf { it.aliveModels }
     val resolvedEnemyFaction: Faction
-        get() = units.firstOrNull { it.faction != playerFaction }?.faction ?: enemyFaction
+        get() = if (isCoopMode) {
+            enemyFaction
+        } else {
+            units.firstOrNull { it.faction != playerFaction }?.faction ?: enemyFaction
+        }
     val playerAliveModels: Int
         get() = units.filter {
             it.isAlive && if (isCoopMode) it.effectiveTeam == 0 else it.faction == playerFaction
@@ -248,6 +253,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private var lastDeployTeam1Idx = -1
     private var aiJob: Job? = null
     private var actionJob: Job? = null
+    private var splashDismissJob: Job? = null
+    private var saveBannerJob: Job? = null
+    private var setupStatusJob: Job? = null
 
     // Cloud Online Co-op bridge callbacks (wired in MainActivity only after Google Sign-In)
     var onlineLobbySyncPublisher: ((CoopState, Map<String, UnitTemplate>) -> Unit)? = null
@@ -282,6 +290,10 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setScreen(screen: AppScreen) {
         sound.play(SoundType.CLICK)
+        if (_setupState.value.statusMessage != null) {
+            setupStatusJob?.cancel()
+            _setupState.update { it.copy(statusMessage = null, statusIsError = false) }
+        }
         _currentScreen.value = screen
     }
 
@@ -308,9 +320,11 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                         marineRoster = marines,
                         blackLegionRoster = blackLegion,
                         xenosRoster = xenos,
-                        statusMessage = "Loaded saved Skirmish roster."
+                        statusMessage = "Loaded saved Skirmish roster.",
+                        statusIsError = false
                     )
                 }
+                scheduleSetupStatusAutoDismiss()
             }
             _currentScreen.value = AppScreen.SKIRMISH_SETUP
         }
@@ -321,7 +335,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         if (!state.active || state.isCoopMode || state.summary != null) return
         sound.play(SoundType.CLICK)
         val templates = _setupState.value.templates
-        viewModelScope.launch {
+        saveBannerJob?.cancel()
+        saveBannerJob = viewModelScope.launch {
             repository.saveSkirmishBattle(
                 SavedSkirmishBattleEntity(
                     round = state.round,
@@ -407,19 +422,25 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     // --- CO-OP ROOM GATEWAY, LOBBY & HOST AUTHORITY ACTIONS ---
     fun updateHostCommanderName(name: String) {
-        _coopState.update { it.copy(hostCommanderName = name.take(20)) }
+        _coopState.update { it.copy(hostCommanderName = name.take(20), lobbyError = null) }
     }
 
     fun updateJoinCommanderName(name: String) {
-        _coopState.update { it.copy(joinCommanderName = name.take(20)) }
+        _coopState.update { it.copy(joinCommanderName = name.take(20), lobbyError = null) }
     }
 
     fun updateJoinRoomCode(code: String) {
         _coopState.update { it.copy(joinRoomCodeInput = code.take(24), lobbyError = null) }
     }
 
+    fun dismissCoopLobbyError() {
+        _coopState.update { it.copy(lobbyError = null) }
+    }
+
     fun enterOnlineRoom(roomCode: String, assignedSlot: String, isHost: Boolean) {
         sound.play(SoundType.CLICK)
+        setupStatusJob?.cancel()
+        _setupState.update { it.copy(statusMessage = null, statusIsError = false) }
         _coopState.update { st ->
             val updatedPlayers = if (isHost) {
                 val hostName = st.hostCommanderName.trim().ifBlank { "Commander 1" }
@@ -485,6 +506,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 assignedUnits = assignedUnits,
                 spawnAiEnemyIfSameFaction = spawnAi,
                 pointLimit = (pointLimit ?: current.pointLimit).coerceIn(500, 5000),
+                lobbyError = null,
                 networkStatus = nextStatusText,
                 remoteTemplates = customTemplates ?: current.remoteTemplates
             )
@@ -512,7 +534,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         if (_battleState.value.isCoopMode && _battleState.value.active) {
             aiJob?.cancel()
             actionJob?.cancel()
-            _battleState.update { st -> st.copy(active = false, summary = null, isAiThinking = false, isAnimating = false) }
+            splashDismissJob?.cancel()
+            saveBannerJob?.cancel()
+            _battleState.update { st -> st.copy(active = false, summary = null, isAiThinking = false, isAnimating = false, turnSplash = null) }
         }
     }
 
@@ -555,7 +579,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             } else {
                 state.assignedUnits
             }
-            state.copy(players = updated, assignedUnits = updatedUnits, selectedConfigPlayerId = playerId)
+            state.copy(players = updated, assignedUnits = updatedUnits, selectedConfigPlayerId = playerId, lobbyError = null)
         }
         broadcastLobbyUpdate()
     }
@@ -620,7 +644,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             val updated = state.players.map { p ->
                 if (p.id == playerId) p.copy(name = name.take(22)) else p
             }
-            state.copy(players = updated)
+            state.copy(players = updated, lobbyError = null)
         }
         broadcastLobbyUpdate()
     }
@@ -681,7 +705,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     fun toggleCoopAiOpposition() {
         if (_coopState.value.networkRole == CoopNetworkRole.CLIENT) return
         sound.play(SoundType.CLICK)
-        _coopState.update { it.copy(spawnAiEnemyIfSameFaction = !it.spawnAiEnemyIfSameFaction) }
+        _coopState.update { it.copy(spawnAiEnemyIfSameFaction = !it.spawnAiEnemyIfSameFaction, lobbyError = null) }
         broadcastLobbyUpdate()
     }
 
@@ -691,7 +715,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     fun selectLocalClientPlayerId(playerId: String) {
         sound.play(SoundType.CLICK)
-        _coopState.update { it.copy(localPlayerId = playerId) }
+        _coopState.update { it.copy(localPlayerId = playerId, lobbyError = null) }
     }
 
     fun startCoopMatch() {
@@ -731,6 +755,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
 
+        _coopState.update { it.copy(lobbyError = null) }
         aiJob?.cancel()
         actionJob?.cancel()
         sound.play(SoundType.TURN_HORN)
@@ -822,11 +847,13 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         lastDeployTeam0Idx = if (firstTeamIndex == 0) 0 else -1
         lastDeployTeam1Idx = if (firstTeamIndex == 1) 0 else -1
 
+        val team1PrimaryFaction = reserveUnits.firstOrNull { it.effectiveTeam == 1 }?.faction ?: Faction.XENOS
         val initialState = BattleUiState(
             active = true,
             round = 1,
             activeFaction = firstPlayer.faction,
-            playerFaction = firstPlayer.faction,
+            playerFaction = team0PrimaryFaction,
+            enemyFaction = team1PrimaryFaction,
             map = map,
             units = emptyList(),
             reserveUnits = reserveUnits,
@@ -847,14 +874,15 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             activeCoopPlayerId = firstPlayer.id,
             activeCoopPlayerName = firstPlayer.name,
             localControlledPlayerId = localControlId,
-            turnSplash = TurnSplashData(
+            turnSplash = buildCoopTurnSplash(
                 round = 0,
                 activeFaction = firstPlayer.faction,
                 isPlayerTurn = firstPlayer.id == localControlId && !firstPlayer.isAi,
-                marineModelsAlive = reserveUnits.filter { it.faction == Faction.MARINES }.sumOf { it.aliveModels },
-                xenosModelsAlive = reserveUnits.filter { it.faction == Faction.XENOS }.sumOf { it.aliveModels },
+                units = reserveUnits,
+                playerFaction = team0PrimaryFaction,
+                enemyFaction = team1PrimaryFaction,
                 playerKills = 0,
-                playerLosses = 0,
+                enemyKills = 0,
                 commanderLabel = "DEPLOYMENT: ${firstPlayer.name.uppercase()}"
             )
         )
@@ -897,6 +925,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         if (roomStatus == "FINISHED" && syncedBattle.summary == null && !syncedBattle.active) {
             aiJob?.cancel()
             actionJob?.cancel()
+            splashDismissJob?.cancel()
+            saveBannerJob?.cancel()
             _battleState.value = syncedBattle
             _coopState.update {
                 it.copy(
@@ -911,6 +941,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             _currentScreen.value = AppScreen.COOP_LOBBY
             return
         }
+        val prev = _battleState.value
         val localId = _coopState.value.localPlayerId
         val adjustedSummary = syncedBattle.summary?.let { sum ->
             if (syncedBattle.isCoopMode && sum.winnerLabel.isNotBlank()) {
@@ -919,14 +950,64 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 sum.copy(playerWon = localTeam == winnerTeam)
             } else sum
         }
+        val enteredDeployment = !prev.active && syncedBattle.active && syncedBattle.isDeploymentPhase
+        val combatTurnChanged = syncedBattle.active &&
+            !syncedBattle.isDeploymentPhase &&
+            adjustedSummary == null &&
+            (!prev.active || prev.isDeploymentPhase || prev.round != syncedBattle.round || prev.activeCoopPlayerId != syncedBattle.activeCoopPlayerId)
+        val clientSplash = when {
+            enteredDeployment -> {
+                val deployId = syncedBattle.deploymentTurnPlayerId
+                val poolUnits = syncedBattle.units + syncedBattle.reserveUnits
+                buildCoopTurnSplash(
+                    round = 0,
+                    activeFaction = syncedBattle.activeFaction,
+                    isPlayerTurn = deployId != null && deployId == localId,
+                    units = poolUnits,
+                    playerFaction = syncedBattle.playerFaction,
+                    enemyFaction = syncedBattle.enemyFaction,
+                    playerKills = syncedBattle.playerKills,
+                    enemyKills = syncedBattle.enemyKills,
+                    commanderLabel = "DEPLOYMENT: ${syncedBattle.deploymentTurnPlayerName.ifBlank { "SQUADS" }.uppercase()}"
+                )
+            }
+            combatTurnChanged -> {
+                val activeId = syncedBattle.activeCoopPlayerId
+                val activeName = syncedBattle.activeCoopPlayerName.ifBlank { syncedBattle.activeFaction.displayName }
+                val isAiTurn = syncedBattle.isAiThinking || activeId == "AI" ||
+                    syncedBattle.coopTurnOrder.firstOrNull { it.id == activeId }?.isAi == true
+                val label = when {
+                    !prev.active || prev.isDeploymentPhase -> "BATTLE START • ${activeName.uppercase()}"
+                    isAiTurn -> "${activeName.uppercase()} (AI) TURN"
+                    activeId == localId -> "YOUR TURN (${activeName.uppercase()})"
+                    else -> "${activeName.uppercase()} TURN"
+                }
+                buildCoopTurnSplash(
+                    round = syncedBattle.round,
+                    activeFaction = syncedBattle.activeFaction,
+                    isPlayerTurn = !isAiTurn && activeId == localId,
+                    units = syncedBattle.units,
+                    playerFaction = syncedBattle.playerFaction,
+                    enemyFaction = syncedBattle.enemyFaction,
+                    playerKills = syncedBattle.playerKills,
+                    enemyKills = syncedBattle.enemyKills,
+                    commanderLabel = label
+                )
+            }
+            else -> if (adjustedSummary != null) null else prev.turnSplash
+        }
         val configured = syncedBattle.copy(
             localControlledPlayerId = localId,
             summary = adjustedSummary,
+            turnSplash = clientSplash,
             graphicsLevel = _settingsState.value.graphicsLevel,
             screenBrightness = _settingsState.value.screenBrightness,
             soundEnabled = _settingsState.value.sfxEnabled
         )
         _battleState.value = recomputeSelectionOverlays(configured)
+        if (enteredDeployment || combatTurnChanged) {
+            scheduleSplashAutoDismiss()
+        }
         if ((configured.active || configured.summary != null) && _currentScreen.value != AppScreen.COOP_BATTLE) {
             _currentScreen.value = AppScreen.COOP_BATTLE
         }
@@ -1084,25 +1165,30 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             if (used + cost > state.pointLimit) {
                 val left = (state.pointLimit - used).coerceAtLeast(0)
                 return@update state.copy(
-                    statusMessage = "Cannot add ${tpl?.name ?: templateId} ($cost PT): only $left / ${state.pointLimit} PT left!"
+                    statusMessage = "Cannot add ${tpl?.name ?: templateId} ($cost PT): only $left / ${state.pointLimit} PT left!",
+                    statusIsError = true
                 )
             }
             val slot = RosterSlot("slot_${nextIdCounter++}", templateId)
             when (faction) {
-                Faction.MARINES -> state.copy(marineRoster = state.marineRoster + slot, statusMessage = null)
-                Faction.BLACK_LEGION -> state.copy(blackLegionRoster = state.blackLegionRoster + slot, statusMessage = null)
-                Faction.XENOS -> state.copy(xenosRoster = state.xenosRoster + slot, statusMessage = null)
+                Faction.MARINES -> state.copy(marineRoster = state.marineRoster + slot, statusMessage = null, statusIsError = false)
+                Faction.BLACK_LEGION -> state.copy(blackLegionRoster = state.blackLegionRoster + slot, statusMessage = null, statusIsError = false)
+                Faction.XENOS -> state.copy(xenosRoster = state.xenosRoster + slot, statusMessage = null, statusIsError = false)
             }
+        }
+        if (_setupState.value.statusIsError && _setupState.value.statusMessage != null) {
+            scheduleSetupStatusAutoDismiss()
         }
     }
 
     fun removeRosterSlot(faction: Faction, slotId: String) {
         sound.play(SoundType.CLICK)
+        setupStatusJob?.cancel()
         _setupState.update { state ->
             when (faction) {
-                Faction.MARINES -> state.copy(marineRoster = state.marineRoster.filterNot { it.slotId == slotId }, statusMessage = null)
-                Faction.BLACK_LEGION -> state.copy(blackLegionRoster = state.blackLegionRoster.filterNot { it.slotId == slotId }, statusMessage = null)
-                Faction.XENOS -> state.copy(xenosRoster = state.xenosRoster.filterNot { it.slotId == slotId }, statusMessage = null)
+                Faction.MARINES -> state.copy(marineRoster = state.marineRoster.filterNot { it.slotId == slotId }, statusMessage = null, statusIsError = false)
+                Faction.BLACK_LEGION -> state.copy(blackLegionRoster = state.blackLegionRoster.filterNot { it.slotId == slotId }, statusMessage = null, statusIsError = false)
+                Faction.XENOS -> state.copy(xenosRoster = state.xenosRoster.filterNot { it.slotId == slotId }, statusMessage = null, statusIsError = false)
             }
         }
     }
@@ -1130,11 +1216,12 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 chosen.add(RosterSlot("rnd_${nextIdCounter++}", cheapest.id))
             }
             when (faction) {
-                Faction.MARINES -> state.copy(marineRoster = chosen, statusMessage = "Randomized Ultramarines ($spent pts)")
-                Faction.BLACK_LEGION -> state.copy(blackLegionRoster = chosen, statusMessage = "Randomized Black Legion ($spent pts)")
-                Faction.XENOS -> state.copy(xenosRoster = chosen, statusMessage = "Randomized Tyranids ($spent pts)")
+                Faction.MARINES -> state.copy(marineRoster = chosen, statusMessage = "Randomized Ultramarines ($spent pts)", statusIsError = false)
+                Faction.BLACK_LEGION -> state.copy(blackLegionRoster = chosen, statusMessage = "Randomized Black Legion ($spent pts)", statusIsError = false)
+                Faction.XENOS -> state.copy(xenosRoster = chosen, statusMessage = "Randomized Tyranids ($spent pts)", statusIsError = false)
             }
         }
+        scheduleSetupStatusAutoDismiss()
     }
 
     fun openStatEditor(templateId: String) {
@@ -1152,9 +1239,11 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             state.copy(
                 templates = state.templates + (updated.id to updated),
                 editingTemplateId = null,
-                statusMessage = "Saved ${updated.name} stats for room & next game!"
+                statusMessage = "Saved ${updated.name} stats for room & next game!",
+                statusIsError = false
             )
         }
+        scheduleSetupStatusAutoDismiss()
         val s = _setupState.value
         viewModelScope.launch {
             repository.saveConfig(
@@ -1189,7 +1278,13 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     customTemplatesJson = DefaultCatalog.serializeTemplates(s.templates)
                 )
             )
-            _setupState.update { it.copy(statusMessage = "Saved all unit stats for next game & synced to room!") }
+            _setupState.update {
+                it.copy(
+                    statusMessage = "Saved all unit stats for next game & synced to room!",
+                    statusIsError = false
+                )
+            }
+            scheduleSetupStatusAutoDismiss()
             broadcastLobbyUpdate()
         }
     }
@@ -1198,13 +1293,18 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         sound.play(SoundType.CLICK)
         viewModelScope.launch {
             repository.resetConfig()
-            _setupState.value = SetupUiState(statusMessage = "Reset to Crimson Sector defaults")
+            _setupState.value = SetupUiState(
+                statusMessage = "Reset to Crimson Sector defaults",
+                statusIsError = false
+            )
+            scheduleSetupStatusAutoDismiss()
             broadcastLobbyUpdate()
         }
     }
 
     fun clearStatusMessage() {
-        _setupState.update { it.copy(statusMessage = null) }
+        setupStatusJob?.cancel()
+        _setupState.update { it.copy(statusMessage = null, statusIsError = false) }
     }
 
     // --- BATTLE LIFECYCLE ---
@@ -1329,12 +1429,16 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         val wasCoop = _battleState.value.isCoopMode
         aiJob?.cancel()
         actionJob?.cancel()
+        splashDismissJob?.cancel()
+        saveBannerJob?.cancel()
         sound.play(SoundType.CLICK)
         val inactive = _battleState.value.copy(
             active = false,
             summary = null,
             isAiThinking = false,
             isAnimating = false,
+            turnSplash = null,
+            saveBannerMessage = null,
             combatLogs = emptyList()
         )
         _battleState.value = inactive
@@ -1464,7 +1568,6 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             deploymentTurnPlayerName = nextPlayer?.name ?: nextPid,
             deploymentTeamIndex = nextTeam,
             activeFaction = nextPlayer?.faction ?: initial.activeFaction,
-            playerFaction = nextPlayer?.faction ?: initial.playerFaction,
             activeCoopPlayerId = nextPid,
             activeCoopPlayerName = nextPlayer?.name ?: nextPid,
             focusGridPos = if (initial.autoFocusCamera && nextTeam != initial.deploymentTeamIndex) {
@@ -1480,6 +1583,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         val firstPlayer = state.coopTurnOrder.getOrNull(firstIdx)
         val firstUnit = firstPlayer?.let { p -> deployedUnits.firstOrNull { it.ownerPlayerId == p.id && it.isAlive } }
         val isAiFirst = firstPlayer?.isAi == true
+        val activeFac = firstPlayer?.faction ?: state.activeFaction
         return recomputeSelectionOverlays(
             state.copy(
                 units = deployedUnits,
@@ -1489,22 +1593,22 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 deploymentTurnPlayerId = null,
                 deploymentTurnPlayerName = "",
                 round = 1,
-                activeFaction = firstPlayer?.faction ?: state.activeFaction,
-                playerFaction = firstPlayer?.faction ?: state.playerFaction,
+                activeFaction = activeFac,
                 selectedUnitUid = firstUnit?.uid,
                 coopTurnIndex = firstIdx,
                 activeCoopPlayerId = firstPlayer?.id,
                 activeCoopPlayerName = firstPlayer?.name ?: "",
                 isAiThinking = isAiFirst,
                 focusGridPos = if (state.autoFocusCamera) firstUnit?.pos else state.focusGridPos,
-                turnSplash = TurnSplashData(
+                turnSplash = buildCoopTurnSplash(
                     round = 1,
-                    activeFaction = firstPlayer?.faction ?: state.activeFaction,
+                    activeFaction = activeFac,
                     isPlayerTurn = !isAiFirst && firstPlayer?.id == state.localControlledPlayerId,
-                    marineModelsAlive = deployedUnits.filter { it.faction == Faction.MARINES && it.isAlive }.sumOf { it.aliveModels },
-                    xenosModelsAlive = deployedUnits.filter { it.faction == Faction.XENOS && it.isAlive }.sumOf { it.aliveModels },
+                    units = deployedUnits,
+                    playerFaction = state.playerFaction,
+                    enemyFaction = state.enemyFaction,
                     playerKills = 0,
-                    playerLosses = 0,
+                    enemyKills = 0,
                     commanderLabel = "BATTLE START • ${firstPlayer?.name?.uppercase() ?: "ROUND 1"}"
                 )
             )
@@ -1748,13 +1852,16 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     val isEngaged = TacticalRules.isEngagedInMelee(sel, state.units)
                     val distToHit = hypot(sel.worldX - unitHit.worldX, sel.worldY - unitHit.worldY)
                     val isMeleeStrike = TacticalRules.effectiveIsMelee(sel, state.weaponMode, distToHit)
-                    val hasPistolPrivilege = state.weaponMode == WeaponMode.PISTOL || sel.template.mainWeaponPistol
+                    val hasPistolPrivilege = (state.weaponMode == WeaponMode.PISTOL && sel.template.pistolIsPistol) ||
+                        sel.template.mainWeaponPistol ||
+                        (state.weaponMode == WeaponMode.AUX_RANGED && sel.template.auxRangedProfile?.pistol == true)
                     val reason = when {
                         sel.skillCooldownLeft > 0 && state.weaponMode == WeaponMode.SKILL -> "ON COOLDOWN"
                         sel.pistolCooldownLeft > 0 && state.weaponMode == WeaponMode.PISTOL -> "ON COOLDOWN"
-                        isEngaged && !isMeleeStrike && !hasPistolPrivilege -> "IN MELEE: PISTOL ONLY"
+                        isEngaged && !isMeleeStrike && !hasPistolPrivilege -> "IN MELEE: PISTOL/MELEE ONLY"
                         !TacticalRules.canUseMode(sel, state.weaponMode, state.units) -> when {
                             sel.hasAdvanced && state.weaponMode == WeaponMode.PISTOL -> "NO PISTOL AFTER ADVANCE"
+                            sel.hasAdvanced && state.weaponMode == WeaponMode.AUX_RANGED && sel.template.auxRangedProfile?.assault != true -> "NO SHOOT AFTER ADVANCE"
                             sel.hasAdvanced && !sel.template.mainWeaponAssault -> "NO SHOOT AFTER ADVANCE"
                             sel.hasCharged -> "MELEE ONLY AFTER CHARGE"
                             TacticalRules.modeUsesMelee(sel, state.weaponMode) -> "ALREADY FOUGHT"
@@ -2037,14 +2144,26 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             preview.destinationY.roundToInt().coerceIn(0, MapGenerator.GRID_H - 1)
         )
 
+        if (unit.template.archetype == UnitArchetype.BRUTALIS_DREADNOUGHT) {
+            spawnFloatingText(unit.pos, "⚡ BRUTALIS CHARGE: +2S +1AP!", 0xFFFFB703L)
+        }
+
         _battleState.update { state ->
             val updatedUnits = state.units.map { u ->
                 if (u.uid != unitUid) u
-                else u.copy(
-                    hasCharged = true,
-                    moveCmLeft = 0f,
-                    activeBuffLabel = "CHARGED"
-                )
+                else {
+                    val isBrutalis = u.template.archetype == UnitArchetype.BRUTALIS_DREADNOUGHT
+                    u.copy(
+                        hasCharged = true,
+                        moveCmLeft = 0f,
+                        brutalisChargeBuffActive = isBrutalis,
+                        activeBuffLabel = if (isBrutalis) {
+                            "BRUTALIS +2S +1AP • STK ${u.brutalisAttackStacks}/4"
+                        } else {
+                            "CHARGED"
+                        }
+                    )
+                }
             }
             state.copy(
                 units = updatedUnits,
@@ -2218,32 +2337,20 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private suspend fun performTeleport(unitUid: String, dest: GridPos) {
         val state = _battleState.value
         val unit = state.units.firstOrNull { it.uid == unitUid && it.isAlive } ?: return
-        sound.play(SoundType.PLASMA)
-
         val startPos = unit.pos
-        val pathPoints = TacticalRules.computeLinePath(startPos.x, startPos.y, dest.x, dest.y)
 
-        val initialUpdatedUnits = state.units.map { u ->
-            if (u.uid != unitUid) u
-            else u.copy(
-                moveCmLeft = 0f,
-                skillCooldownLeft = u.template.skillCooldown
-            )
-        }
-        val vfx = ProjectileVfx(
+        sound.play(SoundType.WARP_BEACON)
+        val beaconVfx = ProjectileVfx(
             id = nextIdCounter++,
             fromX = unit.worldX,
             fromY = unit.worldY,
             toX = dest.x.toFloat(),
             toY = dest.y.toFloat(),
             colorArgb = 0xFF4CC9F0L,
-            isBeam = true,
-            isMelee = false,
+            isTeleportBeacon = true,
             startTimeMs = System.currentTimeMillis()
         )
-
         _battleState.value = state.copy(
-            units = initialUpdatedUnits,
             weaponMode = WeaponMode.MAIN,
             moveModeActive = false,
             movePreview = null,
@@ -2252,68 +2359,54 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             attackableUids = emptySet(),
             targetPreview = null,
             isAnimating = true,
-            projectiles = state.projectiles + vfx
+            focusGridPos = if (state.autoFocusCamera) dest else state.focusGridPos,
+            projectiles = state.projectiles + beaconVfx
+        )
+        spawnFloatingText(dest, "TELEPORT BEACON...", 0xFF4CC9F0L)
+        delay(500L)
+
+        sound.play(SoundType.WARP_STRIKE)
+        val lightningVfx = ProjectileVfx(
+            id = nextIdCounter++,
+            fromX = dest.x.toFloat(),
+            fromY = dest.y.toFloat(),
+            toX = dest.x.toFloat(),
+            toY = dest.y.toFloat(),
+            colorArgb = 0xFFFFFFFFL,
+            isWarpLightning = true,
+            startTimeMs = System.currentTimeMillis()
         )
         spawnFloatingText(startPos, "WARP OUT", 0xFF64DFDFL)
+        spawnFloatingText(dest, "TELEPORT STRIKE!", 0xFF48CAE4L)
 
-        try {
-            for (i in 1 until pathPoints.size) {
-                val pt = pathPoints[i]
-                delay(120L)
-                _battleState.update { st ->
-                    val currentUnits = st.units.map { u ->
-                        if (u.uid != unitUid) u
-                        else {
-                            val nextFacing = TacticalRules.facingToward(u.pos, pt)
-                            val nextDeg = TacticalRules.angleDegToward(u.worldX, u.worldY, pt.x.toFloat(), pt.y.toFloat())
-                            u.copy(
-                                x = pt.x,
-                                y = pt.y,
-                                worldX = pt.x.toFloat(),
-                                worldY = pt.y.toFloat(),
-                                facing = nextFacing,
-                                facingDeg = nextDeg
-                            )
-                        }
-                    }
-                    st.copy(
-                        units = currentUnits,
-                        focusGridPos = if (st.autoFocusCamera) pt else st.focusGridPos
-                    )
-                }
-            }
-
-            sound.play(SoundType.PLASMA)
-            spawnFloatingText(dest, "TELEPORT STRIKE!", 0xFF48CAE4L)
-            spawnFloatingText(dest, "SHIELD -50% DMG", 0xFFFFD166L)
-
-            val finalUnits = _battleState.value.units.map { u ->
-                if (u.uid != unitUid) u
-                else u.copy(
+        val updatedUnits = _battleState.value.units.map { u ->
+            if (u.uid != unitUid) u
+            else {
+                val nextFacing = TacticalRules.facingToward(u.pos, dest)
+                val nextDeg = TacticalRules.angleDegToward(u.worldX, u.worldY, dest.x.toFloat(), dest.y.toFloat())
+                u.copy(
                     x = dest.x,
                     y = dest.y,
                     worldX = dest.x.toFloat(),
                     worldY = dest.y.toFloat(),
-                    damageReductionTurns = 1,
-                    buffTurnsLeft = 1,
-                    activeBuffLabel = "SHIELD -50% DMG"
+                    facing = nextFacing,
+                    facingDeg = nextDeg,
+                    moveCmLeft = 0f,
+                    skillCooldownLeft = u.template.skillCooldown
                 )
-            }
-            val withAuras = TacticalRules.applyAuras(finalUnits)
-            _battleState.value = recomputeSelectionOverlays(
-                _battleState.value.copy(
-                    units = withAuras,
-                    isAnimating = false,
-                    focusGridPos = if (_battleState.value.autoFocusCamera) dest else _battleState.value.focusGridPos
-                )
-            )
-            syncCoopHostIfNeeded(_battleState.value)
-            scheduleVfxCleanup()
-        } finally {
-            _battleState.update { st ->
-                if (st.isAnimating) recomputeSelectionOverlays(st.copy(isAnimating = false)) else st
             }
         }
+        val withAuras = TacticalRules.applyAuras(updatedUnits)
+        _battleState.value = recomputeSelectionOverlays(
+            _battleState.value.copy(
+                units = withAuras,
+                isAnimating = false,
+                focusGridPos = if (_battleState.value.autoFocusCamera) dest else _battleState.value.focusGridPos,
+                projectiles = _battleState.value.projectiles + lightningVfx
+            )
+        )
+        syncCoopHostIfNeeded(_battleState.value)
+        scheduleVfxCleanup()
     }
 
     private suspend fun performSeedSporeMine(unitUid: String, dest: GridPos) {
@@ -2398,7 +2491,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                         passed = 1,
                         failed = 0,
                         diceValues = listOf(6),
-                        note = "M 4 cm, Detonate: 1D6/enemy model, <3 = 1W"
+                        note = "M 4 cm, Detonate: 1D6/enemy model, <4 = 1W"
                     )
                 ),
                 resultSummary = "Living Spore Mine deployed and controllable",
@@ -3056,6 +3149,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun dismissTurnSplash() {
+        splashDismissJob?.cancel()
         _battleState.update { it.copy(turnSplash = null) }
     }
 
@@ -3128,7 +3222,6 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             state.copy(
                 round = targetRound,
                 activeFaction = player.faction,
-                playerFaction = player.faction,
                 units = refreshedUnits,
                 selectedUnitUid = firstUnit?.uid,
                 coopTurnIndex = playerIdx,
@@ -3143,14 +3236,15 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 targetPreview = null,
                 isAiThinking = isAiTurn,
                 focusGridPos = if (state.autoFocusCamera) firstUnit?.pos else state.focusGridPos,
-                turnSplash = TurnSplashData(
+                turnSplash = buildCoopTurnSplash(
                     round = targetRound,
                     activeFaction = player.faction,
                     isPlayerTurn = !isAiTurn && player.id == state.localControlledPlayerId,
-                    marineModelsAlive = refreshedUnits.filter { it.faction == Faction.MARINES && it.isAlive }.sumOf { it.aliveModels },
-                    xenosModelsAlive = refreshedUnits.filter { it.faction == Faction.XENOS && it.isAlive }.sumOf { it.aliveModels },
+                    units = refreshedUnits,
+                    playerFaction = state.playerFaction,
+                    enemyFaction = state.enemyFaction,
                     playerKills = state.playerKills,
-                    playerLosses = state.enemyKills,
+                    enemyKills = state.enemyKills,
                     commanderLabel = if (isAiTurn) "${player.name.uppercase()} (AI) TURN" else "${player.name.uppercase()} TURN"
                 )
             )
@@ -3200,14 +3294,15 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     targetPreview = null,
                     isAiThinking = true,
                     focusGridPos = if (state.autoFocusCamera) firstAi?.pos else state.focusGridPos,
-                    turnSplash = TurnSplashData(
+                    turnSplash = buildCoopTurnSplash(
                         round = state.round,
                         activeFaction = aiFaction,
                         isPlayerTurn = false,
-                        marineModelsAlive = refreshedUnits.filter { it.faction == Faction.MARINES && it.isAlive }.sumOf { it.aliveModels },
-                        xenosModelsAlive = refreshedUnits.filter { it.faction == Faction.XENOS && it.isAlive }.sumOf { it.aliveModels },
+                        units = refreshedUnits,
+                        playerFaction = state.playerFaction,
+                        enemyFaction = state.enemyFaction,
                         playerKills = state.playerKills,
-                        playerLosses = state.enemyKills,
+                        enemyKills = state.enemyKills,
                         commanderLabel = "AI COMMAND TURN"
                     )
                 )
@@ -3415,7 +3510,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                         markedByTeam = clearedMark,
                         meleeChargeBuffActive = false,
                         bladeguardRerollBuffActive = false,
-                        legionaryWoundRerollBuffActive = false
+                        legionaryWoundRerollBuffActive = false,
+                        brutalisChargeBuffActive = false,
+                        brutalisStackEarnedThisTurn = false
                     )
                 }
             }
@@ -3424,11 +3521,16 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun clearTurnScopedMeleeBuffs(units: List<BattleUnit>): List<BattleUnit> =
         units.map { u ->
-            if (!u.meleeChargeBuffActive && !u.bladeguardRerollBuffActive) u
+            if (!u.meleeChargeBuffActive && !u.bladeguardRerollBuffActive && !u.brutalisChargeBuffActive && !u.brutalisStackEarnedThisTurn) u
             else u.copy(
                 meleeChargeBuffActive = false,
                 bladeguardRerollBuffActive = false,
-                activeBuffLabel = if (u.activeBuffLabel == "+1S +1AP MELEE" || u.activeBuffLabel == "REROLL 1s (HIT & SAVE)") null else u.activeBuffLabel
+                brutalisChargeBuffActive = false,
+                brutalisStackEarnedThisTurn = false,
+                activeBuffLabel = if (u.activeBuffLabel == "+1S +1AP MELEE" ||
+                    u.activeBuffLabel == "REROLL 1s (HIT & SAVE)" ||
+                    u.activeBuffLabel?.startsWith("BRUTALIS") == true
+                ) null else u.activeBuffLabel
             )
         }
 
@@ -3460,7 +3562,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                         markedByTeam = clearedMark,
                         meleeChargeBuffActive = false,
                         bladeguardRerollBuffActive = false,
-                        legionaryWoundRerollBuffActive = false
+                        legionaryWoundRerollBuffActive = false,
+                        brutalisChargeBuffActive = false,
+                        brutalisStackEarnedThisTurn = false
                     )
                 }
             }
@@ -3483,7 +3587,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         if (selected.template.archetype == UnitArchetype.TERMINATOR && state.weaponMode == WeaponMode.SKILL) {
             val canTeleport = !inMelee && selected.skillCooldownLeft == 0 && !selected.hasAdvanced && !selected.hasCharged
             val teleportTiles = if (canTeleport) {
-                TacticalRules.computeTeleportTiles(selected, state.map.rows, state.units, maxDist = 9, minEnemyDist = 5)
+                TacticalRules.computeTeleportTiles(selected, state.map.rows, state.units)
             } else emptySet()
             return state.copy(
                 moveModeActive = false,
@@ -3656,8 +3760,46 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         return (additions.reversed() + existing).take(maxEntries)
     }
 
+    private fun buildCoopTurnSplash(
+        round: Int,
+        activeFaction: Faction,
+        isPlayerTurn: Boolean,
+        units: List<BattleUnit>,
+        playerFaction: Faction,
+        enemyFaction: Faction,
+        playerKills: Int,
+        enemyKills: Int,
+        commanderLabel: String
+    ): TurnSplashData {
+        val team0Models = units.filter { it.effectiveTeam == 0 && it.isAlive }.sumOf { it.aliveModels }
+        val team1Models = units.filter { it.effectiveTeam == 1 && it.isAlive }.sumOf { it.aliveModels }
+        return TurnSplashData(
+            round = round,
+            activeFaction = activeFaction,
+            isPlayerTurn = isPlayerTurn,
+            marineModelsAlive = units.filter { it.faction == Faction.MARINES && it.isAlive }.sumOf { it.aliveModels },
+            xenosModelsAlive = units.filter { it.faction == Faction.XENOS && it.isAlive }.sumOf { it.aliveModels },
+            playerKills = playerKills,
+            playerLosses = enemyKills,
+            commanderLabel = commanderLabel,
+            playerFaction = playerFaction,
+            enemyFaction = enemyFaction,
+            playerModelsAlive = team0Models,
+            enemyModelsAlive = team1Models
+        )
+    }
+
+    private fun scheduleSetupStatusAutoDismiss(durationMs: Long = 3200L) {
+        setupStatusJob?.cancel()
+        setupStatusJob = viewModelScope.launch {
+            delay(durationMs)
+            _setupState.update { it.copy(statusMessage = null, statusIsError = false) }
+        }
+    }
+
     private fun scheduleSplashAutoDismiss() {
-        viewModelScope.launch {
+        splashDismissJob?.cancel()
+        splashDismissJob = viewModelScope.launch {
             delay(2800)
             _battleState.update { it.copy(turnSplash = null) }
         }

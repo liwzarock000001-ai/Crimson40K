@@ -47,6 +47,7 @@ import androidx.compose.material.icons.filled.CenterFocusStrong
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DoubleArrow
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.MyLocation
@@ -62,6 +63,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -79,6 +81,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -86,7 +89,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.window.Dialog
 import com.example.R
 import com.example.engine.TacticalRules
@@ -132,10 +134,13 @@ import com.example.ui.theme.factionPalette
 import com.example.ui.theme.grimdarkBevelShape
 import com.example.viewmodel.BattleUiState
 import kotlin.math.hypot
+import kotlin.math.roundToInt
 
 @Composable
 fun BattleScreen(
     state: BattleUiState,
+    networkAlertMessage: String? = null,
+    onDismissNetworkAlert: () -> Unit = {},
     onWorldTap: (Float, Float) -> Unit,
     onToggleMoveMode: () -> Unit,
     onAdvanceMove: () -> Unit,
@@ -169,7 +174,7 @@ fun BattleScreen(
     var zoomStepDirection by remember { mutableIntStateOf(0) }
     var viewingSkillInfoTemplate by remember { mutableStateOf<UnitTemplate?>(null) }
     var diceLogExpanded by remember { mutableStateOf(true) }
-    var diceLogOffset by remember { mutableStateOf(IntOffset(16, 110)) }
+    var diceLogOffset by remember { mutableStateOf(IntOffset.Zero) }
 
     val targetCameraPitch = when (cameraPitchMode) {
         1 -> 30f
@@ -186,8 +191,11 @@ fun BattleScreen(
             .fillMaxSize()
             .background(VoidObsidian)
     ) {
+        val density = LocalDensity.current
         val maxLogBodyHeight = (maxHeight * 0.35f).coerceIn(100.dp, 220.dp)
         val logPanelWidth = (maxWidth * 0.38f).coerceIn(250.dp, 316.dp)
+        val maxLeftDragPx = with(density) { (maxWidth - logPanelWidth - 16.dp).coerceAtLeast(0.dp).toPx() }
+        val maxDownDragPx = with(density) { (maxHeight - 160.dp).coerceAtLeast(0.dp).toPx() }
         viewingSkillInfoTemplate?.let { template ->
             SkillInfoDialog(
                 template = template,
@@ -363,42 +371,99 @@ fun BattleScreen(
                         }
                     }
 
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.Top
+                    AnimatedVisibility(
+                        visible = !networkAlertMessage.isNullOrBlank(),
+                        enter = fadeIn(),
+                        exit = fadeOut()
                     ) {
-                        AnimatedVisibility(
-                            visible = state.turnSplash != null,
-                            enter = fadeIn() + scaleIn(initialScale = 0.94f),
-                            exit = fadeOut() + scaleOut(targetScale = 0.96f)
-                        ) {
-                            state.turnSplash?.let { splash ->
-                                TurnSplashCard(splash = splash, onClick = onDismissTurnSplash)
+                        networkAlertMessage?.takeIf { it.isNotBlank() }?.let { err ->
+                            GrimdarkBevelPanel(
+                                cut = 6.dp,
+                                borderColor = CrimsonSoft,
+                                topColor = CrimsonSurface,
+                                bottomColor = VoidObsidian,
+                                showRivets = false
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .widthIn(max = 300.dp)
+                                        .padding(start = 10.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.ErrorOutline,
+                                        contentDescription = null,
+                                        tint = CrimsonSoft,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Text(
+                                        text = err,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = TextPrimary,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f, fill = false)
+                                    )
+                                    IconButton(
+                                        onClick = onDismissNetworkAlert,
+                                        modifier = Modifier
+                                            .size(32.dp)
+                                            .testTag("dismiss_battle_network_alert")
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Close,
+                                            contentDescription = "Dismiss network alert",
+                                            tint = TextMuted,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                    }
+                                }
                             }
                         }
+                    }
 
-                        if (!state.isDeploymentPhase) {
-                            CombatDiceLogPanel(
-                                logs = state.combatLogs,
-                                activeFaction = state.activeFaction,
-                                expanded = diceLogExpanded,
-                                onToggleExpanded = { diceLogExpanded = !diceLogExpanded },
-                                maxBodyHeight = maxLogBodyHeight,
-                                modifier = Modifier
-                                    .width(logPanelWidth)
-                                    .offset { diceLogOffset }
-                                    .pointerInput(Unit) {
-                                        detectDragGestures { _, dragAmount ->
-                                            diceLogOffset = IntOffset(
-                                                (diceLogOffset.x + dragAmount.x).toInt(),
-                                                (diceLogOffset.y + dragAmount.y).toInt()
-                                            )
-                                        }
+                    if (!state.isDeploymentPhase) {
+                        CombatDiceLogPanel(
+                            logs = state.combatLogs,
+                            activeFaction = state.activeFaction,
+                            expanded = diceLogExpanded,
+                            onToggleExpanded = { diceLogExpanded = !diceLogExpanded },
+                            maxBodyHeight = maxLogBodyHeight,
+                            modifier = Modifier
+                                .width(logPanelWidth)
+                                .offset { diceLogOffset }
+                                .pointerInput(maxLeftDragPx, maxDownDragPx) {
+                                    detectDragGestures { _, dragAmount ->
+                                        diceLogOffset = IntOffset(
+                                            (diceLogOffset.x + dragAmount.x)
+                                                .coerceIn(-maxLeftDragPx, 0f)
+                                                .roundToInt(),
+                                            (diceLogOffset.y + dragAmount.y)
+                                                .coerceIn(0f, maxDownDragPx)
+                                                .roundToInt()
+                                        )
                                     }
-                            )
-                        }
+                                }
+                        )
                     }
                 }
+            }
+        }
+
+        // Independent Center Turn Splash Overlay (never shifts CombatDiceLogPanel)
+        AnimatedVisibility(
+            visible = state.turnSplash != null,
+            enter = fadeIn() + scaleIn(initialScale = 0.94f),
+            exit = fadeOut() + scaleOut(targetScale = 0.96f),
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .statusBarsPadding()
+                .displayCutoutPadding()
+                .padding(top = if (state.isDeploymentPhase) 96.dp else 72.dp, start = 16.dp, end = 16.dp)
+        ) {
+            state.turnSplash?.let { splash ->
+                TurnSplashCard(splash = splash, onClick = onDismissTurnSplash)
             }
         }
 
@@ -536,6 +601,7 @@ fun BattleScreen(
                     allUnits = state.units,
                     activeFaction = state.activeFaction,
                     isPlayerTurn = state.isPlayerTurn && !state.isAnimating,
+                    isCoopMode = state.isCoopMode,
                     weaponMode = state.weaponMode,
                     moveModeActive = state.moveModeActive,
                     chargeModeActive = state.chargeModeActive,
@@ -924,7 +990,16 @@ private fun TargetPreviewBanner(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                if (preview.markedBonusApplied || preview.sustainedHits > 0 || preview.lethalHits || preview.rerollWoundOnes) {
+                if (preview.markedBonusApplied ||
+                    preview.sustainedHits > 0 ||
+                    preview.lethalHits ||
+                    preview.rerollWoundOnes ||
+                    preview.twinLinked ||
+                    preview.meltaBonus > 0 ||
+                    preview.rapidFireBonus > 0 ||
+                    preview.antiFlyTriggered ||
+                    preview.cleaveBonus > 0
+                ) {
                     FlowRow(
                         horizontalArrangement = Arrangement.spacedBy(5.dp),
                         verticalArrangement = Arrangement.spacedBy(2.dp)
@@ -934,6 +1009,46 @@ private fun TargetPreviewBanner(
                                 text = "◎ MARKED (+1 HIT)",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = WarmAmber,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        if (preview.cleaveBonus > 0) {
+                            Text(
+                                text = "[CLEAVE +${preview.cleaveBonus}A]",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = TacticalCyan,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        if (preview.twinLinked) {
+                            Text(
+                                text = "[TWIN-LINKED]",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = ImperialGold,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        if (preview.meltaBonus > 0) {
+                            Text(
+                                text = "[MELTA +${preview.meltaBonus}D]",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = CrimsonSoft,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        if (preview.rapidFireBonus > 0) {
+                            Text(
+                                text = "[RAPID FIRE +${preview.rapidFireBonus}A]",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = EmeraldBuff,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        if (preview.antiFlyTriggered) {
+                            Text(
+                                text = "[ANTI-FLY]",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = TacticalCyan,
                                 fontWeight = FontWeight.Bold
                             )
                         }
@@ -971,7 +1086,7 @@ private fun TargetPreviewBanner(
                 )
                 Text(
                     text = if (isSporeDetonate) {
-                        "💥 1D6/MODEL • <3 = 1W • EST: ${preview.expectedTotalDamage}W"
+                        "💥 1D6/MODEL • <4 = 1W • EST: ${preview.expectedTotalDamage}W"
                     } else {
                         "${preview.attacksCount}x ATK • EST DMG: ${preview.expectedTotalDamage}W"
                     },
@@ -1178,21 +1293,37 @@ private fun UnitStatusCard(
                     if (unit.legionaryWoundRerollBuffActive) {
                         StatPill("VETERANS", "REROLL W1 (1T)", WarmAmber)
                     }
+                    if (unit.template.baseDiameterMm > 32) {
+                        StatPill("BASE", "${unit.template.baseDiameterMm}mm", ImperialGold)
+                    }
+                    if (unit.template.isFly) {
+                        StatPill("TAG", "FLY", TacticalCyan)
+                    }
+                    if (unit.brutalisChargeBuffActive) {
+                        StatPill("CHARGE", "+2S +1AP", WarmAmber)
+                    }
+                    if (unit.template.archetype == UnitArchetype.BRUTALIS_DREADNOUGHT) {
+                        StatPill(
+                            "STACK",
+                            "${unit.brutalisAttackStacks}/4 (+${unit.brutalisAttackStacks}A)",
+                            if (unit.brutalisAttackStacks > 0) EmeraldBuff else TextPrimary
+                        )
+                    }
                 }
 
                 HorizontalDivider(color = DividerIron, modifier = Modifier.padding(vertical = 5.dp))
 
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     Text(
                         text = unit.template.mainWeaponName.uppercase(),
                         style = MaterialTheme.typography.labelSmall,
                         color = WarmAmber,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false)
+                        overflow = TextOverflow.Ellipsis
                     )
                     if (unit.template.mainWeaponAssault) {
                         val tagShape = remember { CutCornerShape(3.dp) }
@@ -1220,6 +1351,19 @@ private fun UnitStatusCard(
                                 .padding(horizontal = 5.dp, vertical = 1.dp)
                         )
                     }
+                    if (unit.template.mainCleave > 0) {
+                        val tagShape = remember { CutCornerShape(3.dp) }
+                        Text(
+                            text = "CLEAVE ${unit.template.mainCleave}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = TacticalCyan,
+                            modifier = Modifier
+                                .clip(tagShape)
+                                .background(TacticalCyan.copy(alpha = 0.14f))
+                                .border(0.8.dp, TacticalCyan.copy(alpha = 0.55f), tagShape)
+                                .padding(horizontal = 5.dp, vertical = 1.dp)
+                        )
+                    }
                     if (unit.template.mainSustainedHits > 0) {
                         val tagShape = remember { CutCornerShape(3.dp) }
                         Text(
@@ -1233,18 +1377,45 @@ private fun UnitStatusCard(
                                 .padding(horizontal = 5.dp, vertical = 1.dp)
                         )
                     }
+                    if (unit.template.mainSustainedNonMonsterVehicle > 0) {
+                        val tagShape = remember { CutCornerShape(3.dp) }
+                        Text(
+                            text = "SUSTAINED ${unit.template.mainSustainedNonMonsterVehicle}: NON-M/V",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = WarmAmber,
+                            modifier = Modifier
+                                .clip(tagShape)
+                                .background(InputDark)
+                                .border(0.8.dp, WarmAmber.copy(alpha = 0.65f), tagShape)
+                                .padding(horizontal = 5.dp, vertical = 1.dp)
+                        )
+                    }
+                    if (unit.template.mainTwinLinked) {
+                        val tagShape = remember { CutCornerShape(3.dp) }
+                        Text(
+                            text = "TWIN-LINKED",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = ImperialGold,
+                            modifier = Modifier
+                                .clip(tagShape)
+                                .background(InputDark)
+                                .border(0.8.dp, ImperialGold.copy(alpha = 0.65f), tagShape)
+                                .padding(horizontal = 5.dp, vertical = 1.dp)
+                        )
+                    }
                 }
                 Spacer(Modifier.height(3.dp))
                 val effectiveAp = unit.effectiveMainArmorPen
                 val apLabel = if (effectiveAp == 0) "0" else "-$effectiveAp"
-                val meleeChargeGlow = unit.meleeChargeBuffActive && !unit.template.isRangedMain
+                val meleeChargeGlow = (unit.meleeChargeBuffActive || unit.brutalisChargeBuffActive) && !unit.template.isRangedMain
+                val atkStackGlow = unit.template.archetype == UnitArchetype.BRUTALIS_DREADNOUGHT && unit.brutalisAttackStacks > 0
                 FlowRow(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     StatPill("RNG", if (unit.template.isRangedMain) "${unit.template.range}" else "2 cm", TextPrimary)
-                    StatPill("A", "${unit.template.attacksPerModel}", TextPrimary)
+                    StatPill("A", "${unit.effectiveMainAttacksPerModel}", if (atkStackGlow) EmeraldBuff else TextPrimary)
                     if (unit.template.isRangedMain) {
                         StatPill("BS", "${unit.effectiveBallisticSkill}+", TextPrimary)
                     } else {
@@ -1304,12 +1475,19 @@ private fun UnitStatusCard(
                 if (unit.template.hasPistol) {
                     Spacer(Modifier.height(5.dp))
                     val pistolAp = if (unit.template.pistolArmorPen == 0) "0" else "-${unit.template.pistolArmorPen}"
-                    val pSusText = if (unit.template.pistolSustainedHits > 0) " [SUSTAINED ${unit.template.pistolSustainedHits}]" else ""
+                    val pRoleTag = if (unit.template.pistolIsPistol) "[PISTOL]" else "[RANGED]"
+                    val pExtraTags = buildString {
+                        if (unit.template.pistolMelta > 0) append(" [MELTA ${unit.template.pistolMelta}]")
+                        if (unit.template.pistolRapidFire > 0) append(" [RAPID FIRE ${unit.template.pistolRapidFire}]")
+                        if (unit.template.pistolAntiFly in 2..6) append(" [ANTI-FLY ${unit.template.pistolAntiFly}+]")
+                        if (unit.template.pistolTwinLinked) append(" [TWIN-LINKED]")
+                        if (unit.template.pistolSustainedHits > 0) append(" [SUSTAINED ${unit.template.pistolSustainedHits}]")
+                    }
                     Text(
-                        text = "${unit.template.pistolWeaponName.uppercase()} [PISTOL]$pSusText",
+                        text = "${unit.template.pistolWeaponName.uppercase()} $pRoleTag$pExtraTags",
                         style = MaterialTheme.typography.labelSmall,
                         color = TacticalCyan,
-                        maxLines = 1,
+                        maxLines = 2,
                         overflow = TextOverflow.Ellipsis
                     )
                     Spacer(Modifier.height(2.dp))
@@ -1324,6 +1502,39 @@ private fun UnitStatusCard(
                         StatPill("S", "${unit.template.pistolStrength}", TextPrimary)
                         StatPill("AP", pistolAp, TextPrimary)
                         StatPill("D", "${unit.template.pistolDamage}", TextPrimary)
+                    }
+                }
+
+                unit.template.auxRangedProfile?.takeIf { unit.template.hasAuxRanged }?.let { aux ->
+                    Spacer(Modifier.height(5.dp))
+                    val auxAp = if (aux.armorPen == 0) "0" else "-${aux.armorPen}"
+                    val auxTags = buildString {
+                        append(if (aux.pistol) "[PISTOL]" else "[RANGED]")
+                        if (aux.antiFly in 2..6) append(" [ANTI-FLY ${aux.antiFly}+]")
+                        if (aux.rapidFire > 0) append(" [RAPID FIRE ${aux.rapidFire}]")
+                        if (aux.melta > 0) append(" [MELTA ${aux.melta}]")
+                        if (aux.twinLinked) append(" [TWIN-LINKED]")
+                        if (aux.sustainedHits > 0) append(" [SUSTAINED ${aux.sustainedHits}]")
+                    }
+                    Text(
+                        text = "${aux.name.uppercase()} $auxTags",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = TacticalCyan,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(Modifier.height(2.dp))
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        StatPill("RNG", "${aux.range}", TextPrimary)
+                        StatPill("A", "${aux.attacksPerModel}", TextPrimary)
+                        StatPill("BS", "${(aux.skill - unit.effectiveHitBonus).coerceIn(2, 6)}+", TextPrimary)
+                        StatPill("S", "${aux.strength}", TextPrimary)
+                        StatPill("AP", auxAp, TextPrimary)
+                        StatPill("D", "${aux.damage}", TextPrimary)
                     }
                 }
 
@@ -1630,6 +1841,7 @@ private fun ActionDock(
     allUnits: List<BattleUnit>,
     activeFaction: Faction,
     isPlayerTurn: Boolean,
+    isCoopMode: Boolean,
     weaponMode: WeaponMode,
     moveModeActive: Boolean,
     chargeModeActive: Boolean,
@@ -1695,16 +1907,61 @@ private fun ActionDock(
                         topColor = pal.panelTop,
                         bottomColor = pal.panelBottom,
                         showRivets = false,
-                        modifier = Modifier.widthIn(max = 315.dp)
+                        onClick = { onInspectSkill(selected.template) },
+                        modifier = Modifier.widthIn(max = 350.dp)
                     ) {
-                        Text(
-                            text = "💡 ${selected.template.passiveName}: ${selected.template.passiveDesc}",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = pal.headerText,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                        )
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                text = "💡 ${selected.template.passiveName}: ${selected.template.passiveDesc}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = pal.headerText,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f)
+                            )
+                            if (selected.template.archetype == UnitArchetype.BRUTALIS_DREADNOUGHT) {
+                                val stackShape = remember { CutCornerShape(4.dp) }
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    modifier = Modifier
+                                        .clip(stackShape)
+                                        .background(if (selected.brutalisAttackStacks > 0) EmeraldSurface else InputDark)
+                                        .border(
+                                            1.dp,
+                                            if (selected.brutalisChargeBuffActive) WarmAmber
+                                            else if (selected.brutalisAttackStacks > 0) EmeraldBorder
+                                            else ImperialGold,
+                                            stackShape
+                                        )
+                                        .padding(horizontal = 7.dp, vertical = 3.dp)
+                                        .testTag("brutalis_stack_badge")
+                                ) {
+                                    Text(
+                                        text = "STACK ${selected.brutalisAttackStacks}/4",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = if (selected.brutalisAttackStacks > 0) EmeraldBuff else WarmAmber,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1,
+                                        softWrap = false
+                                    )
+                                    Text(
+                                        text = if (selected.brutalisChargeBuffActive) {
+                                            "+2S +1AP • +${selected.brutalisAttackStacks}A"
+                                        } else {
+                                            "MELEE +${selected.brutalisAttackStacks}A"
+                                        },
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = if (selected.brutalisChargeBuffActive) WarmAmber else TextMuted,
+                                        maxLines = 1,
+                                        softWrap = false
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -1803,15 +2060,22 @@ private fun ActionDock(
             if (selected != null && selected.template.hasPistol) {
                 val pistolReady = enabled && TacticalRules.canUseMode(selected, WeaponMode.PISTOL, allUnits)
                 val isOn = weaponMode == WeaponMode.PISTOL
+                val pistolTitle = when {
+                    selected.template.pistolIsPistol -> "Pistol"
+                    selected.template.pistolMelta > 0 -> "Melta"
+                    else -> "Gun"
+                }
                 val pistolSubtitle = when {
+                    !selected.template.pistolIsPistol && isEngaged -> "IN MELEE"
                     selected.hasAdvanced -> "NO ADV"
                     selected.hasCharged -> "MELEE"
                     selected.pistolCooldownLeft > 0 -> "CD ${selected.pistolCooldownLeft}"
                     selected.hasShot -> "SHOT"
+                    selected.template.pistolMelta > 0 -> "MELTA ${selected.template.pistolMelta}"
                     else -> "SHOOT"
                 }
                 ActionDockButton(
-                    title = "Pistol",
+                    title = pistolTitle,
                     subtitle = pistolSubtitle,
                     icon = null,
                     containerTop = if (isOn) ColorTokens.CyanSurface else ColorTokens.PistolSurface,
@@ -1824,9 +2088,36 @@ private fun ActionDock(
                 )
             }
 
+            selected?.template?.auxRangedProfile?.takeIf { selected.template.hasAuxRanged }?.let { aux ->
+                val auxReady = enabled && TacticalRules.canUseMode(selected, WeaponMode.AUX_RANGED, allUnits)
+                val isAuxOn = weaponMode == WeaponMode.AUX_RANGED
+                val auxTitle = if (aux.name.contains("Icarus", ignoreCase = true)) "Icarus" else "Gun 2"
+                val auxSubtitle = when {
+                    isEngaged && !aux.pistol -> "IN MELEE"
+                    selected.hasAdvanced && !aux.assault -> "NO ADV"
+                    selected.hasCharged -> "MELEE"
+                    selected.hasShot -> "SHOT"
+                    aux.antiFly in 2..6 -> "ANTI-FLY ${aux.antiFly}+"
+                    aux.rapidFire > 0 -> "RF ${aux.rapidFire}"
+                    else -> "SHOOT"
+                }
+                ActionDockButton(
+                    title = auxTitle,
+                    subtitle = auxSubtitle,
+                    icon = null,
+                    containerTop = if (isAuxOn) ColorTokens.CyanSurface else ColorTokens.PistolSurface,
+                    containerBottom = PanelIronBottom,
+                    borderColor = if (isAuxOn) TacticalCyan else BorderSteel,
+                    textColor = TextPrimary,
+                    enabled = auxReady,
+                    onClick = { onSelectWeaponMode(WeaponMode.AUX_RANGED) },
+                    testTag = "aux_ranged_button"
+                )
+            }
+
             if (selected != null && selected.template.archetype == UnitArchetype.VON_RYANS_LEAPER) {
                 val hasAdjEnemy = allUnits.any {
-                    it.isAlive && !it.isCloaked && it.faction != selected.faction &&
+                    it.isAlive && !it.isCloaked && selected.isEnemyOf(it) &&
                         TacticalRules.isWithinMeleeReach(selected, it)
                 }
                 ActionDockButton(
@@ -1847,7 +2138,7 @@ private fun ActionDock(
                 )
             }
 
-            if (selected != null) {
+            if (selected != null && selected.template.archetype != UnitArchetype.BRUTALIS_DREADNOUGHT) {
                 val isTerminator = selected.template.archetype == UnitArchetype.TERMINATOR
                 val isBiovore = selected.template.archetype == UnitArchetype.BIOVORE
                 val isSporeMine = selected.template.archetype == UnitArchetype.SPORE_MINE
@@ -1908,7 +2199,7 @@ private fun ActionDock(
 
             ActionDockButton(
                 title = "End",
-                subtitle = "AI Next",
+                subtitle = if (isCoopMode) "NEXT TURN" else "AI Next",
                 icon = null,
                 containerTop = CrimsonDeep,
                 containerBottom = CrimsonSurface,

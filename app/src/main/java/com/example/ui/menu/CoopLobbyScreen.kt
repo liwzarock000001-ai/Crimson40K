@@ -36,6 +36,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Hub
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.RestartAlt
@@ -47,6 +48,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
@@ -130,6 +132,7 @@ fun CoopLobbyScreen(
     onlineErrorMessage: String? = null,
     createErrorMessage: String? = null,
     joinErrorMessage: String? = null,
+    onDismissError: () -> Unit = {},
     onBackToMenu: () -> Unit,
     onSignOut: () -> Unit,
     onLeaveRoom: () -> Unit,
@@ -183,6 +186,7 @@ fun CoopLobbyScreen(
                 errorMessage = onlineErrorMessage,
                 createErrorMessage = createErrorMessage,
                 joinErrorMessage = joinErrorMessage,
+                onDismissError = onDismissError,
                 onBackToMenu = onBackToMenu,
                 onSignOut = onSignOut,
                 onUpdateHostName = onUpdateHostName,
@@ -276,7 +280,9 @@ fun CoopLobbyScreen(
                 onSetPointLimit = onSetPointLimit
             )
 
-            val budgetWarning = state.lobbyError ?: overLimitPlayer?.let {
+            val dismissibleError = state.lobbyError?.takeIf { it.isNotBlank() }
+                ?: onlineErrorMessage?.takeIf { it.isNotBlank() }
+            val budgetWarning = dismissibleError ?: overLimitPlayer?.let {
                 "${it.name} exceeds ${state.pointLimit} PT limit — remove squads or raise Point Limit"
             }
             if (!budgetWarning.isNullOrBlank()) {
@@ -290,14 +296,31 @@ fun CoopLobbyScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
+                    Icon(Icons.Default.ErrorOutline, contentDescription = null, tint = CrimsonSoft, modifier = Modifier.size(14.dp))
                     Text(
                         text = budgetWarning,
                         style = MaterialTheme.typography.labelSmall,
                         color = CrimsonSoft,
                         fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
                     )
+                    if (dismissibleError != null) {
+                        IconButton(
+                            onClick = onDismissError,
+                            modifier = Modifier
+                                .size(28.dp)
+                                .testTag("dismiss_lobby_error")
+                        ) {
+                            Icon(
+                                Icons.Default.Close,
+                                contentDescription = "Dismiss lobby warning",
+                                tint = CrimsonSoft,
+                                modifier = Modifier.size(14.dp)
+                            )
+                        }
+                    }
                 }
             } else if (!isClient && !statStatusMessage.isNullOrBlank()) {
                 Row(

@@ -235,8 +235,12 @@ class GlesBattleRenderer(
             val selVis = unitVisPos[selectedUnit.uid]
             val sx = selVis?.get(0) ?: selectedUnit.worldX
             val sz = selVis?.get(1) ?: selectedUnit.worldY
+            val selRingScale = baseRingScaleFor(selectedUnit)
             Matrix.setIdentityM(modelMat, 0)
             Matrix.translateM(modelMat, 0, sx, 0.012f, sz)
+            if (selRingScale != 1f) {
+                Matrix.scaleM(modelMat, 0, selRingScale, 1f, selRingScale)
+            }
             when (selectedUnit.faction) {
                 Faction.MARINES -> {
                     drawVbo(tileVbo, 0.72f, 0.78f, 0.86f, 0.20f, unlit = true)
@@ -346,8 +350,12 @@ class GlesBattleRenderer(
         if (previewTargetUid != null) {
             val targetUnit = state.units.firstOrNull { it.uid == previewTargetUid }
             if (targetUnit != null) {
+                val tgtRingScale = baseRingScaleFor(targetUnit)
                 Matrix.setIdentityM(modelMat, 0)
                 Matrix.translateM(modelMat, 0, targetUnit.worldX, 0.014f, targetUnit.worldY)
+                if (tgtRingScale != 1f) {
+                    Matrix.scaleM(modelMat, 0, tgtRingScale, 1f, tgtRingScale)
+                }
                 drawVbo(tileVbo, 0.68f, 0.14f, 0.18f, 0.32f, unlit = true)
                 drawVbo(ringVbo, 0.85f, 0.18f, 0.22f, 0.92f, unlit = true)
             }
@@ -370,7 +378,7 @@ class GlesBattleRenderer(
                 val targetZ = unit.worldY
                 val dx = targetX - vis[0]
                 val dz = targetZ - vis[1]
-                if (abs(dx) < 0.002f && abs(dz) < 0.002f) {
+                if (abs(dx) > 2.2f || abs(dz) > 2.2f || (abs(dx) < 0.002f && abs(dz) < 0.002f)) {
                     vis[0] = targetX
                     vis[1] = targetZ
                 } else {
@@ -407,14 +415,20 @@ class GlesBattleRenderer(
                 else -> { rr = 0.44f; rg = 0.21f; rb = 0.52f }
             }
 
+            val baseRingScale = baseRingScaleFor(unit)
+
             Matrix.setIdentityM(modelMat, 0)
             Matrix.translateM(modelMat, 0, ux, 0.01f, uz)
+            if (baseRingScale != 1f) {
+                Matrix.scaleM(modelMat, 0, baseRingScale, 1f, baseRingScale)
+            }
             drawVbo(ringVbo, rr, rg, rb, if (isSelected || isAttackable || isChargeable || unit.isCloaked) 0.78f + pulse * 0.20f else 0.58f, unlit = true)
 
             if (unit.isMarked) {
+                val markScale = (1.18f + pulse * 0.06f) * baseRingScale
                 Matrix.setIdentityM(modelMat, 0)
                 Matrix.translateM(modelMat, 0, ux, 0.024f, uz)
-                Matrix.scaleM(modelMat, 0, 1.18f + pulse * 0.06f, 1f, 1.18f + pulse * 0.06f)
+                Matrix.scaleM(modelMat, 0, markScale, 1f, markScale)
                 drawVbo(ringVbo, 1.00f, 0.42f, 0.12f, 0.72f + pulse * 0.24f, unlit = true)
             }
 
@@ -422,6 +436,9 @@ class GlesBattleRenderer(
             Matrix.translateM(modelMat, 0, ux, 0.01f, uz)
             val yawDeg = unit.facingDeg
             Matrix.rotateM(modelMat, 0, yawDeg, 0f, 1f, 0f)
+            if (baseRingScale != 1f) {
+                Matrix.scaleM(modelMat, 0, baseRingScale, 1f, baseRingScale)
+            }
             val arrowR = when {
                 isSelected && unit.faction == Faction.MARINES -> 0.86f
                 isSelected && unit.faction == Faction.BLACK_LEGION -> 0.94f
@@ -443,8 +460,9 @@ class GlesBattleRenderer(
             drawVbo(arrowVbo, arrowR, arrowG, arrowB, 0.92f, unlit = true)
 
             val count = unit.aliveModels.coerceIn(1, 5)
-            val isDread = unit.template.archetype == UnitArchetype.DREADNOUGHT
-            val shadowScale = if (isDread) 1.72f else if (count == 1) 1.08f else 0.58f
+            val isDread = unit.template.archetype == UnitArchetype.DREADNOUGHT ||
+                unit.template.archetype == UnitArchetype.BRUTALIS_DREADNOUGHT
+            val shadowScale = if (isDread) 1.85f else if (count == 1) 1.08f else 0.58f
             val useClaws = unit.template.archetype == UnitArchetype.TERMINATOR && (
                 unit.template.terminatorWeapon == com.example.model.TerminatorWeaponChoice.LIGHTNING_CLAWS ||
                     (unit.template.terminatorWeapon == null &&
@@ -493,7 +511,22 @@ class GlesBattleRenderer(
                     val pg = ((proj.colorArgb shr 8) and 0xFF) / 255f
                     val pb = (proj.colorArgb and 0xFF) / 255f
 
-                    if (proj.isMelee) {
+                    if (proj.isTeleportBeacon) {
+                        Matrix.setIdentityM(modelMat, 0)
+                        Matrix.translateM(modelMat, 0, proj.toX, 0f, proj.toY)
+                        val beaconMesh = getOrUploadVbo(MeshCatalog3D.teleportBeacon)
+                        drawVbo(beaconMesh, 1f, 1f, 1f, (1f - fade * 0.3f).coerceIn(0f, 1f), unlit = false)
+                    } else if (proj.isWarpLightning) {
+                        Matrix.setIdentityM(modelMat, 0)
+                        Matrix.translateM(modelMat, 0, proj.toX, 2.75f, proj.toY)
+                        Matrix.scaleM(modelMat, 0, 0.22f + (1f - fade) * 0.1f, 5.5f, 0.22f + (1f - fade) * 0.1f)
+                        drawVbo(cubeVbo, 0.95f, 0.98f, 1.0f, (1f - fade) * 0.95f, unlit = true)
+                        Matrix.setIdentityM(modelMat, 0)
+                        Matrix.translateM(modelMat, 0, proj.toX, 0.02f, proj.toY)
+                        val ringScale = 0.4f + fade * 1.6f
+                        Matrix.scaleM(modelMat, 0, ringScale, 1f, ringScale)
+                        drawVbo(ringVbo, 0.30f, 0.88f, 1.0f, (1f - fade) * 0.90f, unlit = true)
+                    } else if (proj.isMelee) {
                         Matrix.setIdentityM(modelMat, 0)
                         Matrix.translateM(modelMat, 0, proj.toX, 0.28f, proj.toY)
                         Matrix.scaleM(modelMat, 0, 0.8f + fade * 1.1f, 1f, 0.8f + fade * 1.1f)
@@ -551,6 +584,9 @@ class GlesBattleRenderer(
 
         GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, 0)
     }
+
+    private fun baseRingScaleFor(unit: com.example.model.BattleUnit): Float =
+        if (unit.template.baseDiameterMm > 32) (unit.template.baseDiameterMm / 45f).coerceIn(1f, 2.25f) else 1f
 
     private fun subOffsetX(count: Int, idx: Int): Float = when (count) {
         1 -> 0f

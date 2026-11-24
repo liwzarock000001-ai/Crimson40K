@@ -32,6 +32,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CloudQueue
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Public
@@ -39,6 +40,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -407,12 +409,30 @@ fun CoopGoogleAuthScreen(
                                 .clip(CutCornerShape(5.dp))
                                 .background(CrimsonDeep.copy(alpha = 0.7f))
                                 .border(1.dp, CrimsonSoft, CutCornerShape(5.dp))
-                                .padding(horizontal = 10.dp, vertical = 8.dp),
+                                .padding(start = 10.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Icon(Icons.Default.ErrorOutline, contentDescription = null, tint = CrimsonSoft, modifier = Modifier.size(16.dp))
-                            Text(text = err, style = MaterialTheme.typography.labelSmall, color = TextPrimary)
+                            Text(
+                                text = err,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = TextPrimary,
+                                modifier = Modifier.weight(1f)
+                            )
+                            IconButton(
+                                onClick = { errorMessage = null },
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .testTag("dismiss_auth_error")
+                            ) {
+                                Icon(
+                                    Icons.Default.Close,
+                                    contentDescription = "Dismiss auth error",
+                                    tint = TextMuted,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                            }
                         }
                     }
 
@@ -464,7 +484,10 @@ fun CoopGoogleAuthScreen(
 
                     OutlinedTextField(
                         value = commanderName,
-                        onValueChange = { commanderName = it },
+                        onValueChange = {
+                            commanderName = it
+                            errorMessage = null
+                        },
                         label = { Text("Commander Name", style = MaterialTheme.typography.labelSmall) },
                         singleLine = true,
                         leadingIcon = { Icon(Icons.Default.Person, contentDescription = null, tint = TacticalCyan) },

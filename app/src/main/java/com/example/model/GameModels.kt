@@ -54,6 +54,7 @@ enum class UnitArchetype {
     BLADEGUARD,
     TERMINATOR,
     DREADNOUGHT,
+    BRUTALIS_DREADNOUGHT,
     CAPTAIN,
     LEGIONARY,
     TERMAGANT,
@@ -78,7 +79,13 @@ data class WeaponProfile(
     val damage: Int,
     val sustainedHits: Int = 0,
     val assault: Boolean = false,
-    val pistol: Boolean = false
+    val pistol: Boolean = false,
+    val melta: Int = 0,
+    val twinLinked: Boolean = false,
+    val rapidFire: Int = 0,
+    val antiFly: Int = 0,
+    val cleave: Int = 0,
+    val sustainedNonMonsterVehicle: Int = 0
 )
 
 @Immutable
@@ -104,6 +111,8 @@ data class UnitTemplate(
     val weaponSkill: Int,
     val leadership: Int = 6,
     val objectiveControl: Int = 1,
+    val baseDiameterMm: Int = 32,
+    val isFly: Boolean = false,
     val skillName: String,
     val skillDesc: String,
     val skillCooldown: Int,
@@ -115,6 +124,12 @@ data class UnitTemplate(
     val mainWeaponAssault: Boolean = false,
     val mainWeaponPistol: Boolean = false,
     val mainSustainedHits: Int = 0,
+    val mainMelta: Int = 0,
+    val mainTwinLinked: Boolean = false,
+    val mainRapidFire: Int = 0,
+    val mainAntiFly: Int = 0,
+    val mainCleave: Int = 0,
+    val mainSustainedNonMonsterVehicle: Int = 0,
     val meleeWeaponName: String = "Close Combat Weapon",
     val meleeAttacks: Int = 0,
     val meleeWeaponSkill: Int = 0,
@@ -122,6 +137,7 @@ data class UnitTemplate(
     val meleeArmorPen: Int = 0,
     val meleeDamage: Int = 1,
     val meleeSustainedHits: Int = 0,
+    val meleeTwinLinked: Boolean = false,
     val pistolWeaponName: String = "Bolt Pistol",
     val pistolAttacks: Int = 1,
     val pistolDamage: Int = 0,
@@ -130,6 +146,12 @@ data class UnitTemplate(
     val pistolRange: Int = 3,
     val pistolCooldown: Int = 1,
     val pistolSustainedHits: Int = 0,
+    val pistolIsPistol: Boolean = true,
+    val pistolMelta: Int = 0,
+    val pistolTwinLinked: Boolean = false,
+    val pistolRapidFire: Int = 0,
+    val pistolAntiFly: Int = 0,
+    val auxRangedProfile: WeaponProfile? = null,
     val warriorMeleeProfile: WeaponProfile? = null,
     val warriorRangedProfile: WeaponProfile? = null,
     val terminatorHammerProfile: WeaponProfile? = null,
@@ -137,6 +159,7 @@ data class UnitTemplate(
 ) {
     val maxTotalWounds: Int get() = squadSize * woundsPerModel
     val hasPistol: Boolean get() = pistolDamage > 0 && pistolRange > 0
+    val hasAuxRanged: Boolean get() = auxRangedProfile != null && auxRangedProfile.damage > 0 && auxRangedProfile.range > 1
     val isRangedMain: Boolean get() = range > 1
     val effectiveMeleeWeaponName: String
         get() = if (isRangedMain) meleeWeaponName.ifBlank { "Close Combat Weapon" } else mainWeaponName
@@ -152,6 +175,8 @@ data class UnitTemplate(
         get() = if (isRangedMain) meleeDamage.coerceAtLeast(1) else damage
     val effectiveMeleeSustainedHits: Int
         get() = if (isRangedMain) meleeSustainedHits.coerceAtLeast(0) else mainSustainedHits.coerceAtLeast(0)
+    val effectiveMeleeTwinLinked: Boolean
+        get() = if (isRangedMain) meleeTwinLinked else mainTwinLinked
 }
 
 @Immutable
@@ -226,7 +251,10 @@ data class BattleUnit(
     val markedByTeam: Int? = null,
     val meleeChargeBuffActive: Boolean = false,
     val bladeguardRerollBuffActive: Boolean = false,
-    val legionaryWoundRerollBuffActive: Boolean = false
+    val legionaryWoundRerollBuffActive: Boolean = false,
+    val brutalisChargeBuffActive: Boolean = false,
+    val brutalisAttackStacks: Int = 0,
+    val brutalisStackEarnedThisTurn: Boolean = false
 ) {
     val pos: GridPos get() = GridPos(x, y)
     val worldPos: WorldPos get() = WorldPos(worldX, worldY)
@@ -244,6 +272,7 @@ data class BattleUnit(
     val hasRangedProfile: Boolean
         get() = template.range > 1 ||
             template.hasPistol ||
+            template.hasAuxRanged ||
             template.archetype == UnitArchetype.CARNIFEX ||
             template.archetype == UnitArchetype.HIVE_TYRANT
     val hasMeleeProfile: Boolean get() = template.range <= 1 || hasCharged
@@ -278,15 +307,22 @@ data class BattleUnit(
         get() = (template.weaponSkill - effectiveHitBonus).coerceIn(2, 6)
     val effectiveMeleeWeaponSkill: Int
         get() = (template.effectiveMeleeWeaponSkill - effectiveHitBonus).coerceIn(2, 6)
+    val effectiveMainAttacksPerModel: Int
+        get() = template.attacksPerModel + if (template.archetype == UnitArchetype.BRUTALIS_DREADNOUGHT) brutalisAttackStacks.coerceIn(0, 4) else 0
     val effectiveMainStrength: Int
-        get() = template.strength + if (meleeChargeBuffActive && !template.isRangedMain) 1 else 0
+        get() = template.strength +
+            (if (meleeChargeBuffActive && !template.isRangedMain) 1 else 0) +
+            (if (brutalisChargeBuffActive && !template.isRangedMain) 2 else 0)
     val effectiveMainArmorPen: Int
-        get() = (template.armorPen + if (meleeChargeBuffActive && !template.isRangedMain) 1 else 0).coerceAtMost(6)
+        get() = (template.armorPen +
+            (if (meleeChargeBuffActive && !template.isRangedMain) 1 else 0) +
+            (if (brutalisChargeBuffActive && !template.isRangedMain) 1 else 0)).coerceAtMost(6)
 }
 
 enum class WeaponMode {
     MAIN,
     PISTOL,
+    AUX_RANGED,
     SKILL
 }
 
@@ -322,6 +358,11 @@ data class TargetPreview(
     val sustainedHits: Int = 0,
     val lethalHits: Boolean = false,
     val rerollWoundOnes: Boolean = false,
+    val twinLinked: Boolean = false,
+    val meltaBonus: Int = 0,
+    val rapidFireBonus: Int = 0,
+    val antiFlyTriggered: Boolean = false,
+    val cleaveBonus: Int = 0,
     val darkPactChoice: DarkPactChoice = DarkPactChoice.NONE,
     val markedBonusApplied: Boolean = false,
     val inRange: Boolean,
@@ -350,6 +391,8 @@ data class ProjectileVfx(
     val colorArgb: Long,
     val isBeam: Boolean = false,
     val isMelee: Boolean = false,
+    val isTeleportBeacon: Boolean = false,
+    val isWarpLightning: Boolean = false,
     val startTimeMs: Long
 )
 

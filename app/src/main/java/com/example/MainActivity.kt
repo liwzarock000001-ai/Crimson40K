@@ -264,6 +264,9 @@ private fun CoopFlowHost(
                             vm.applyOnlineBattleState(synced, room.status)
                         }
                     }
+                    if (room.status == "FINISHED" && !vm.coopState.value.inRoom) {
+                        onlineVm.stopRoomListeners()
+                    }
                 }
             }
 
@@ -291,6 +294,8 @@ private fun CoopFlowHost(
                 if (coopScreen == AppScreen.COOP_BATTLE) {
                     BattleScreen(
                         state = battleState,
+                        networkAlertMessage = onlineError,
+                        onDismissNetworkAlert = { onlineVm.clearError() },
                         onWorldTap = vm::onWorldTapped,
                         onToggleMoveMode = vm::toggleMoveMode,
                         onAdvanceMove = vm::advanceMove,
@@ -334,14 +339,19 @@ private fun CoopFlowHost(
                         templates = activeCoopTemplates,
                         allTemplates = setupState.templates,
                         editingTemplateId = setupState.editingTemplateId,
-                        statStatusMessage = setupState.statusMessage,
+                        statStatusMessage = setupState.statusMessage?.takeIf { !setupState.statusIsError },
                         myRoomsState = myRoomsState,
                         isBusy = isOnlineBusy,
                         signedInName = onlineDisplayName,
                         onlineErrorMessage = onlineError,
                         createErrorMessage = onlineCreateError,
                         joinErrorMessage = onlineJoinError,
+                        onDismissError = {
+                            onlineVm.clearError()
+                            vm.dismissCoopLobbyError()
+                        },
                         onBackToMenu = {
+                            onlineVm.clearError()
                             onlineVm.leaveActiveRoom()
                             vm.leaveCoopRoom()
                             vm.setScreen(AppScreen.MAIN_MENU)
@@ -352,6 +362,7 @@ private fun CoopFlowHost(
                                     credentialManager = credentialManager,
                                     scope = authScope,
                                     onCleanupBeforeSignOut = {
+                                        onlineVm.clearError()
                                         onlineVm.leaveActiveRoom()
                                         onlineVm.stopRoomListeners()
                                         vm.resetOnlineCoopState()
@@ -360,6 +371,7 @@ private fun CoopFlowHost(
                             } else {
                                 authScope.launch {
                                     runCatching {
+                                        onlineVm.clearError()
                                         onlineVm.leaveActiveRoom()
                                         onlineVm.stopRoomListeners()
                                         vm.resetOnlineCoopState()
@@ -369,11 +381,18 @@ private fun CoopFlowHost(
                             }
                         },
                         onLeaveRoom = {
+                            onlineVm.clearError()
                             onlineVm.leaveActiveRoom()
                             vm.leaveCoopRoom()
                         },
-                        onUpdateHostName = vm::updateHostCommanderName,
-                        onUpdateJoinName = vm::updateJoinCommanderName,
+                        onUpdateHostName = { name ->
+                            onlineVm.clearCreateError()
+                            vm.updateHostCommanderName(name)
+                        },
+                        onUpdateJoinName = { name ->
+                            onlineVm.clearJoinError()
+                            vm.updateJoinCommanderName(name)
+                        },
                         onUpdateRoomCodeInput = { code ->
                             onlineVm.clearError()
                             vm.updateJoinRoomCode(code)
@@ -432,7 +451,10 @@ private fun CoopFlowHost(
                         onAddUnitForPlayer = vm::addCoopUnitForPlayer,
                         onRemoveCoopUnit = vm::removeCoopUnit,
                         onToggleAiOpposition = vm::toggleCoopAiOpposition,
-                        onSelectLocalClientSlot = vm::selectLocalClientPlayerId,
+                        onSelectLocalClientSlot = { slot ->
+                            onlineVm.clearJoinError()
+                            vm.selectLocalClientPlayerId(slot)
+                        },
                         onOpenStatEditor = vm::openStatEditor,
                         onCloseStatEditor = vm::closeStatEditor,
                         onSaveEditedTemplate = vm::saveEditedTemplate,

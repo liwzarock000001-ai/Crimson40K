@@ -11,7 +11,7 @@ import org.json.JSONObject
 
 object DefaultCatalog {
 
-    const val CATALOG_EDITION = 11
+    const val CATALOG_EDITION = 13
 
     val defaultTemplates: List<UnitTemplate> = listOf(
         // --- ULTRAMARINES (Warhammer 40,000 11th Edition) ---
@@ -243,10 +243,10 @@ object DefaultCatalog {
             leadership = 6,
             objectiveControl = 1,
             skillName = "Teleport Strike",
-            skillDesc = "Teleports up to 9 tiles away (must be > 4 tiles from enemies). Grants 50% damage reduction for 1 turn.",
+            skillDesc = "Teleports anywhere on the battlefield (> 8 cm from enemies) via Teleport Beacon & Warp Strike.",
             skillCooldown = 4,
-            passiveName = "Crux Terminatus & Storm Shield",
-            passiveDesc = "4W (Storm Shield), T5, 2+/4++ Save, Hammer (3A S8 AP-2 D3). Switchable to Twin Lightning Claws (3W, 6A S5 AP-2 D1).",
+            passiveName = "Terminatus Assault",
+            passiveDesc = "Rest: Charged this turn. Result: Thunder Hammer gains [SUSTAINED HITS 1 vs MONSTER/VEHICLE]; Lightning Claws gain [SUSTAINED HITS 1 vs NON-MONSTER/VEHICLE].",
             terminatorWeapon = TerminatorWeaponChoice.THUNDER_HAMMER_SHIELD,
             mainWeaponName = "Thunder Hammer & Storm Shield",
             mainWeaponAssault = false,
@@ -294,6 +294,7 @@ object DefaultCatalog {
             weaponSkill = 3,
             leadership = 6,
             objectiveControl = 4,
+            baseDiameterMm = 90,
             skillName = "Sweeping Barrage",
             skillDesc = "Fires Macro Plasma splash hitting target + nearby foes.",
             skillCooldown = 3,
@@ -308,6 +309,62 @@ object DefaultCatalog {
             meleeArmorPen = 3,
             meleeDamage = 5, // D3+3 avg
             pistolDamage = 0
+        ),
+        UnitTemplate(
+            id = "brutalis_dreadnought",
+            name = "Brutalis Dreadnought",
+            faction = Faction.MARINES,
+            archetype = UnitArchetype.BRUTALIS_DREADNOUGHT,
+            role = "Brutalis Melee Walker",
+            points = 160,
+            squadSize = 1,
+            woundsPerModel = 12,
+            toughness = 10,
+            save = 2,
+            invulnSave = null,
+            armorPen = 2,
+            moveCm = 20, // 8"
+            strength = 10,
+            damage = 2,
+            attacksPerModel = 8,
+            range = 1, // Melee 2cm
+            ballisticSkill = 3,
+            weaponSkill = 3,
+            leadership = 6,
+            objectiveControl = 4,
+            baseDiameterMm = 90,
+            skillName = "Brutalis Charge (Auto)",
+            skillDesc = "Auto Passive (No manual use): After completing a Charge, Brutalis Talons gain +2S (S12) & +1AP (AP-3) for melee this turn. If it destroys ≥1 enemy model on the turn it Charged, permanently gain +1 Melee Attack (max 4 stacks, 1 stack/turn).",
+            skillCooldown = 1,
+            passiveName = "Brutalis Charge (Auto)",
+            passiveDesc = "90mm Base • Talons: Cleave 2, Sustained Hits 1: non-Monster/Vehicle, Twin-linked • After Charge: +2S +1AP Melee. Kill ≥1 model on Charge turn: +1A permanent (Max 4, 1/turn).",
+            mainWeaponName = "Brutalis Talons",
+            mainWeaponAssault = false,
+            mainTwinLinked = true,
+            mainCleave = 2,
+            mainSustainedNonMonsterVehicle = 1,
+            pistolWeaponName = "Twin multi-melta",
+            pistolAttacks = 2,
+            pistolDamage = 4, // D6 avg; +3 Melta at half range
+            pistolStrength = 9,
+            pistolArmorPen = 4,
+            pistolRange = 4, // 18"
+            pistolCooldown = 1,
+            pistolIsPistol = false,
+            pistolMelta = 3,
+            pistolTwinLinked = true,
+            auxRangedProfile = com.example.model.WeaponProfile(
+                name = "Twin Icarus ironhail heavy stubber",
+                range = 6, // 36"
+                attacksPerModel = 3,
+                skill = 3,
+                strength = 4,
+                armorPen = 0,
+                damage = 1,
+                twinLinked = true,
+                rapidFire = 3,
+                antiFly = 3
+            )
         ),
 
         // --- BLACK LEGION (Chaos Space Marines) ---
@@ -641,6 +698,7 @@ object DefaultCatalog {
             weaponSkill = 6,
             leadership = 8,
             objectiveControl = 0,
+            isFly = true,
             skillName = "Self-Destruct",
             skillDesc = "Detonates: Spore Mine is destroyed. Rolls 1 D6 for every model in the enemy unit; each roll < 4 (1-3) inflicts 1 Mortal Wound.",
             skillCooldown = 1,
@@ -664,7 +722,8 @@ object DefaultCatalog {
         RosterSlot("m3", "assault_intercessors"),
         RosterSlot("m4", "terminators"),
         RosterSlot("m5", "dreadnought"),
-        RosterSlot("m6", "bladeguard_veterans")
+        RosterSlot("m6", "bladeguard_veterans"),
+        RosterSlot("m7", "brutalis_dreadnought")
     )
 
     fun defaultXenosRoster(): List<RosterSlot> = listOf(
@@ -691,6 +750,12 @@ object DefaultCatalog {
         put("sustainedHits", p.sustainedHits)
         put("assault", p.assault)
         put("pistol", p.pistol)
+        put("melta", p.melta)
+        put("twinLinked", p.twinLinked)
+        put("rapidFire", p.rapidFire)
+        put("antiFly", p.antiFly)
+        put("cleave", p.cleave)
+        put("sustainedNonMonsterVehicle", p.sustainedNonMonsterVehicle)
     }
 
     private fun jsonToProfile(obj: JSONObject?, fallback: com.example.model.WeaponProfile?): com.example.model.WeaponProfile? {
@@ -706,7 +771,13 @@ object DefaultCatalog {
             damage = obj.optInt("damage", fb.damage).coerceIn(1, 500),
             sustainedHits = obj.optInt("sustainedHits", fb.sustainedHits).coerceIn(0, 6),
             assault = obj.optBoolean("assault", fb.assault),
-            pistol = obj.optBoolean("pistol", fb.pistol)
+            pistol = obj.optBoolean("pistol", fb.pistol),
+            melta = obj.optInt("melta", fb.melta).coerceIn(0, 10),
+            twinLinked = obj.optBoolean("twinLinked", fb.twinLinked),
+            rapidFire = obj.optInt("rapidFire", fb.rapidFire).coerceIn(0, 10),
+            antiFly = obj.optInt("antiFly", fb.antiFly).coerceIn(0, 6),
+            cleave = obj.optInt("cleave", fb.cleave).coerceIn(0, 10),
+            sustainedNonMonsterVehicle = obj.optInt("sustainedNonMonsterVehicle", fb.sustainedNonMonsterVehicle).coerceIn(0, 6)
         )
     }
 
@@ -732,6 +803,8 @@ object DefaultCatalog {
                 put("weaponSkill", t.weaponSkill)
                 put("leadership", t.leadership)
                 put("objectiveControl", t.objectiveControl)
+                put("baseDiameterMm", t.baseDiameterMm)
+                put("isFly", t.isFly)
                 put("skillCooldown", t.skillCooldown)
                 put("weaponChoice", t.weaponChoice?.name ?: "")
                 put("terminatorWeapon", t.terminatorWeapon?.name ?: "")
@@ -739,6 +812,12 @@ object DefaultCatalog {
                 put("mainWeaponAssault", t.mainWeaponAssault)
                 put("mainWeaponPistol", t.mainWeaponPistol)
                 put("mainSustainedHits", t.mainSustainedHits)
+                put("mainMelta", t.mainMelta)
+                put("mainTwinLinked", t.mainTwinLinked)
+                put("mainRapidFire", t.mainRapidFire)
+                put("mainAntiFly", t.mainAntiFly)
+                put("mainCleave", t.mainCleave)
+                put("mainSustainedNonMonsterVehicle", t.mainSustainedNonMonsterVehicle)
                 put("meleeWeaponName", t.meleeWeaponName)
                 put("meleeAttacks", t.meleeAttacks)
                 put("meleeWeaponSkill", t.meleeWeaponSkill)
@@ -746,6 +825,7 @@ object DefaultCatalog {
                 put("meleeArmorPen", t.meleeArmorPen)
                 put("meleeDamage", t.meleeDamage)
                 put("meleeSustainedHits", t.meleeSustainedHits)
+                put("meleeTwinLinked", t.meleeTwinLinked)
                 put("pistolAttacks", t.pistolAttacks)
                 put("pistolDamage", t.pistolDamage)
                 put("pistolStrength", t.pistolStrength)
@@ -753,6 +833,12 @@ object DefaultCatalog {
                 put("pistolRange", t.pistolRange)
                 put("pistolCooldown", t.pistolCooldown)
                 put("pistolSustainedHits", t.pistolSustainedHits)
+                put("pistolIsPistol", t.pistolIsPistol)
+                put("pistolMelta", t.pistolMelta)
+                put("pistolTwinLinked", t.pistolTwinLinked)
+                put("pistolRapidFire", t.pistolRapidFire)
+                put("pistolAntiFly", t.pistolAntiFly)
+                t.auxRangedProfile?.let { put("auxRangedProfile", profileToJson(it)) }
                 t.warriorMeleeProfile?.let { put("warriorMeleeProfile", profileToJson(it)) }
                 t.warriorRangedProfile?.let { put("warriorRangedProfile", profileToJson(it)) }
                 t.terminatorHammerProfile?.let { put("terminatorHammerProfile", profileToJson(it)) }
@@ -843,6 +929,8 @@ object DefaultCatalog {
                     weaponSkill = obj.optInt("weaponSkill", existing.weaponSkill).coerceIn(2, 6),
                     leadership = obj.optInt("leadership", existing.leadership).coerceIn(4, 10),
                     objectiveControl = obj.optInt("objectiveControl", existing.objectiveControl).coerceIn(0, 8),
+                    baseDiameterMm = obj.optInt("baseDiameterMm", existing.baseDiameterMm).coerceIn(25, 130),
+                    isFly = obj.optBoolean("isFly", existing.isFly),
                     skillCooldown = if (id == "terminators") existing.skillCooldown else obj.optInt("skillCooldown", existing.skillCooldown).coerceIn(1, 8),
                     weaponChoice = wc,
                     terminatorWeapon = tw,
@@ -850,6 +938,12 @@ object DefaultCatalog {
                     mainWeaponAssault = if (isLegacyTerminator) existing.mainWeaponAssault else if (obj.has("mainWeaponAssault")) obj.optBoolean("mainWeaponAssault", existing.mainWeaponAssault) else existing.mainWeaponAssault,
                     mainWeaponPistol = if (isLegacyTerminator) existing.mainWeaponPistol else if (obj.has("mainWeaponPistol")) obj.optBoolean("mainWeaponPistol", existing.mainWeaponPistol) else existing.mainWeaponPistol,
                     mainSustainedHits = obj.optInt("mainSustainedHits", existing.mainSustainedHits).coerceIn(0, 6),
+                    mainMelta = obj.optInt("mainMelta", existing.mainMelta).coerceIn(0, 10),
+                    mainTwinLinked = obj.optBoolean("mainTwinLinked", existing.mainTwinLinked),
+                    mainRapidFire = obj.optInt("mainRapidFire", existing.mainRapidFire).coerceIn(0, 10),
+                    mainAntiFly = obj.optInt("mainAntiFly", existing.mainAntiFly).coerceIn(0, 6),
+                    mainCleave = obj.optInt("mainCleave", existing.mainCleave).coerceIn(0, 10),
+                    mainSustainedNonMonsterVehicle = obj.optInt("mainSustainedNonMonsterVehicle", existing.mainSustainedNonMonsterVehicle).coerceIn(0, 6),
                     meleeWeaponName = obj.optString("meleeWeaponName", existing.meleeWeaponName).ifBlank { existing.meleeWeaponName },
                     meleeAttacks = obj.optInt("meleeAttacks", existing.meleeAttacks).coerceIn(0, 10),
                     meleeWeaponSkill = obj.optInt("meleeWeaponSkill", existing.meleeWeaponSkill).coerceIn(0, 6),
@@ -857,6 +951,7 @@ object DefaultCatalog {
                     meleeArmorPen = obj.optInt("meleeArmorPen", existing.meleeArmorPen).coerceIn(0, 5),
                     meleeDamage = obj.optInt("meleeDamage", existing.meleeDamage).coerceIn(1, 500),
                     meleeSustainedHits = obj.optInt("meleeSustainedHits", existing.meleeSustainedHits).coerceIn(0, 6),
+                    meleeTwinLinked = obj.optBoolean("meleeTwinLinked", existing.meleeTwinLinked),
                     pistolAttacks = obj.optInt("pistolAttacks", existing.pistolAttacks).coerceIn(1, 10),
                     pistolDamage = obj.optInt("pistolDamage", existing.pistolDamage).coerceIn(0, 200),
                     pistolStrength = obj.optInt("pistolStrength", existing.pistolStrength).coerceIn(1, 20),
@@ -864,6 +959,12 @@ object DefaultCatalog {
                     pistolRange = obj.optInt("pistolRange", existing.pistolRange).coerceIn(1, 8),
                     pistolCooldown = obj.optInt("pistolCooldown", existing.pistolCooldown).coerceIn(1, 6),
                     pistolSustainedHits = obj.optInt("pistolSustainedHits", existing.pistolSustainedHits).coerceIn(0, 6),
+                    pistolIsPistol = obj.optBoolean("pistolIsPistol", existing.pistolIsPistol),
+                    pistolMelta = obj.optInt("pistolMelta", existing.pistolMelta).coerceIn(0, 10),
+                    pistolTwinLinked = obj.optBoolean("pistolTwinLinked", existing.pistolTwinLinked),
+                    pistolRapidFire = obj.optInt("pistolRapidFire", existing.pistolRapidFire).coerceIn(0, 10),
+                    pistolAntiFly = obj.optInt("pistolAntiFly", existing.pistolAntiFly).coerceIn(0, 6),
+                    auxRangedProfile = jsonToProfile(obj.optJSONObject("auxRangedProfile"), existing.auxRangedProfile),
                     warriorMeleeProfile = jsonToProfile(obj.optJSONObject("warriorMeleeProfile"), existing.warriorMeleeProfile),
                     warriorRangedProfile = jsonToProfile(obj.optJSONObject("warriorRangedProfile"), existing.warriorRangedProfile),
                     terminatorHammerProfile = jsonToProfile(obj.optJSONObject("terminatorHammerProfile"), existing.terminatorHammerProfile),

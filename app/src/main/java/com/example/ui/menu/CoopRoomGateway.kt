@@ -33,6 +33,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Login
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.AddCircleOutline
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudQueue
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Groups
@@ -43,6 +44,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -93,6 +95,7 @@ fun CoopRoomGateway(
     errorMessage: String? = null,
     createErrorMessage: String? = null,
     joinErrorMessage: String? = null,
+    onDismissError: () -> Unit = {},
     onBackToMenu: () -> Unit,
     onSignOut: () -> Unit,
     onUpdateHostName: (String) -> Unit,
@@ -226,6 +229,7 @@ fun CoopRoomGateway(
                         commanderName = state.hostCommanderName,
                         isBusy = isBusy,
                         createError = activeCreateError,
+                        onDismissError = onDismissError,
                         onUpdateName = onUpdateHostName,
                         onCreateRoom = onCreateOnlineRoom,
                         modifier = Modifier
@@ -238,6 +242,7 @@ fun CoopRoomGateway(
                         myRoomsState = myRoomsState,
                         isBusy = isBusy,
                         joinError = activeJoinError,
+                        onDismissError = onDismissError,
                         onUpdateJoinName = onUpdateJoinName,
                         onUpdateRoomCodeInput = onUpdateRoomCodeInput,
                         onSelectClientSlot = onSelectClientSlot,
@@ -259,6 +264,7 @@ fun CoopRoomGateway(
                         commanderName = state.hostCommanderName,
                         isBusy = isBusy,
                         createError = activeCreateError,
+                        onDismissError = onDismissError,
                         onUpdateName = onUpdateHostName,
                         onCreateRoom = onCreateOnlineRoom,
                         modifier = Modifier.fillMaxWidth()
@@ -268,6 +274,7 @@ fun CoopRoomGateway(
                         myRoomsState = myRoomsState,
                         isBusy = isBusy,
                         joinError = activeJoinError,
+                        onDismissError = onDismissError,
                         onUpdateJoinName = onUpdateJoinName,
                         onUpdateRoomCodeInput = onUpdateRoomCodeInput,
                         onSelectClientSlot = onSelectClientSlot,
@@ -288,6 +295,7 @@ private fun CreateOnlineRoomPanel(
     commanderName: String,
     isBusy: Boolean,
     createError: String?,
+    onDismissError: () -> Unit,
     onUpdateName: (String) -> Unit,
     onCreateRoom: () -> Unit,
     modifier: Modifier = Modifier
@@ -382,7 +390,7 @@ private fun CreateOnlineRoomPanel(
                         .clip(CutCornerShape(4.dp))
                         .background(CrimsonDeep.copy(alpha = 0.85f))
                         .border(1.dp, CrimsonSoft, CutCornerShape(4.dp))
-                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                        .padding(start = 8.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
@@ -390,8 +398,22 @@ private fun CreateOnlineRoomPanel(
                     Text(
                         text = err,
                         style = MaterialTheme.typography.labelSmall,
-                        color = TextPrimary
+                        color = TextPrimary,
+                        modifier = Modifier.weight(1f)
                     )
+                    IconButton(
+                        onClick = onDismissError,
+                        modifier = Modifier
+                            .size(28.dp)
+                            .testTag("dismiss_create_error")
+                    ) {
+                        Icon(
+                            Icons.Default.Close,
+                            contentDescription = "Dismiss error",
+                            tint = TextMuted,
+                            modifier = Modifier.size(14.dp)
+                        )
+                    }
                 }
             }
 
@@ -436,6 +458,7 @@ private fun JoinOnlineRoomPanel(
     myRoomsState: UiState<List<OnlineRoomSummary>>,
     isBusy: Boolean,
     joinError: String?,
+    onDismissError: () -> Unit,
     onUpdateJoinName: (String) -> Unit,
     onUpdateRoomCodeInput: (String) -> Unit,
     onSelectClientSlot: (String) -> Unit,
@@ -602,7 +625,7 @@ private fun JoinOnlineRoomPanel(
                             .clip(CutCornerShape(4.dp))
                             .background(CrimsonDeep.copy(alpha = 0.85f))
                             .border(1.dp, CrimsonSoft, CutCornerShape(4.dp))
-                            .padding(horizontal = 8.dp, vertical = 5.dp),
+                            .padding(start = 8.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
@@ -610,8 +633,22 @@ private fun JoinOnlineRoomPanel(
                         Text(
                             text = joinError,
                             style = MaterialTheme.typography.labelSmall,
-                            color = TextPrimary
+                            color = TextPrimary,
+                            modifier = Modifier.weight(1f)
                         )
+                        IconButton(
+                            onClick = onDismissError,
+                            modifier = Modifier
+                                .size(28.dp)
+                                .testTag("dismiss_join_error")
+                        ) {
+                            Icon(
+                                Icons.Default.Close,
+                                contentDescription = "Dismiss error",
+                                tint = TextMuted,
+                                modifier = Modifier.size(14.dp)
+                            )
+                        }
                     }
                 }
             }

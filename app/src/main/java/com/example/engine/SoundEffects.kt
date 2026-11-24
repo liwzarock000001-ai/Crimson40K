@@ -19,7 +19,9 @@ enum class SoundType {
     MELEE,
     SURGE,
     TURN_HORN,
-    VICTORY
+    VICTORY,
+    WARP_BEACON,
+    WARP_STRIKE
 }
 
 class SoundEffects {
@@ -41,6 +43,8 @@ class SoundEffects {
                     SoundType.SURGE -> synthTone(sampleRate, 0.30f, 320f, 980f, 0.42f * vol)
                     SoundType.TURN_HORN -> synthTone(sampleRate, 0.26f, 220f, 330f, 0.35f * vol)
                     SoundType.VICTORY -> synthTone(sampleRate, 0.40f, 440f, 880f, 0.40f * vol)
+                    SoundType.WARP_BEACON -> synthTone(sampleRate, 0.45f, 180f, 650f, 0.4f * vol)
+                    SoundType.WARP_STRIKE -> synthBurst(sampleRate, 0.35f, 140f, vol)
                 }
                 playPcm(sampleRate, samples)
             }

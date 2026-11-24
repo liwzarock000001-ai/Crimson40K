@@ -638,6 +638,134 @@ class TacticalEngineTest {
     }
 
     @Test
+    fun bladeguardGlbLoadsWithMatchingHeightAndCenteredBase() {
+        val glbMesh = com.example.ui.battle.MeshCatalog3D.getUnitMesh(com.example.model.UnitArchetype.BLADEGUARD, "")
+        val legacyMesh = com.example.ui.battle.UnitMeshSculptor3D.build(com.example.model.UnitArchetype.BLADEGUARD, "")
+
+        assertTrue("Bladeguard GLB must have vertices", glbMesh.vertexCount > 1000)
+        assertEquals(0, glbMesh.data.size % 10)
+
+        fun computeBounds(data: FloatArray): FloatArray {
+            var minX = Float.POSITIVE_INFINITY
+            var maxX = Float.NEGATIVE_INFINITY
+            var minY = Float.POSITIVE_INFINITY
+            var maxY = Float.NEGATIVE_INFINITY
+            var minZ = Float.POSITIVE_INFINITY
+            var maxZ = Float.NEGATIVE_INFINITY
+            var i = 0
+            while (i < data.size) {
+                val x = data[i]
+                val y = data[i + 1]
+                val z = data[i + 2]
+                assertTrue(x.isFinite() && y.isFinite() && z.isFinite())
+                if (x < minX) minX = x
+                if (x > maxX) maxX = x
+                if (y < minY) minY = y
+                if (y > maxY) maxY = y
+                if (z < minZ) minZ = z
+                if (z > maxZ) maxZ = z
+                i += 10
+            }
+            return floatArrayOf(minX, maxX, minY, maxY, minZ, maxZ)
+        }
+
+        val glbBounds = computeBounds(glbMesh.data)
+        val legacyBounds = computeBounds(legacyMesh.data)
+        val glbHeight = glbBounds[3] - glbBounds[2]
+        val legacyHeight = legacyBounds[3] - legacyBounds[2]
+
+        assertEquals(0f, glbBounds[2], 0.005f)
+        assertEquals(legacyHeight, glbHeight, 0.03f)
+
+        // Base plinth (bottom 4.5%) must be centered near (0, 0) in XZ
+        var bMinX = Float.POSITIVE_INFINITY
+        var bMaxX = Float.NEGATIVE_INFINITY
+        var bMinZ = Float.POSITIVE_INFINITY
+        var bMaxZ = Float.NEGATIVE_INFINITY
+        var i = 0
+        while (i < glbMesh.data.size) {
+            val y = glbMesh.data[i + 1]
+            if (y <= glbHeight * 0.045f) {
+                val x = glbMesh.data[i]
+                val z = glbMesh.data[i + 2]
+                if (x < bMinX) bMinX = x
+                if (x > bMaxX) bMaxX = x
+                if (z < bMinZ) bMinZ = z
+                if (z > bMaxZ) bMaxZ = z
+            }
+            i += 10
+        }
+        assertEquals(0f, (bMinX + bMaxX) * 0.5f, 0.03f)
+        // Unit must face +X (forward-most points in X > 0.25f, backpack in -X < -0.20f)
+        assertTrue("Bladeguard front weapon/shield extends along +X", glbBounds[1] > 0.25f)
+        assertTrue("Bladeguard backpack extends along -X", glbBounds[0] < -0.20f)
+    }
+
+    @Test
+    fun incursorSquadGlbLoadsWithMatchingHeightAndCenteredBase() {
+        val glbMesh = com.example.ui.battle.MeshCatalog3D.getUnitMesh(com.example.model.UnitArchetype.INCURSOR, "")
+        val legacyMesh = com.example.ui.battle.UnitMeshSculptor3D.build(com.example.model.UnitArchetype.INCURSOR, "")
+
+        assertTrue("Incursor GLB must have vertices", glbMesh.vertexCount > 1000)
+        assertEquals(0, glbMesh.data.size % 10)
+
+        fun computeBounds(data: FloatArray): FloatArray {
+            var minX = Float.POSITIVE_INFINITY
+            var maxX = Float.NEGATIVE_INFINITY
+            var minY = Float.POSITIVE_INFINITY
+            var maxY = Float.NEGATIVE_INFINITY
+            var minZ = Float.POSITIVE_INFINITY
+            var maxZ = Float.NEGATIVE_INFINITY
+            var i = 0
+            while (i < data.size) {
+                val x = data[i]
+                val y = data[i + 1]
+                val z = data[i + 2]
+                assertTrue(x.isFinite() && y.isFinite() && z.isFinite())
+                if (x < minX) minX = x
+                if (x > maxX) maxX = x
+                if (y < minY) minY = y
+                if (y > maxY) maxY = y
+                if (z < minZ) minZ = z
+                if (z > maxZ) maxZ = z
+                i += 10
+            }
+            return floatArrayOf(minX, maxX, minY, maxY, minZ, maxZ)
+        }
+
+        val glbBounds = computeBounds(glbMesh.data)
+        val legacyBounds = computeBounds(legacyMesh.data)
+        val glbHeight = glbBounds[3] - glbBounds[2]
+        val legacyHeight = legacyBounds[3] - legacyBounds[2]
+
+        assertEquals(0f, glbBounds[2], 0.005f)
+        assertEquals(legacyHeight, glbHeight, 0.02f)
+
+        // Base plinth (bottom 4.5%) must be centered near (0, 0) in XZ
+        var bMinX = Float.POSITIVE_INFINITY
+        var bMaxX = Float.NEGATIVE_INFINITY
+        var bMinZ = Float.POSITIVE_INFINITY
+        var bMaxZ = Float.NEGATIVE_INFINITY
+        var i = 0
+        while (i < glbMesh.data.size) {
+            val y = glbMesh.data[i + 1]
+            if (y <= glbHeight * 0.045f) {
+                val x = glbMesh.data[i]
+                val z = glbMesh.data[i + 2]
+                if (x < bMinX) bMinX = x
+                if (x > bMaxX) bMaxX = x
+                if (z < bMinZ) bMinZ = z
+                if (z > bMaxZ) bMaxZ = z
+            }
+            i += 10
+        }
+        assertEquals(0f, (bMinX + bMaxX) * 0.5f, 0.03f)
+        // Unit must face +X (bolt carbine extends along +X > 0.20f, backpack extends along -X < -0.15f)
+        assertTrue("Incursor bolt carbine extends along +X", glbBounds[1] > 0.20f)
+        assertTrue("Incursor backpack extends along -X", glbBounds[0] < -0.15f)
+    }
+
+    @Test
     fun meleeEngagementLocksMovementAdvanceChargeTeleportAndAiUntilEnemyDies() {
         val map = MapGenerator.generateSectorMap(1L)
         val termiTpl = DefaultCatalog.defaultTemplates.first { it.id == "terminators" }
@@ -1088,7 +1216,7 @@ class TacticalEngineTest {
     @Test
     fun allTwelveUnitsMatchWarhammer40k11thEditionStatsPointsAndMigrateOldConfigs() {
         val byId = DefaultCatalog.defaultTemplates.associateBy { it.id }
-        assertEquals(16, byId.size)
+        assertEquals(17, byId.size)
 
         // --- Ultramarines (11e) ---
         val intercessors = byId.getValue("intercessors")
@@ -1793,4 +1921,393 @@ class TacticalEngineTest {
         assertEquals(5f, clientState.cmStepChoice, 0.01f)
         assertNotNull(clientState.movePreview)
     }
+
+    @Test
+    fun brutalisDreadnoughtCatalogSerializationAndMesh() {
+        val brutalis = DefaultCatalog.defaultTemplates.first { it.id == "brutalis_dreadnought" }
+        assertEquals(UnitArchetype.BRUTALIS_DREADNOUGHT, brutalis.archetype)
+        assertEquals(90, brutalis.baseDiameterMm)
+        assertEquals("Brutalis Talons", brutalis.mainWeaponName)
+        assertEquals(8, brutalis.attacksPerModel)
+        assertEquals(3, brutalis.weaponSkill)
+        assertEquals(10, brutalis.strength)
+        assertEquals(2, brutalis.armorPen)
+        assertEquals(2, brutalis.damage)
+        assertEquals(2, brutalis.mainCleave)
+        assertEquals(1, brutalis.mainSustainedNonMonsterVehicle)
+        assertTrue(brutalis.mainTwinLinked)
+        assertEquals("Twin multi-melta", brutalis.pistolWeaponName)
+        assertFalse(brutalis.pistolIsPistol)
+        assertEquals(3, brutalis.pistolMelta)
+        assertTrue(brutalis.pistolTwinLinked)
+        val aux = brutalis.auxRangedProfile
+        assertNotNull(aux)
+        assertEquals("Twin Icarus ironhail heavy stubber", aux!!.name)
+        assertEquals(3, aux.antiFly)
+        assertEquals(3, aux.rapidFire)
+        assertTrue(aux.twinLinked)
+        assertTrue(DefaultCatalog.defaultMarineRoster().any { it.templateId == "brutalis_dreadnought" })
+
+        val mesh = com.example.ui.battle.MeshCatalog3D.getUnitMesh(UnitArchetype.BRUTALIS_DREADNOUGHT)
+        assertTrue("Brutalis GLB mesh should load > 1000 vertices", mesh.vertexCount > 1000)
+        assertNotNull("Brutalis GLB texture should be present", mesh.textureBytes)
+        for (v in mesh.data) {
+            assertFalse(v.isNaN())
+            assertFalse(v.isInfinite())
+        }
+    }
+
+    @Test
+    fun brutalisDreadnoughtTwinMultiMeltaAndIcarusRules() {
+        val brutalisTpl = DefaultCatalog.defaultTemplates.first { it.id == "brutalis_dreadnought" }
+        val sporeTpl = DefaultCatalog.defaultTemplates.first { it.id == "spore_mine" }
+        val marineTpl = DefaultCatalog.defaultTemplates.first { it.id == "legionaries" }
+        val map = Array(14) { Array(16) { TerrainType.OPEN } }
+
+        val brutalis = BattleUnit(
+            uid = "brut1",
+            template = brutalisTpl,
+            faction = Faction.MARINES,
+            x = 2,
+            y = 6,
+            facing = Facing.EAST,
+            totalWounds = brutalisTpl.maxTotalWounds,
+            maxTotalWounds = brutalisTpl.maxTotalWounds,
+            moveCmLeft = 20f
+        )
+        // Flying enemy at distance 3 (within half range of Icarus range 6, outside half range of Multi-melta range 4)
+        val flyTarget = BattleUnit(
+            uid = "fly1",
+            template = sporeTpl.copy(isFly = true, toughness = 6),
+            faction = Faction.XENOS,
+            x = 5,
+            y = 6,
+            facing = Facing.WEST,
+            totalWounds = 6,
+            maxTotalWounds = 6,
+            moveCmLeft = 10f
+        )
+        // Close enemy at distance 2 (within half range 2 of Multi-melta range 4, NOT adjacent melee)
+        val meltaTarget = BattleUnit(
+            uid = "m2",
+            template = marineTpl.copy(woundsPerModel = 10, toughness = 9),
+            faction = Faction.BLACK_LEGION,
+            x = 4,
+            y = 6,
+            facing = Facing.WEST,
+            totalWounds = 10,
+            maxTotalWounds = 10,
+            moveCmLeft = 15f
+        )
+
+        val all = listOf(brutalis, flyTarget, meltaTarget)
+        assertFalse("Brutalis SKILL is auto passive, not manual", TacticalRules.canUseMode(brutalis, WeaponMode.SKILL, all))
+        assertTrue(TacticalRules.canUseMode(brutalis, WeaponMode.PISTOL, all))
+        assertTrue(TacticalRules.canUseMode(brutalis, WeaponMode.AUX_RANGED, all))
+
+        // Anti-Fly 3+ & Rapid Fire 3 at half-range 3 on Twin Icarus
+        val icarusPreview = TacticalRules.canTarget(brutalis, flyTarget, WeaponMode.AUX_RANGED, map, all)!!
+        assertTrue(icarusPreview.inRange)
+        assertEquals(6, icarusPreview.attacksCount) // 3 base + 3 Rapid Fire
+        assertEquals(3, icarusPreview.rapidFireBonus)
+        assertTrue(icarusPreview.antiFlyTriggered)
+        assertTrue(icarusPreview.twinLinked)
+        assertEquals(3, icarusPreview.woundRollNeeded) // S4 vs T6 normally 5+, Anti-Fly 3+ overrides to 3+
+
+        // Melta 3 at half-range 2 on Twin multi-melta (beyond half range gives 0)
+        val meltaClosePreview = TacticalRules.canTarget(brutalis, meltaTarget, WeaponMode.PISTOL, map, all)!!
+        assertEquals(3, meltaClosePreview.meltaBonus)
+        assertTrue(meltaClosePreview.twinLinked)
+        val meltaFarPreview = TacticalRules.canTarget(brutalis, flyTarget, WeaponMode.PISTOL, map, all)!!
+        assertEquals(0, meltaFarPreview.meltaBonus)
+
+        // Engaged in melee: Multi-melta (non-pistol) and Icarus are locked out
+        val engagedFoe = flyTarget.copy(uid = "eng1", x = 3, y = 6, worldX = 3f, worldY = 6f)
+        val engagedList = listOf(brutalis, engagedFoe)
+        assertFalse("Non-pistol Twin multi-melta cannot fire in melee", TacticalRules.canUseMode(brutalis, WeaponMode.PISTOL, engagedList))
+        assertFalse("Twin Icarus cannot fire in melee", TacticalRules.canUseMode(brutalis, WeaponMode.AUX_RANGED, engagedList))
+        assertTrue("Brutalis Talons melee works in melee", TacticalRules.canUseMode(brutalis, WeaponMode.MAIN, engagedList))
+
+        // Verify Melta +3D and Twin-Linked wound reroll in resolveAttack (per-attack loop):
+        // Atk1: Hit 4, Wound 1 -> reroll 4 (7 dmg); Atk2: Hit 4, Wound 4 (7 dmg) -> kills 10W (Save is 7+ auto-fail)
+        val detRng = object : Random() {
+            private val seq = intArrayOf(4, 1, 4, 4, 4)
+            private var i = 0
+            override fun nextBits(bitCount: Int): Int = 0
+            override fun nextInt(from: Int, until: Int): Int = seq[i++ % seq.size]
+        }
+        val meltaOutcome = TacticalRules.resolveAttack(brutalis, meltaTarget, all, WeaponMode.PISTOL, map, rng = detRng)
+        assertEquals(0, meltaOutcome.updatedTargets.first().totalWounds)
+        assertTrue(meltaOutcome.logEntries.first().steps.any { it.note.contains("TWIN-LINKED") })
+    }
+
+    @Test
+    fun brutalisDreadnoughtChargeBuffAndPermanentKillStack() {
+        val brutalisTpl = DefaultCatalog.defaultTemplates.first { it.id == "brutalis_dreadnought" }
+        val gauntsTpl = DefaultCatalog.defaultTemplates.first { it.id == "hormagaunts" }
+        val map = Array(14) { Array(16) { TerrainType.OPEN } }
+
+        val enemy = BattleUnit(
+            uid = "e1",
+            template = gauntsTpl,
+            faction = Faction.XENOS,
+            x = 6,
+            y = 6,
+            facing = Facing.WEST,
+            totalWounds = 10,
+            maxTotalWounds = 10,
+            moveCmLeft = 20f
+        )
+
+        // 1. Without Charge buff: S10 AP-2 D2 8A, killing enemy does NOT grant stack
+        val unchargedBrutalis = BattleUnit(
+            uid = "b1",
+            template = brutalisTpl,
+            faction = Faction.MARINES,
+            x = 5,
+            y = 6,
+            facing = Facing.EAST,
+            totalWounds = 12,
+            maxTotalWounds = 12,
+            moveCmLeft = 20f,
+            brutalisChargeBuffActive = false
+        )
+        assertEquals(10, unchargedBrutalis.effectiveMainStrength)
+        assertEquals(2, unchargedBrutalis.effectiveMainArmorPen)
+        assertEquals(8, unchargedBrutalis.effectiveMainAttacksPerModel)
+
+        val alwaysSixRng = object : Random() {
+            override fun nextBits(bitCount: Int): Int = 0
+            override fun nextInt(from: Int, until: Int): Int = 6
+        }
+        val noChargeOutcome = TacticalRules.resolveAttack(
+            unchargedBrutalis,
+            enemy,
+            listOf(unchargedBrutalis, enemy),
+            WeaponMode.MAIN,
+            map,
+            rng = alwaysSixRng
+        )
+        assertEquals(0, noChargeOutcome.updatedAttacker.brutalisAttackStacks)
+        assertFalse(noChargeOutcome.updatedAttacker.brutalisStackEarnedThisTurn)
+
+        // 2. With Charge buff active: S12 (+2) AP-3 (+1), killing >=1 model adds +1 stack
+        val chargedBrutalis = unchargedBrutalis.copy(
+            hasCharged = true,
+            brutalisChargeBuffActive = true
+        )
+        assertEquals(12, chargedBrutalis.effectiveMainStrength)
+        assertEquals(3, chargedBrutalis.effectiveMainArmorPen)
+        val preview = TacticalRules.canTarget(chargedBrutalis, enemy, WeaponMode.MAIN, map, listOf(chargedBrutalis, enemy))!!
+        assertEquals(12, preview.weaponStrength)
+        assertEquals(3, preview.weaponAp)
+
+        val chargeKillOutcome = TacticalRules.resolveAttack(
+            chargedBrutalis,
+            enemy,
+            listOf(chargedBrutalis, enemy),
+            WeaponMode.MAIN,
+            map,
+            rng = alwaysSixRng
+        )
+        val stackedOnce = chargeKillOutcome.updatedAttacker
+        assertEquals(1, stackedOnce.brutalisAttackStacks)
+        assertTrue(stackedOnce.brutalisStackEarnedThisTurn)
+        assertEquals(9, stackedOnce.effectiveMainAttacksPerModel)
+
+        // 3. Another kill in the SAME turn cannot add a second stack
+        val secondEnemy = enemy.copy(uid = "e2")
+        val sameTurnSecondKill = TacticalRules.resolveAttack(
+            stackedOnce.copy(hasFought = false),
+            secondEnemy,
+            listOf(stackedOnce, secondEnemy),
+            WeaponMode.MAIN,
+            map,
+            rng = alwaysSixRng
+        )
+        assertEquals(1, sameTurnSecondKill.updatedAttacker.brutalisAttackStacks)
+
+        // 4. Subsequent turns cap permanent stack at 4 (total 12A)
+        var carrier = stackedOnce.copy(
+            hasFought = false,
+            hasCharged = true,
+            brutalisChargeBuffActive = true,
+            brutalisStackEarnedThisTurn = false
+        )
+        for (turn in 2..5) {
+            val freshEnemy = enemy.copy(uid = "et_$turn")
+            val out = TacticalRules.resolveAttack(
+                carrier,
+                freshEnemy,
+                listOf(carrier, freshEnemy),
+                WeaponMode.MAIN,
+                map,
+                rng = alwaysSixRng
+            )
+            carrier = out.updatedAttacker.copy(
+                hasFought = false,
+                hasCharged = true,
+                brutalisChargeBuffActive = true,
+                brutalisStackEarnedThisTurn = false
+            )
+        }
+        assertEquals(4, carrier.brutalisAttackStacks)
+        assertEquals(12, carrier.effectiveMainAttacksPerModel)
+    }
+
+    @Test
+    fun brutalisTalonsCleaveSustainedNonMonsterAndTwinLinked() {
+        val brutalisTpl = DefaultCatalog.defaultTemplates.first { it.id == "brutalis_dreadnought" }
+        val gauntsTpl = DefaultCatalog.defaultTemplates.first { it.id == "termagants" } // 10 models
+        val legionaryTpl = DefaultCatalog.defaultTemplates.first { it.id == "legionaries" } // 5 models, 2W
+        val carnifexTpl = DefaultCatalog.defaultTemplates.first { it.id == "carnifex" } // Monster
+        val map = Array(14) { Array(16) { TerrainType.OPEN } }
+
+        val brutalis = BattleUnit(
+            uid = "b1",
+            template = brutalisTpl,
+            faction = Faction.MARINES,
+            x = 5,
+            y = 6,
+            facing = Facing.EAST,
+            totalWounds = 12,
+            maxTotalWounds = 12,
+            moveCmLeft = 20f
+        )
+
+        // 10-model squad => Cleave 2 adds (10/5)*2 = +4A (8 + 4 = 12A) + Sustained Hits 1 (non-Monster/Vehicle)
+        val horde10 = BattleUnit(
+            uid = "g10",
+            template = gauntsTpl,
+            faction = Faction.XENOS,
+            x = 6,
+            y = 6,
+            facing = Facing.WEST,
+            totalWounds = 10,
+            maxTotalWounds = 10,
+            moveCmLeft = 15f
+        )
+        val hordePreview = TacticalRules.canTarget(brutalis, horde10, WeaponMode.MAIN, map, listOf(brutalis, horde10))!!
+        assertEquals(4, hordePreview.cleaveBonus)
+        assertEquals(12, hordePreview.attacksCount)
+        assertEquals(1, hordePreview.sustainedHits)
+        assertTrue(hordePreview.twinLinked)
+
+        // 5-model squad => Cleave 2 adds (5/5)*2 = +2A (8 + 2 = 10A) + Sustained Hits 1
+        val squad5 = BattleUnit(
+            uid = "l5",
+            template = legionaryTpl,
+            faction = Faction.BLACK_LEGION,
+            x = 6,
+            y = 6,
+            facing = Facing.WEST,
+            totalWounds = 10,
+            maxTotalWounds = 10,
+            moveCmLeft = 15f
+        )
+        val squad5Preview = TacticalRules.canTarget(brutalis, squad5, WeaponMode.MAIN, map, listOf(brutalis, squad5))!!
+        assertEquals(2, squad5Preview.cleaveBonus)
+        assertEquals(10, squad5Preview.attacksCount)
+        assertEquals(1, squad5Preview.sustainedHits)
+
+        // 4-model squad (under 5 models) => Cleave 2 adds 0A (remains 8A)
+        val squad4 = squad5.copy(uid = "l4", totalWounds = 8)
+        val squad4Preview = TacticalRules.canTarget(brutalis, squad4, WeaponMode.MAIN, map, listOf(brutalis, squad4))!!
+        assertEquals(0, squad4Preview.cleaveBonus)
+        assertEquals(8, squad4Preview.attacksCount)
+
+        // Monster/Vehicle target => Cleave 0A AND Sustained Hits 0 (does NOT trigger Sustained Hits 1)
+        val carnifex = BattleUnit(
+            uid = "c1",
+            template = carnifexTpl.copy(woundsPerModel = 20),
+            faction = Faction.XENOS,
+            x = 6,
+            y = 6,
+            facing = Facing.WEST,
+            totalWounds = 20,
+            maxTotalWounds = 20,
+            moveCmLeft = 15f
+        )
+        val monsterPreview = TacticalRules.canTarget(brutalis, carnifex, WeaponMode.MAIN, map, listOf(brutalis, carnifex))!!
+        assertEquals(0, monsterPreview.cleaveBonus)
+        assertEquals(8, monsterPreview.attacksCount)
+        assertEquals(0, monsterPreview.sustainedHits)
+        assertTrue(monsterPreview.twinLinked)
+
+        // Resolve attacks with all 6s: vs 5-model Legionaries -> 10 attacks, each crit adds +1 sustained hit = 20 hits
+        val alwaysSixRng = object : Random() {
+            override fun nextBits(bitCount: Int): Int = 0
+            override fun nextInt(from: Int, until: Int): Int = 6
+        }
+        val vsInfantryOutcome = TacticalRules.resolveAttack(
+            brutalis,
+            squad5.copy(totalWounds = 200, maxTotalWounds = 200), // keep wounds high so all 10 attacks run if same model count; note totalWounds=10 is 5 models
+            listOf(brutalis, squad5),
+            WeaponMode.MAIN,
+            map,
+            rng = alwaysSixRng
+        )
+        assertTrue(vsInfantryOutcome.floatingTexts.any { it.second.first.contains("CLEAVE +2A") })
+        assertTrue(vsInfantryOutcome.floatingTexts.any { it.second.first.contains("SUSTAINED") })
+
+        // vs Carnifex (20W) with all 6s -> exactly 8 hits (no Sustained extra hits!)
+        val vsMonsterOutcome = TacticalRules.resolveAttack(
+            brutalis,
+            carnifex,
+            listOf(brutalis, carnifex),
+            WeaponMode.MAIN,
+            map,
+            rng = alwaysSixRng
+        )
+        assertEquals(8, vsMonsterOutcome.hits)
+        assertFalse(vsMonsterOutcome.floatingTexts.any { it.second.first.contains("SUSTAINED") })
+
+        // Verify Twin-linked wound reroll on Brutalis Talons: Hit 4, Wound 1 -> reroll 4, Save 1 (all other attacks 4/4/1)
+        val twinLinkedRng = object : Random() {
+            private val seq = intArrayOf(4, 1, 4, 1, 4, 4, 1)
+            private var i = 0
+            override fun nextBits(bitCount: Int): Int = 0
+            override fun nextInt(from: Int, until: Int): Int = seq[i++ % seq.size]
+        }
+        val twinOut = TacticalRules.resolveAttack(
+            brutalis,
+            carnifex,
+            listOf(brutalis, carnifex),
+            WeaponMode.MAIN,
+            map,
+            rng = twinLinkedRng
+        )
+        assertTrue(twinOut.logEntries.first().steps.any { it.note.contains("TWIN-LINKED") })
+    }
+
+    @Test
+    fun coopEnemyFactionAndMirrorEngagementRulesMatchHudChecks() {
+        val stateMirrorBl = com.example.viewmodel.BattleUiState(
+            isCoopMode = true,
+            playerFaction = Faction.BLACK_LEGION,
+            enemyFaction = Faction.BLACK_LEGION
+        )
+        assertEquals(Faction.BLACK_LEGION, stateMirrorBl.resolvedEnemyFaction)
+
+        val stateSkirmish = com.example.viewmodel.BattleUiState(
+            isCoopMode = false,
+            playerFaction = Faction.BLACK_LEGION,
+            enemyFaction = Faction.MARINES
+        )
+        assertEquals(Faction.MARINES, stateSkirmish.resolvedEnemyFaction)
+
+        val setupError = com.example.viewmodel.SetupUiState(
+            statusMessage = "Cannot add Termagants: exceeds 2000 pt limit!",
+            statusIsError = true
+        )
+        assertTrue(setupError.statusIsError)
+
+        val leaperTpl = DefaultCatalog.defaultTemplates.first { it.id == "von_ryans_leaper" }
+        val p1Leaper = BattleUnit("l1", leaperTpl, Faction.XENOS, 5, 5, Facing.EAST, leaperTpl.maxTotalWounds, leaperTpl.maxTotalWounds, 20f, ownerPlayerId = "p1")
+        val p2AllyLeaper = p1Leaper.copy(uid = "l2", x = 5, y = 6, ownerPlayerId = "p2")
+        val p3EnemyLeaper = p1Leaper.copy(uid = "l3", x = 6, y = 5, ownerPlayerId = "p3")
+        assertFalse(p1Leaper.isEnemyOf(p2AllyLeaper))
+        assertTrue(p1Leaper.isEnemyOf(p3EnemyLeaper))
+    }
 }
+

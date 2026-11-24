@@ -3,6 +3,8 @@ package com.example.ui.battle
 import java.io.InputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import kotlin.math.cos
+import kotlin.math.sin
 import kotlin.math.sqrt
 
 /**
@@ -41,7 +43,8 @@ object GlbLoader3D {
     fun loadMesh(
         stream: InputStream,
         targetHeight: Float = 0.923f,
-        rotateYPlus90: Boolean = true
+        rotateYPlus90: Boolean = false,
+        rotationYDeg: Float = 0f
     ): MeshGeometry? {
         val bytes = stream.use { it.readBytes() }
         if (bytes.size < 20) return null
@@ -162,6 +165,12 @@ object GlbLoader3D {
         val centerZ = if (baseHits > 0) (baseMinZ + baseMaxZ) * 0.5f else (allMinZ + allMaxZ) * 0.5f
         val scale = targetHeight / rawHeight
 
+        val effectiveRotY = if (rotationYDeg != 0f) rotationYDeg else if (rotateYPlus90) 90f else 0f
+        val rad = (effectiveRotY * Math.PI / 180.0).toFloat()
+        val cosY = cos(rad)
+        val sinY = sin(rad)
+        val isIdentity = effectiveRotY == 0f
+
         // Pass 2: write packed 10-float triangles directly without boxing
         val out = FloatArray(totalTriVertices * 10)
         var outIdx = 0
@@ -253,7 +262,14 @@ object GlbLoader3D {
                     val rnx: Float
                     val rny: Float
                     val rnz: Float
-                    if (rotateYPlus90) {
+                    if (isIdentity) {
+                        px = sx
+                        py = sy
+                        pz = sz
+                        rnx = nx
+                        rny = ny
+                        rnz = nz
+                    } else if (effectiveRotY == 90f) {
                         px = sz
                         py = sy
                         pz = -sx
@@ -261,12 +277,12 @@ object GlbLoader3D {
                         rny = ny
                         rnz = -nx
                     } else {
-                        px = sx
+                        px = sx * cosY + sz * sinY
                         py = sy
-                        pz = sz
-                        rnx = nx
+                        pz = -sx * sinY + sz * cosY
+                        rnx = nx * cosY + nz * sinY
                         rny = ny
-                        rnz = nz
+                        rnz = -nx * sinY + nz * cosY
                     }
 
                     val cr: Float

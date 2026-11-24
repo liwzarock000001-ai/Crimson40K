@@ -61,6 +61,9 @@ object BattleStateSerializer {
                 put("meleeChargeBuffActive", u.meleeChargeBuffActive)
                 put("bladeguardRerollBuffActive", u.bladeguardRerollBuffActive)
                 put("legionaryWoundRerollBuffActive", u.legionaryWoundRerollBuffActive)
+                put("brutalisChargeBuffActive", u.brutalisChargeBuffActive)
+                put("brutalisAttackStacks", u.brutalisAttackStacks)
+                put("brutalisStackEarnedThisTurn", u.brutalisStackEarnedThisTurn)
             })
         }
         return arr.toString()
@@ -112,7 +115,10 @@ object BattleStateSerializer {
                         markedByTeam = o.optInt("markedByTeam", -1).let { if (it >= 0) it else null },
                         meleeChargeBuffActive = o.optBoolean("meleeChargeBuffActive", false),
                         bladeguardRerollBuffActive = o.optBoolean("bladeguardRerollBuffActive", false),
-                        legionaryWoundRerollBuffActive = o.optBoolean("legionaryWoundRerollBuffActive", false)
+                        legionaryWoundRerollBuffActive = o.optBoolean("legionaryWoundRerollBuffActive", false),
+                        brutalisChargeBuffActive = o.optBoolean("brutalisChargeBuffActive", false),
+                        brutalisAttackStacks = o.optInt("brutalisAttackStacks", 0).coerceIn(0, 4),
+                        brutalisStackEarnedThisTurn = o.optBoolean("brutalisStackEarnedThisTurn", false)
                     )
                 )
             }
@@ -129,6 +135,7 @@ object BattleStateSerializer {
         obj.put("round", state.round)
         obj.put("activeFaction", state.activeFaction.name)
         obj.put("playerFaction", state.playerFaction.name)
+        obj.put("enemyFaction", state.enemyFaction.name)
         obj.put("mapId", state.map.id)
         obj.put("unitsJson", serializeUnits(state.units))
         obj.put("templatesJson", DefaultCatalog.serializeTemplates(templates))
@@ -201,6 +208,11 @@ object BattleStateSerializer {
                 put("sustainedHits", tp.sustainedHits)
                 put("lethalHits", tp.lethalHits)
                 put("rerollWoundOnes", tp.rerollWoundOnes)
+                put("twinLinked", tp.twinLinked)
+                put("meltaBonus", tp.meltaBonus)
+                put("rapidFireBonus", tp.rapidFireBonus)
+                put("antiFlyTriggered", tp.antiFlyTriggered)
+                put("cleaveBonus", tp.cleaveBonus)
                 put("darkPactChoice", tp.darkPactChoice.name)
                 put("markedBonusApplied", tp.markedBonusApplied)
                 put("inRange", tp.inRange)
@@ -220,6 +232,7 @@ object BattleStateSerializer {
         state.summary?.let { sum ->
             obj.put("summary", JSONObject().apply {
                 put("winner", sum.winner.name)
+                put("winnerLabel", sum.winnerLabel)
                 put("playerWon", sum.playerWon)
                 put("rounds", sum.rounds)
                 put("playerKills", sum.playerKills)
@@ -321,6 +334,7 @@ object BattleStateSerializer {
             val units = deserializeUnits(o.optString("unitsJson"), templates)
             val activeFaction = runCatching { Faction.valueOf(o.getString("activeFaction")) }.getOrDefault(Faction.MARINES)
             val playerFaction = runCatching { Faction.valueOf(o.getString("playerFaction")) }.getOrDefault(Faction.MARINES)
+            val enemyFaction = runCatching { Faction.valueOf(o.optString("enemyFaction", Faction.XENOS.name)) }.getOrDefault(Faction.XENOS)
             val selUid = o.optString("selectedUnitUid").ifBlank { null }
             val activePid = o.optString("activeCoopPlayerId").ifBlank { null }
             val orderArr = o.optJSONArray("coopTurnOrder") ?: JSONArray()
@@ -344,7 +358,8 @@ object BattleStateSerializer {
                     rounds = summaryObj.optInt("rounds", 1),
                     playerKills = summaryObj.optInt("playerKills", 0),
                     enemyKills = summaryObj.optInt("enemyKills", 0),
-                    totalDamageDealt = summaryObj.optInt("totalDamageDealt", 0)
+                    totalDamageDealt = summaryObj.optInt("totalDamageDealt", 0),
+                    winnerLabel = summaryObj.optString("winnerLabel", "")
                 )
             } else null
             val parsedLogs = deserializeCombatLogs(o.optJSONArray("combatLogs"))
@@ -413,6 +428,11 @@ object BattleStateSerializer {
                     sustainedHits = tp.optInt("sustainedHits", 0),
                     lethalHits = tp.optBoolean("lethalHits", false),
                     rerollWoundOnes = tp.optBoolean("rerollWoundOnes", false),
+                    twinLinked = tp.optBoolean("twinLinked", false),
+                    meltaBonus = tp.optInt("meltaBonus", 0),
+                    rapidFireBonus = tp.optInt("rapidFireBonus", 0),
+                    antiFlyTriggered = tp.optBoolean("antiFlyTriggered", false),
+                    cleaveBonus = tp.optInt("cleaveBonus", 0),
                     darkPactChoice = runCatching {
                         DarkPactChoice.valueOf(tp.optString("darkPactChoice", DarkPactChoice.NONE.name))
                     }.getOrDefault(DarkPactChoice.NONE),
@@ -427,6 +447,7 @@ object BattleStateSerializer {
                 round = o.optInt("round", 1),
                 activeFaction = activeFaction,
                 playerFaction = playerFaction,
+                enemyFaction = enemyFaction,
                 map = sectorMap,
                 units = units,
                 selectedUnitUid = selUid,

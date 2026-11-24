@@ -33,8 +33,10 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Casino
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Shield
@@ -775,8 +777,10 @@ private fun DeployedUnitRow(
                 )
             }
             val invSuffix = template.invulnSave?.let { "/${it}++" } ?: ""
+            val baseSuffix = if (template.baseDiameterMm > 32) " • BASE ${template.baseDiameterMm}mm" else ""
+            val flySuffix = if (template.isFly) " • [FLY]" else ""
             Text(
-                text = "UNIT: ${template.squadSize}x ${template.woundsPerModel}W • M ${template.moveCm}cm • T${template.toughness} • SV ${template.save}+$invSuffix • LD ${template.leadership}+ • OC ${template.objectiveControl}",
+                text = "UNIT: ${template.squadSize}x ${template.woundsPerModel}W • M ${template.moveCm}cm • T${template.toughness} • SV ${template.save}+$invSuffix • LD ${template.leadership}+ • OC ${template.objectiveControl}$baseSuffix$flySuffix",
                 style = MaterialTheme.typography.bodySmall,
                 color = TextMuted,
                 maxLines = 1,
@@ -787,13 +791,19 @@ private fun DeployedUnitRow(
             val weaponTags = buildString {
                 if (template.mainWeaponAssault) append(" [ASSAULT]")
                 if (template.mainWeaponPistol) append(" [PISTOL]")
+                if (template.mainMelta > 0) append(" [MELTA ${template.mainMelta}]")
+                if (template.mainRapidFire > 0) append(" [RAPID FIRE ${template.mainRapidFire}]")
+                if (template.mainAntiFly in 2..6) append(" [ANTI-FLY ${template.mainAntiFly}+]")
+                if (template.mainCleave > 0) append(" [CLEAVE ${template.mainCleave}]")
+                if (template.mainTwinLinked) append(" [TWIN-LINKED]")
                 if (template.mainSustainedHits > 0) append(" [SUSTAINED ${template.mainSustainedHits}]")
+                if (template.mainSustainedNonMonsterVehicle > 0) append(" [SUSTAINED ${template.mainSustainedNonMonsterVehicle}: NON-M/V]")
             }
             Text(
                 text = "${template.mainWeaponName.uppercase()}$weaponTags: $skillPart • A${template.attacksPerModel} S${template.strength} $apPart D${template.damage}",
                 style = MaterialTheme.typography.labelSmall,
                 color = WarmAmber,
-                maxLines = 1,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
             if (template.isRangedMain) {
@@ -809,9 +819,33 @@ private fun DeployedUnitRow(
             }
             if (template.hasPistol) {
                 val pAp = if (template.pistolArmorPen == 0) "AP0" else "AP-${template.pistolArmorPen}"
-                val pSus = if (template.pistolSustainedHits > 0) " [SUSTAINED ${template.pistolSustainedHits}]" else ""
+                val pPrefix = if (template.pistolIsPistol) "PISTOL" else "RANGED"
+                val pTags = buildString {
+                    if (template.pistolMelta > 0) append(" [MELTA ${template.pistolMelta}]")
+                    if (template.pistolRapidFire > 0) append(" [RAPID FIRE ${template.pistolRapidFire}]")
+                    if (template.pistolAntiFly in 2..6) append(" [ANTI-FLY ${template.pistolAntiFly}+]")
+                    if (template.pistolTwinLinked) append(" [TWIN-LINKED]")
+                    if (template.pistolSustainedHits > 0) append(" [SUSTAINED ${template.pistolSustainedHits}]")
+                }
                 Text(
-                    text = "PISTOL (${template.pistolWeaponName})$pSus: R${template.pistolRange} BS${template.ballisticSkill}+ • A${template.pistolAttacks} S${template.pistolStrength} $pAp D${template.pistolDamage}",
+                    text = "$pPrefix (${template.pistolWeaponName})$pTags: R${template.pistolRange} BS${template.ballisticSkill}+ • A${template.pistolAttacks} S${template.pistolStrength} $pAp D${template.pistolDamage}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = TacticalCyan,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            template.auxRangedProfile?.takeIf { template.hasAuxRanged }?.let { aux ->
+                val aAp = if (aux.armorPen == 0) "AP0" else "AP-${aux.armorPen}"
+                val aTags = buildString {
+                    if (aux.antiFly in 2..6) append(" [ANTI-FLY ${aux.antiFly}+]")
+                    if (aux.rapidFire > 0) append(" [RAPID FIRE ${aux.rapidFire}]")
+                    if (aux.melta > 0) append(" [MELTA ${aux.melta}]")
+                    if (aux.twinLinked) append(" [TWIN-LINKED]")
+                    if (aux.sustainedHits > 0) append(" [SUSTAINED ${aux.sustainedHits}]")
+                }
+                Text(
+                    text = "RANGED (${aux.name})$aTags: R${aux.range} BS${aux.skill}+ • A${aux.attacksPerModel} S${aux.strength} $aAp D${aux.damage}",
                     style = MaterialTheme.typography.labelSmall,
                     color = TacticalCyan,
                     maxLines = 1,
@@ -887,9 +921,15 @@ private fun CatalogUnitRow(
                     color = if (canAfford) pointColor else CrimsonSoft
                 )
             }
-            val wpnTag = if (template.mainWeaponAssault) " [ASSAULT]" else ""
+            val wpnTag = buildString {
+                if (template.mainWeaponAssault) append(" [ASSAULT]")
+                if (template.mainCleave > 0) append(" [CLEAVE ${template.mainCleave}]")
+                if (template.mainSustainedNonMonsterVehicle > 0) append(" [SUSTAINED ${template.mainSustainedNonMonsterVehicle}: NON-M/V]")
+                if (template.mainTwinLinked) append(" [TWIN-LINKED]")
+            }
+            val baseBadge = if (template.baseDiameterMm > 32) " • ${template.baseDiameterMm}mm" else ""
             Text(
-                text = "${template.role} • ${template.mainWeaponName}$wpnTag • Skill: ${template.skillName}",
+                text = "${template.role}$baseBadge • ${template.mainWeaponName}$wpnTag • Skill: ${template.skillName}",
                 style = MaterialTheme.typography.bodySmall,
                 color = TextMuted,
                 maxLines = 1,
@@ -957,12 +997,25 @@ private fun SetupFooter(
                 )
             }
             AnimatedVisibility(visible = state.validationWarning == null && state.statusMessage != null) {
-                Text(
-                    text = state.statusMessage.orEmpty(),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = EmeraldBuff,
-                    fontWeight = FontWeight.SemiBold
-                )
+                val isError = state.statusIsError
+                val tint = if (isError) CrimsonSoft else EmeraldBuff
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(
+                        imageVector = if (isError) Icons.Default.ErrorOutline else Icons.Default.Check,
+                        contentDescription = null,
+                        tint = tint,
+                        modifier = Modifier.size(15.dp)
+                    )
+                    Text(
+                        text = state.statusMessage.orEmpty(),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = tint,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
             }
             if (state.validationWarning == null && state.statusMessage == null) {
                 Text(

@@ -30,7 +30,8 @@ object UnitMeshSculptor3D {
     fun build(archetype: UnitArchetype, variant: String = ""): MeshGeometry {
         val m = MeshAccumulator()
         when (archetype) {
-            UnitArchetype.DREADNOUGHT -> buildUltramarineDreadnought(m)
+            UnitArchetype.DREADNOUGHT,
+            UnitArchetype.BRUTALIS_DREADNOUGHT -> buildUltramarineDreadnought(m)
             UnitArchetype.TERMINATOR -> buildAssaultTerminator(m, useLightningClaws = variant == "CLAWS")
             UnitArchetype.INCURSOR -> buildUltramarineIncursor(m)
             UnitArchetype.BLADEGUARD -> buildBladeguardVeteran(m)

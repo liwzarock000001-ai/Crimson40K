@@ -635,6 +635,18 @@ object MeshCatalog3D {
         }.build()
     }
 
+    val teleportBeacon: MeshGeometry by lazy {
+        MeshAccumulator().apply {
+            addCylinder(0f, 0f, 0f, 0.28f, 0.22f, 0.12f, 12, 0.85f, 0.65f, 0.25f)
+            addCylinder(0f, 0.12f, 0f, 0.14f, 0.14f, 1.10f, 10, 0.52f, 0.56f, 0.62f)
+            addCylinder(0f, 1.22f, 0f, 0.20f, 0.05f, 0.35f, 10, 0.85f, 0.65f, 0.25f)
+            addRing(0f, 0.65f, 0f, 0.22f, 0.30f, 16, 0.28f, 0.92f, 1.0f)
+            addDisc(0f, 0.65f, 0f, 0.22f, 16, 0.35f, 0.95f, 1.0f, EMISSIVE_ALPHA)
+            addRing(0f, 0.015f, 0f, 0.45f, 0.58f, 20, 0.30f, 0.95f, 1.0f)
+            addRing(0f, 0.020f, 0f, 0.80f, 0.95f, 24, 0.25f, 0.85f, 1.0f)
+        }.build()
+    }
+
     @Volatile
     private var appAssets: AssetManager? = null
 
@@ -646,6 +658,9 @@ object MeshCatalog3D {
         if (!hadAssets) {
             synchronized(archetypeMeshes) {
                 archetypeMeshes.remove(UnitArchetype.TERMINATOR to "")
+                archetypeMeshes.remove(UnitArchetype.BLADEGUARD to "")
+                archetypeMeshes.remove(UnitArchetype.INCURSOR to "")
+                archetypeMeshes.remove(UnitArchetype.BRUTALIS_DREADNOUGHT to "")
             }
         }
     }
@@ -676,6 +691,42 @@ object MeshCatalog3D {
                             stream = stream,
                             targetHeight = 0.923f,
                             rotateYPlus90 = true
+                        )
+                    } ?: UnitMeshSculptor3D.build(archetype, variant)
+                } else if (archetype == UnitArchetype.BLADEGUARD) {
+                    val stream = openAssetStream("blade_guard.glb")
+                        ?: openAssetStream("Bladeguard.glb")
+                        ?: openAssetStream("bladeguard.glb")
+                        ?: openAssetStream("blade-guard.glb")
+                    stream?.use {
+                        GlbLoader3D.loadMesh(
+                            stream = it,
+                            targetHeight = 1.015f,
+                            rotateYPlus90 = false,
+                            rotationYDeg = 0f
+                        )
+                    } ?: UnitMeshSculptor3D.build(archetype, variant)
+                } else if (archetype == UnitArchetype.INCURSOR) {
+                    val stream = openAssetStream("incursor_squad.glb")
+                        ?: openAssetStream("incursor.glb")
+                        ?: openAssetStream("Incursor.glb")
+                    stream?.use {
+                        GlbLoader3D.loadMesh(
+                            stream = it,
+                            targetHeight = 0.818f,
+                            rotateYPlus90 = false,
+                            rotationYDeg = 0f
+                        )
+                    } ?: UnitMeshSculptor3D.build(archetype, variant)
+                } else if (archetype == UnitArchetype.BRUTALIS_DREADNOUGHT) {
+                    val stream = openAssetStream("brutalis_dreadnought.glb")
+                        ?: openAssetStream("Brutalis_Dreadnought.glb")
+                    stream?.use {
+                        GlbLoader3D.loadMesh(
+                            stream = it,
+                            targetHeight = 1.05f,
+                            rotateYPlus90 = false,
+                            rotationYDeg = 0f
                         )
                     } ?: UnitMeshSculptor3D.build(archetype, variant)
                 } else {

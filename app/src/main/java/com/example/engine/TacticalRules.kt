@@ -397,9 +397,13 @@ object TacticalRules {
         ignoreCover: Boolean = false
     ): CoverTag = evaluateCoverTag(attacker.worldX, attacker.worldY, defender, map, ignoreCover)
 
+    fun isWithinHalfRange(distTiles: Float?, range: Int): Boolean =
+        distTiles != null && range > 1 && distTiles <= (range * 0.5f) + 0.45f
+
     fun weaponRange(attacker: BattleUnit, mode: WeaponMode): Int = when (mode) {
         WeaponMode.MAIN -> attacker.template.range
         WeaponMode.PISTOL -> attacker.template.pistolRange
+        WeaponMode.AUX_RANGED -> attacker.template.auxRangedProfile?.range ?: 1
         WeaponMode.SKILL -> when (attacker.template.archetype) {
             UnitArchetype.CARNIFEX -> 3
             UnitArchetype.HIVE_TYRANT -> 4
@@ -407,6 +411,39 @@ object TacticalRules {
             else -> attacker.template.range
         }
     }
+
+    fun weaponTwinLinked(attacker: BattleUnit, mode: WeaponMode, isMelee: Boolean): Boolean = when (mode) {
+        WeaponMode.MAIN -> if (isMelee) attacker.template.effectiveMeleeTwinLinked else attacker.template.mainTwinLinked
+        WeaponMode.PISTOL -> attacker.template.pistolTwinLinked
+        WeaponMode.AUX_RANGED -> attacker.template.auxRangedProfile?.twinLinked == true
+        WeaponMode.SKILL -> if (isMelee) attacker.template.effectiveMeleeTwinLinked else attacker.template.mainTwinLinked
+    }
+
+    fun weaponMelta(attacker: BattleUnit, mode: WeaponMode, isMelee: Boolean): Int = when (mode) {
+        WeaponMode.MAIN -> if (isMelee) 0 else attacker.template.mainMelta
+        WeaponMode.PISTOL -> attacker.template.pistolMelta
+        WeaponMode.AUX_RANGED -> attacker.template.auxRangedProfile?.melta ?: 0
+        WeaponMode.SKILL -> if (isMelee) 0 else attacker.template.mainMelta
+    }.coerceAtLeast(0)
+
+    fun weaponRapidFire(attacker: BattleUnit, mode: WeaponMode, isMelee: Boolean): Int = when (mode) {
+        WeaponMode.MAIN -> if (isMelee) 0 else attacker.template.mainRapidFire
+        WeaponMode.PISTOL -> attacker.template.pistolRapidFire
+        WeaponMode.AUX_RANGED -> attacker.template.auxRangedProfile?.rapidFire ?: 0
+        WeaponMode.SKILL -> if (isMelee) 0 else attacker.template.mainRapidFire
+    }.coerceAtLeast(0)
+
+    fun weaponAntiFly(attacker: BattleUnit, mode: WeaponMode, isMelee: Boolean): Int = when (mode) {
+        WeaponMode.MAIN -> if (isMelee) 0 else attacker.template.mainAntiFly
+        WeaponMode.PISTOL -> attacker.template.pistolAntiFly
+        WeaponMode.AUX_RANGED -> attacker.template.auxRangedProfile?.antiFly ?: 0
+        WeaponMode.SKILL -> if (isMelee) 0 else attacker.template.mainAntiFly
+    }
+
+    fun weaponCleave(attacker: BattleUnit, mode: WeaponMode, isMelee: Boolean): Int = when (mode) {
+        WeaponMode.MAIN, WeaponMode.SKILL -> if (isMelee && !attacker.template.isRangedMain) attacker.template.mainCleave else 0
+        else -> 0
+    }.coerceAtLeast(0)
 
     fun modeUsesMelee(attacker: BattleUnit, mode: WeaponMode): Boolean =
         weaponRange(attacker, mode) <= 1 || (mode == WeaponMode.MAIN && attacker.hasCharged)
@@ -457,7 +494,17 @@ object TacticalRules {
                     attacker.pistolCooldownLeft == 0 &&
                     !attacker.hasShot &&
                     !attacker.hasAdvanced &&
-                    !attacker.hasCharged
+                    !attacker.hasCharged &&
+                    (!inMelee || attacker.template.pistolIsPistol)
+            WeaponMode.AUX_RANGED -> {
+                val aux = attacker.template.auxRangedProfile
+                aux != null &&
+                    attacker.template.hasAuxRanged &&
+                    !attacker.hasShot &&
+                    !attacker.hasCharged &&
+                    !inMelee &&
+                    (!attacker.hasAdvanced || aux.assault)
+            }
             WeaponMode.SKILL -> when (attacker.template.archetype) {
                 UnitArchetype.TERMINATOR -> attacker.skillCooldownLeft == 0 && !attacker.hasAdvanced && !attacker.hasCharged && !inMelee
                 UnitArchetype.BIOVORE -> attacker.skillCooldownLeft == 0 && !attacker.hasAdvanced && !attacker.hasCharged && !inMelee
@@ -475,6 +522,7 @@ object TacticalRules {
                     attacker.skillCooldownLeft == 0 && !attacker.bladeguardRerollBuffActive
                 UnitArchetype.LEGIONARY ->
                     attacker.skillCooldownLeft == 0 && !attacker.legionaryWoundRerollBuffActive
+                UnitArchetype.BRUTALIS_DREADNOUGHT -> false
                 else -> {
                     val isMeleeSkill = weaponRange(attacker, mode) <= 1
                     if (isMeleeSkill) {
@@ -494,6 +542,7 @@ object TacticalRules {
 
     fun weaponDisplayName(attacker: BattleUnit, mode: WeaponMode, isMelee: Boolean): String = when (mode) {
         WeaponMode.PISTOL -> attacker.template.pistolWeaponName
+        WeaponMode.AUX_RANGED -> attacker.template.auxRangedProfile?.name ?: "Auxiliary Weapon"
         WeaponMode.SKILL -> when (attacker.template.archetype) {
             UnitArchetype.HELLBLASTER -> "${attacker.template.mainWeaponName} (Supercharge)"
             UnitArchetype.INCURSOR -> "${attacker.template.mainWeaponName} (Mark)"
@@ -508,7 +557,18 @@ object TacticalRules {
             } else {
                 attacker.template.mainWeaponName
             }
-            if (isMelee && attacker.meleeChargeBuffActive) "$baseName (+1S +1AP)" else baseName
+            if (!isMelee) {
+                baseName
+            } else {
+                val buffs = buildList {
+                    if (attacker.meleeChargeBuffActive) add("+1S +1AP")
+                    if (attacker.brutalisChargeBuffActive) add("+2S +1AP")
+                    if (attacker.template.archetype == UnitArchetype.BRUTALIS_DREADNOUGHT && attacker.brutalisAttackStacks > 0) {
+                        add("+${attacker.brutalisAttackStacks}A")
+                    }
+                }
+                if (buffs.isEmpty()) baseName else "$baseName (${buffs.joinToString(" ")})"
+            }
         }
     }
 
@@ -636,13 +696,16 @@ object TacticalRules {
     }
 
     fun weaponStrength(attacker: BattleUnit, mode: WeaponMode, isMeleeOverride: Boolean = false): Int {
-        val meleeBonus = if (attacker.meleeChargeBuffActive && (isMeleeOverride || modeUsesMelee(attacker, mode))) 1 else 0
+        val isMeleeCtx = isMeleeOverride || modeUsesMelee(attacker, mode)
+        val meleeBonus = (if (attacker.meleeChargeBuffActive && isMeleeCtx) 1 else 0) +
+            (if (attacker.brutalisChargeBuffActive && isMeleeCtx) 2 else 0)
         if (isMeleeOverride && attacker.template.isRangedMain) {
             return attacker.template.effectiveMeleeStrength + meleeBonus
         }
         return when (mode) {
             WeaponMode.MAIN -> attacker.template.strength + meleeBonus
             WeaponMode.PISTOL -> attacker.template.pistolStrength
+            WeaponMode.AUX_RANGED -> attacker.template.auxRangedProfile?.strength ?: attacker.template.strength
             WeaponMode.SKILL -> when (attacker.template.archetype) {
                 UnitArchetype.HELLBLASTER -> attacker.template.strength + 1
                 UnitArchetype.CARNIFEX -> 7
@@ -653,13 +716,16 @@ object TacticalRules {
     }
 
     fun weaponAp(attacker: BattleUnit, mode: WeaponMode, isMeleeOverride: Boolean = false): Int {
-        val meleeBonus = if (attacker.meleeChargeBuffActive && (isMeleeOverride || modeUsesMelee(attacker, mode))) 1 else 0
+        val isMeleeCtx = isMeleeOverride || modeUsesMelee(attacker, mode)
+        val meleeBonus = (if (attacker.meleeChargeBuffActive && isMeleeCtx) 1 else 0) +
+            (if (attacker.brutalisChargeBuffActive && isMeleeCtx) 1 else 0)
         if (isMeleeOverride && attacker.template.isRangedMain) {
             return (attacker.template.effectiveMeleeArmorPen + meleeBonus).coerceAtMost(6)
         }
         return when (mode) {
             WeaponMode.MAIN -> (attacker.template.armorPen + meleeBonus).coerceAtMost(6)
             WeaponMode.PISTOL -> attacker.template.pistolArmorPen
+            WeaponMode.AUX_RANGED -> attacker.template.auxRangedProfile?.armorPen ?: attacker.template.armorPen
             WeaponMode.SKILL -> when (attacker.template.archetype) {
                 UnitArchetype.HELLBLASTER -> (attacker.template.armorPen + 1).coerceAtMost(5)
                 UnitArchetype.CARNIFEX -> 2
@@ -669,10 +735,37 @@ object TacticalRules {
         }
     }
 
-    fun weaponSustainedHits(attacker: BattleUnit, mode: WeaponMode, isMelee: Boolean): Int = when (mode) {
-        WeaponMode.PISTOL -> attacker.template.pistolSustainedHits.coerceAtLeast(0)
-        WeaponMode.SKILL -> if (isMelee) attacker.template.effectiveMeleeSustainedHits else attacker.template.mainSustainedHits.coerceAtLeast(0)
-        WeaponMode.MAIN -> if (isMelee) attacker.template.effectiveMeleeSustainedHits else attacker.template.mainSustainedHits.coerceAtLeast(0)
+    fun isMonsterOrVehicle(unit: BattleUnit): Boolean {
+        val arch = unit.template.archetype
+        return arch == UnitArchetype.DREADNOUGHT ||
+            arch == UnitArchetype.BRUTALIS_DREADNOUGHT ||
+            arch == UnitArchetype.CARNIFEX ||
+            arch == UnitArchetype.HIVE_TYRANT
+    }
+
+    fun weaponSustainedHits(attacker: BattleUnit, mode: WeaponMode, isMelee: Boolean, defender: BattleUnit? = null): Int {
+        var result = when (mode) {
+            WeaponMode.PISTOL -> attacker.template.pistolSustainedHits.coerceAtLeast(0)
+            WeaponMode.AUX_RANGED -> attacker.template.auxRangedProfile?.sustainedHits?.coerceAtLeast(0) ?: 0
+            WeaponMode.SKILL, WeaponMode.MAIN -> if (isMelee) attacker.template.effectiveMeleeSustainedHits else attacker.template.mainSustainedHits.coerceAtLeast(0)
+        }
+        if (isMelee &&
+            (mode == WeaponMode.MAIN || mode == WeaponMode.SKILL) &&
+            !attacker.template.isRangedMain &&
+            attacker.template.mainSustainedNonMonsterVehicle > 0 &&
+            defender != null &&
+            !isMonsterOrVehicle(defender)
+        ) {
+            result = maxOf(result, attacker.template.mainSustainedNonMonsterVehicle)
+        }
+        if (attacker.template.archetype == UnitArchetype.TERMINATOR && attacker.hasCharged && defender != null && isMelee) {
+            val isClaws = attacker.template.terminatorWeapon == com.example.model.TerminatorWeaponChoice.LIGHTNING_CLAWS ||
+                (attacker.template.terminatorWeapon == null && attacker.template.mainWeaponName.contains("claw", ignoreCase = true))
+            val targetIsMV = isMonsterOrVehicle(defender)
+            if (!isClaws && targetIsMV) return 1
+            if (isClaws && !targetIsMV) return 1
+        }
+        return result
     }
 
     fun computeHitRollNeeded(
@@ -685,7 +778,12 @@ object TacticalRules {
         var needed = if (isMelee) {
             if (attacker.template.isRangedMain) attacker.effectiveMeleeWeaponSkill else attacker.effectiveWeaponSkill
         } else {
-            attacker.effectiveBallisticSkill
+            if (mode == WeaponMode.AUX_RANGED) {
+                val baseAuxSkill = attacker.template.auxRangedProfile?.skill ?: attacker.template.ballisticSkill
+                (baseAuxSkill - attacker.effectiveHitBonus).coerceIn(2, 6)
+            } else {
+                attacker.effectiveBallisticSkill
+            }
         }
         if (!isMelee && attacker.template.archetype == UnitArchetype.INTERCESSOR && attacker.moveCmLeft >= attacker.template.moveCm - 0.1f) {
             needed -= 1
@@ -715,7 +813,11 @@ object TacticalRules {
         isMeleeOverride: Boolean = false
     ): Int {
         val s = weaponStrength(attacker, mode, isMeleeOverride)
-        val needed = woundRollNeeded(s, defender.template.toughness)
+        var needed = woundRollNeeded(s, defender.template.toughness)
+        val antiFly = weaponAntiFly(attacker, mode, isMeleeOverride)
+        if (antiFly in 2..6 && defender.template.isFly) {
+            needed = minOf(needed, antiFly)
+        }
         return needed.coerceIn(2, 6)
     }
 
@@ -756,7 +858,8 @@ object TacticalRules {
                 attacker.template.archetype == UnitArchetype.TERMINATOR ||
                 attacker.template.archetype == UnitArchetype.BIOVORE ||
                 attacker.template.archetype == UnitArchetype.BLADEGUARD ||
-                attacker.template.archetype == UnitArchetype.LEGIONARY
+                attacker.template.archetype == UnitArchetype.LEGIONARY ||
+                attacker.template.archetype == UnitArchetype.BRUTALIS_DREADNOUGHT
             )
         ) return null
         if (!canUseMode(attacker, mode, allUnits)) return null
@@ -795,7 +898,9 @@ object TacticalRules {
         if (attacker.hasCharged && !isMelee) return null
 
         val isAttackerEngaged = isEngagedInMeleeAt(attacker, atkX, atkY, allUnits)
-        val hasPistolPrivilege = mode == WeaponMode.PISTOL || attacker.template.mainWeaponPistol
+        val hasPistolPrivilege = (mode == WeaponMode.PISTOL && attacker.template.pistolIsPistol) ||
+            attacker.template.mainWeaponPistol ||
+            (mode == WeaponMode.AUX_RANGED && attacker.template.auxRangedProfile?.pistol == true)
         // Rule: If in close combat range, cannot use shooting weapons unless it is a pistol / has Pistol tag
         if (isAttackerEngaged && !isMelee && !hasPistolPrivilege) return null
 
@@ -831,13 +936,25 @@ object TacticalRules {
         val rerollWoundOnes = attacker.template.archetype == UnitArchetype.GENESTEALER ||
             (attacker.template.archetype == UnitArchetype.LEGIONARY && (attacker.legionaryWoundRerollBuffActive || attacker.skillCooldownLeft == 0))
 
-        val perUnsavedDmg = damagePerUnsavedWound(attacker, defender, mode, isMelee)
+        val isHalfRange = !isMelee && isWithinHalfRange(distTiles, range)
+        val meltaBonus = if (isHalfRange) weaponMelta(attacker, mode, false) else 0
+        val rapidFireBonus = if (isHalfRange) weaponRapidFire(attacker, mode, false) else 0
+        val isTwinLinked = weaponTwinLinked(attacker, mode, isMelee)
+        val antiFlyTriggered = !isMelee && weaponAntiFly(attacker, mode, false) in 2..6 && defender.template.isFly
+
+        val perUnsavedDmg = damagePerUnsavedWound(attacker, defender, mode, isMelee, distTiles)
         val effectiveWoundsPerHit = minOf(perUnsavedDmg.toFloat(), defender.template.woundsPerModel.toFloat())
-        val attacks = attacksCount(attacker, mode, isMelee)
-        val baseSustained = weaponSustainedHits(attacker, mode, isMelee)
+        val cleaveX = if (isMelee) weaponCleave(attacker, mode, true) else 0
+        val cleaveBonus = if (cleaveX > 0) (defender.aliveModels / 5) * cleaveX else 0
+        val attacks = attacksCount(attacker, mode, isMelee, distTiles, defender)
+        val baseSustained = weaponSustainedHits(attacker, mode, isMelee, defender)
         val sustainedX = maxOf(baseSustained, if (effectiveDarkPact == DarkPactChoice.SUSTAINED_HITS_1) 1 else 0)
         val critRate = 1f / 6f
-        val effectiveWoundProb = if (rerollWoundOnes) minOf(1f, woundProb * (7f / 6f)) else woundProb
+        val effectiveWoundProb = when {
+            isTwinLinked -> woundProb + (1f - woundProb) * woundProb
+            rerollWoundOnes -> minOf(1f, woundProb * (7f / 6f))
+            else -> woundProb
+        }
         val critSustainedExtra = if (sustainedX > 0) critRate * sustainedX else 0f
         val normalHitRate = (hitProb - critRate).coerceAtLeast(0f)
         val woundsPerAttack = if (lethalHits) {
@@ -870,6 +987,11 @@ object TacticalRules {
             sustainedHits = sustainedX,
             lethalHits = lethalHits,
             rerollWoundOnes = rerollWoundOnes,
+            twinLinked = isTwinLinked,
+            meltaBonus = meltaBonus,
+            rapidFireBonus = rapidFireBonus,
+            antiFlyTriggered = antiFlyTriggered,
+            cleaveBonus = cleaveBonus,
             darkPactChoice = effectiveDarkPact,
             markedBonusApplied = markedBonusApplied,
             inRange = inRange,
@@ -897,20 +1019,37 @@ object TacticalRules {
         darkPactChoice: DarkPactChoice = DarkPactChoice.NONE
     ): TargetPreview? = canTargetFromWorld(attacker, attacker.worldX, attacker.worldY, defender, mode, map, allUnits, darkPactChoice)
 
-    fun attacksCount(attacker: BattleUnit, mode: WeaponMode, isMelee: Boolean = false): Int {
+    fun attacksCount(
+        attacker: BattleUnit,
+        mode: WeaponMode,
+        isMelee: Boolean = false,
+        distTiles: Float? = null,
+        defender: BattleUnit? = null
+    ): Int {
+        val rapidBonusPerModel = if (!isMelee && isWithinHalfRange(distTiles, weaponRange(attacker, mode))) {
+            weaponRapidFire(attacker, mode, false)
+        } else 0
+        val cleaveX = if (isMelee) weaponCleave(attacker, mode, true) else 0
+        val cleaveBonus = if (cleaveX > 0 && defender != null) (defender.aliveModels / 5) * cleaveX else 0
         val base = when (mode) {
             WeaponMode.MAIN -> attacker.aliveModels * (
-                if (isMelee && attacker.template.isRangedMain) attacker.template.effectiveMeleeAttacks
-                else attacker.template.attacksPerModel
+                if (isMelee && attacker.template.isRangedMain) {
+                    attacker.template.effectiveMeleeAttacks
+                } else if (isMelee) {
+                    attacker.effectiveMainAttacksPerModel
+                } else {
+                    attacker.template.attacksPerModel + rapidBonusPerModel
+                }
                 )
-            WeaponMode.PISTOL -> attacker.aliveModels * attacker.template.pistolAttacks
+            WeaponMode.PISTOL -> attacker.aliveModels * (attacker.template.pistolAttacks + rapidBonusPerModel)
+            WeaponMode.AUX_RANGED -> attacker.aliveModels * ((attacker.template.auxRangedProfile?.attacksPerModel ?: 1) + rapidBonusPerModel)
             WeaponMode.SKILL -> when (attacker.template.archetype) {
                 UnitArchetype.INTERCESSOR, UnitArchetype.TERMAGANT ->
-                    attacker.aliveModels * (attacker.template.attacksPerModel + 1)
-                else -> attacker.aliveModels * attacker.template.attacksPerModel
+                    attacker.aliveModels * (attacker.template.attacksPerModel + 1 + rapidBonusPerModel)
+                else -> attacker.aliveModels * (attacker.template.attacksPerModel + rapidBonusPerModel)
             }
         }
-        return base.coerceAtLeast(1)
+        return (base + cleaveBonus).coerceAtLeast(1)
     }
 
     fun allocateWoundDamage(
@@ -929,14 +1068,19 @@ object TacticalRules {
         attacker: BattleUnit,
         defender: BattleUnit,
         mode: WeaponMode,
-        isMeleeOverride: Boolean = false
+        isMeleeOverride: Boolean = false,
+        distTiles: Float? = null
     ): Int {
+        val meltaBonus = if (!isMeleeOverride && isWithinHalfRange(distTiles, weaponRange(attacker, mode))) {
+            weaponMelta(attacker, mode, false)
+        } else 0
         var dmg = if (isMeleeOverride && attacker.template.isRangedMain) {
             attacker.template.effectiveMeleeDamage + (if (attacker.buffTurnsLeft > 0) 1 else 0)
         } else {
             when (mode) {
                 WeaponMode.MAIN -> attacker.effectiveDamage
                 WeaponMode.PISTOL -> attacker.template.pistolDamage
+                WeaponMode.AUX_RANGED -> attacker.template.auxRangedProfile?.damage ?: 1
                 WeaponMode.SKILL -> when (attacker.template.archetype) {
                     UnitArchetype.HELLBLASTER -> attacker.effectiveDamage
                     UnitArchetype.CARNIFEX -> 1
@@ -944,7 +1088,7 @@ object TacticalRules {
                     else -> attacker.effectiveDamage
                 }
             }
-        }
+        } + meltaBonus
 
         if (defender.template.archetype == UnitArchetype.DREADNOUGHT) {
             dmg = (dmg - 1).coerceAtLeast(1)
@@ -1200,6 +1344,7 @@ object TacticalRules {
         var totalHits = 0
         var totalDmg = 0
         var totalKills = 0
+        var totalEnemyModelsLost = 0
         var anyFlank = false
 
         val lethalHitsEnabled = appliedDarkPact == DarkPactChoice.LETHAL_HITS
@@ -1208,10 +1353,12 @@ object TacticalRules {
 
         targetsToHit.forEachIndexed { idx, tgt ->
             val tgtPreview = if (idx == 0) preview else canTarget(effectiveAttacker, tgt, mode, map, allUnits, appliedDarkPact) ?: preview
+            val tgtDist = hypot(effectiveAttacker.worldX - tgt.worldX, effectiveAttacker.worldY - tgt.worldY)
             val attacks = if (idx == 0) tgtPreview.attacksCount else (tgtPreview.attacksCount / 2).coerceAtLeast(1)
-            val perUnsavedDmg = damagePerUnsavedWound(effectiveAttacker, tgt, mode, tgtPreview.isMelee)
+            val perUnsavedDmg = damagePerUnsavedWound(effectiveAttacker, tgt, mode, tgtPreview.isMelee, tgtDist)
+            val isTwinLinked = weaponTwinLinked(effectiveAttacker, mode, tgtPreview.isMelee)
             val sustainedX = maxOf(
-                weaponSustainedHits(effectiveAttacker, mode, tgtPreview.isMelee),
+                weaponSustainedHits(effectiveAttacker, mode, tgtPreview.isMelee, tgt),
                 if (appliedDarkPact == DarkPactChoice.SUSTAINED_HITS_1) 1 else 0
             )
 
@@ -1257,9 +1404,10 @@ object TacticalRules {
                                     lethalWounds++
                                     true
                                 } else {
-                                    // Step 2: Wound Roll (d6 comparing S vs T; 1 always fails unless re-rolled)
+                                    // Step 2: Wound Roll (d6 comparing S vs T; 1 always fails unless re-rolled; Twin-Linked re-rolls all failed wounds)
                                     var woundRoll = rng.nextInt(1, 7)
-                                    if (rerollWoundOnes && woundRoll == 1) {
+                                    val firstSucceeded = woundRoll > 1 && woundRoll >= tgtPreview.woundRollNeeded
+                                    if (!firstSucceeded && (isTwinLinked || (rerollWoundOnes && woundRoll == 1))) {
                                         woundRerolls++
                                         woundRoll = rng.nextInt(1, 7)
                                     }
@@ -1316,6 +1464,7 @@ object TacticalRules {
             updatedTargets.add(updatedTgt)
 
             val modelsLost = (modelsBefore - updatedTgt.aliveModels).coerceAtLeast(0)
+            totalEnemyModelsLost += modelsLost
             totalKills += if (newWounds == 0) 1 else 0
             totalHits += tgtHits
             totalDmg += tgtDmg
@@ -1342,6 +1491,7 @@ object TacticalRules {
                 savesSucceeded = tgtSaved,
                 saveRerolls = tgtSaveRerolls,
                 lethalWounds = lethalWounds,
+                twinLinked = isTwinLinked,
                 darkPactStep = if (idx == 0) darkPactStep else null
             )
             val resultSummary = formatCombatResultSummary(
@@ -1377,6 +1527,9 @@ object TacticalRules {
                 else -> 0xFFFF4D58L
             }
             floats.add(tgt.pos to (tagPrefix to color))
+            if (tgtPreview.cleaveBonus > 0) {
+                floats.add(effectiveAttacker.pos to ("⚔️ CLEAVE +${tgtPreview.cleaveBonus}A" to 0xFF4CC9F0L))
+            }
             if (lethalWounds > 0) {
                 floats.add(tgt.pos to ("☠️ LETHAL x$lethalWounds!" to 0xFFFF9E2CL))
             }
@@ -1405,7 +1558,28 @@ object TacticalRules {
             (effectiveAttacker.template.archetype == UnitArchetype.WARRIOR ||
                 effectiveAttacker.template.archetype == UnitArchetype.CAPTAIN)
         ) 2 else effectiveAttacker.buffTurnsLeft
-        val newBuffLabel = if (newBuffTurns > effectiveAttacker.buffTurnsLeft) effectiveAttacker.template.skillName else effectiveAttacker.activeBuffLabel
+
+        val earnedBrutalisStack = effectiveAttacker.template.archetype == UnitArchetype.BRUTALIS_DREADNOUGHT &&
+            isMelee &&
+            effectiveAttacker.brutalisChargeBuffActive &&
+            totalEnemyModelsLost > 0 &&
+            !effectiveAttacker.brutalisStackEarnedThisTurn &&
+            effectiveAttacker.brutalisAttackStacks < 4
+
+        val nextBrutalisStacks = if (earnedBrutalisStack) {
+            (effectiveAttacker.brutalisAttackStacks + 1).coerceAtMost(4)
+        } else effectiveAttacker.brutalisAttackStacks
+        val nextBrutalisStackEarnedThisTurn = effectiveAttacker.brutalisStackEarnedThisTurn || earnedBrutalisStack
+
+        if (earnedBrutalisStack) {
+            floats.add(effectiveAttacker.pos to ("⚔️ BRUTALIS STACK $nextBrutalisStacks/4 (+1A)" to 0xFFFFD166L))
+        }
+
+        val newBuffLabel = when {
+            earnedBrutalisStack -> "BRUTALIS +2S +1AP • STK $nextBrutalisStacks/4"
+            newBuffTurns > effectiveAttacker.buffTurnsLeft -> effectiveAttacker.template.skillName
+            else -> effectiveAttacker.activeBuffLabel
+        }
 
         val nextFacingDeg = angleDegToward(effectiveAttacker.worldX, effectiveAttacker.worldY, primaryTarget.worldX, primaryTarget.worldY)
         val updatedAttacker = effectiveAttacker.copy(
@@ -1418,7 +1592,9 @@ object TacticalRules {
             buffTurnsLeft = newBuffTurns,
             activeBuffLabel = newBuffLabel,
             kills = effectiveAttacker.kills + totalKills,
-            damageDealt = effectiveAttacker.damageDealt + totalDmg
+            damageDealt = effectiveAttacker.damageDealt + totalDmg,
+            brutalisAttackStacks = nextBrutalisStacks,
+            brutalisStackEarnedThisTurn = nextBrutalisStackEarnedThisTurn
         )
 
         return CombatOutcome(
@@ -1446,16 +1622,17 @@ object TacticalRules {
 
         val isRangedMain = counterAttacker.template.isRangedMain
         val ws = if (isRangedMain) counterAttacker.effectiveMeleeWeaponSkill else counterAttacker.effectiveWeaponSkill
-        val s = if (!isRangedMain) counterAttacker.template.strength else weaponStrength(counterAttacker, WeaponMode.MAIN, isMeleeOverride = true)
-        val ap = if (!isRangedMain) counterAttacker.template.armorPen else weaponAp(counterAttacker, WeaponMode.MAIN, isMeleeOverride = true)
-        val d = damagePerUnsavedWound(counterAttacker, target, WeaponMode.MAIN, isMeleeOverride = isRangedMain)
-        val sustainedX = weaponSustainedHits(counterAttacker, WeaponMode.MAIN, isMelee = true)
+        val s = weaponStrength(counterAttacker, WeaponMode.MAIN, isMeleeOverride = true)
+        val ap = weaponAp(counterAttacker, WeaponMode.MAIN, isMeleeOverride = true)
+        val d = damagePerUnsavedWound(counterAttacker, target, WeaponMode.MAIN, isMeleeOverride = true)
+        val sustainedX = weaponSustainedHits(counterAttacker, WeaponMode.MAIN, isMelee = true, target)
+        val isTwinLinked = weaponTwinLinked(counterAttacker, WeaponMode.MAIN, isMelee = true)
 
         val hitRollNeeded = ws.coerceIn(2, 6)
         val woundRollNeeded = woundRollNeeded(s, target.template.toughness)
         val (saveRollNeeded, usingInvuln) = computeEffectiveSave(target, ap, CoverTag.OPEN)
 
-        val attacks = attacksCount(counterAttacker, WeaponMode.MAIN, isMelee = true)
+        val attacks = attacksCount(counterAttacker, WeaponMode.MAIN, isMelee = true, defender = target)
 
         var baseHits = 0
         var tgtHits = 0
@@ -1494,7 +1671,8 @@ object TacticalRules {
                     repeat(hitsFromAttack) {
                         if (runningWounds > 0) {
                             var woundRoll = rng.nextInt(1, 7)
-                            if (rerollCounterWoundOnes && woundRoll == 1) {
+                            val firstSucceeded = woundRoll > 1 && woundRoll >= woundRollNeeded
+                            if (!firstSucceeded && (isTwinLinked || (rerollCounterWoundOnes && woundRoll == 1))) {
                                 woundRerolls++
                                 woundRoll = rng.nextInt(1, 7)
                             }
@@ -1555,7 +1733,8 @@ object TacticalRules {
             coverTag = CoverTag.OPEN,
             saveDice = saveDice,
             savesSucceeded = tgtSaved,
-            saveRerolls = saveRerolls
+            saveRerolls = saveRerolls,
+            twinLinked = isTwinLinked
         )
         val counterLog = CombatLogEntry(
             faction = counterAttacker.faction,
@@ -1635,6 +1814,7 @@ object TacticalRules {
         savesSucceeded: Int,
         saveRerolls: Int = 0,
         lethalWounds: Int = 0,
+        twinLinked: Boolean = false,
         darkPactStep: DiceStepDetail? = null
     ): List<DiceStepDetail> {
         val steps = ArrayList<DiceStepDetail>(4)
@@ -1663,7 +1843,8 @@ object TacticalRules {
             val rolledWoundsPassed = (woundsSucceeded - lethalWounds).coerceAtLeast(0)
             val woundNote = buildList {
                 if (lethalWounds > 0) add("+$lethalWounds AUTO (LETHAL)")
-                if (woundRerolls > 0) add("RE-ROLL 1s (${woundRerolls}x)")
+                if (twinLinked && woundRerolls > 0) add("TWIN-LINKED RE-ROLL (${woundRerolls}x)")
+                else if (woundRerolls > 0) add("RE-ROLL 1s (${woundRerolls}x)")
             }.joinToString(" • ")
             steps.add(
                 DiceStepDetail(
@@ -1789,16 +1970,15 @@ object TacticalRules {
 
     /**
      * Assault Terminator Teleport Strike:
-     * - Warp range up to 9 tiles
-     * - Must not be within 4 tiles of any alive enemy (chebyshev distance > 4)
+     * - Warp anywhere on the map
+     * - Must be at least 8 cm away from all alive enemy models
      * - Destination must be walkable and unoccupied
      */
     fun computeTeleportTiles(
         unit: BattleUnit,
         map: Array<Array<TerrainType>>,
         allUnits: List<BattleUnit>,
-        maxDist: Int = 9,
-        minEnemyDist: Int = 5
+        minEnemyDistCm: Float = 8.0f
     ): Set<GridPos> {
         if (!unit.isAlive || unit.skillCooldownLeft > 0 || isEngagedInMelee(unit, allUnits)) return emptySet()
         val valid = mutableSetOf<GridPos>()
@@ -1811,16 +1991,14 @@ object TacticalRules {
             for (x in 0 until w) {
                 val pos = GridPos(x, y)
                 if (pos == unit.pos) continue
-                val dist = maxOf(abs(x - unit.x), abs(y - unit.y))
-                if (dist > maxDist) continue
                 if (!MapGenerator.isWalkable(map[y][x])) continue
                 if (pos in occupied) continue
 
                 var tooCloseToEnemy = false
                 for (i in enemies.indices) {
                     val e = enemies[i]
-                    val dToEnemy = maxOf(abs(x - e.x), abs(y - e.y))
-                    if (dToEnemy < minEnemyDist) {
+                    val distCm = hypot(x - e.worldX, y - e.worldY) * CM_PER_TILE
+                    if (distCm < minEnemyDistCm - 0.05f) {
                         tooCloseToEnemy = true
                         break
                     }
