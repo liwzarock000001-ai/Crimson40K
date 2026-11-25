@@ -661,6 +661,7 @@ object MeshCatalog3D {
                 archetypeMeshes.remove(UnitArchetype.BLADEGUARD to "")
                 archetypeMeshes.remove(UnitArchetype.INCURSOR to "")
                 archetypeMeshes.remove(UnitArchetype.BRUTALIS_DREADNOUGHT to "")
+                archetypeMeshes.remove(UnitArchetype.CAPTAIN_TITUS to "")
             }
         }
     }
@@ -725,6 +726,17 @@ object MeshCatalog3D {
                         GlbLoader3D.loadMesh(
                             stream = it,
                             targetHeight = 1.05f,
+                            rotateYPlus90 = false,
+                            rotationYDeg = 0f
+                        )
+                    } ?: UnitMeshSculptor3D.build(archetype, variant)
+                } else if (archetype == UnitArchetype.CAPTAIN_TITUS) {
+                    val stream = openAssetStream("captain_titus.glb")
+                        ?: openAssetStream("Captain_Titus.glb")
+                    stream?.use {
+                        GlbLoader3D.loadMesh(
+                            stream = it,
+                            targetHeight = 1.02f,
                             rotateYPlus90 = false,
                             rotationYDeg = 0f
                         )

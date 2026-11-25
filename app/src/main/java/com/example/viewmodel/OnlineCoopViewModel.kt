@@ -17,14 +17,16 @@ import com.google.firebase.firestore.FirebaseFirestoreException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onCompletion
+import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.flow.retryWhen
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -75,8 +77,8 @@ class OnlineCoopViewModel(
     private val _joinError = MutableStateFlow<String?>(null)
     val joinError: StateFlow<String?> = _joinError.asStateFlow()
 
-    private val _incomingActions = MutableSharedFlow<OnlineClientAction>(extraBufferCapacity = 32)
-    val incomingActions = _incomingActions.asSharedFlow()
+    private val incomingActionsChannel = Channel<OnlineClientAction>(Channel.UNLIMITED)
+    val incomingActions = incomingActionsChannel.receiveAsFlow()
 
     private data class BattlePublishRequest(
         val roomCode: String,
@@ -91,12 +93,60 @@ class OnlineCoopViewModel(
     private var currentPlayerSlotId: String = "p1"
     private val processedActionIds = HashSet<String>()
     private val battlePublishChannel = Channel<BattlePublishRequest>(Channel.CONFLATED)
+    private var publishedTemplatesForRoom: String? = null
+    private var publishedTemplatesHash: Int = 0
 
     init {
         viewModelScope.launch {
-            for (req in battlePublishChannel) {
-                repository.publishBattleSnapshot(req.roomCode, req.state, req.templates, req.status).onFailure { err ->
-                    Log.w(TAG, "Failed to sync battle state to cloud", err)
+            for (initialReq in battlePublishChannel) {
+                var currentReq = initialReq
+                var attempt = 0
+                var showedSyncWarning = false
+                while (currentRoomCode == currentReq.roomCode || currentReq.status == "FINISHED") {
+                    // Coalesce to newest pending snapshot if one arrived while waiting/retrying
+                    while (true) {
+                        val newer = battlePublishChannel.tryReceive().getOrNull() ?: break
+                        currentReq = newer
+                        attempt = 0
+                    }
+                    val needTemplates = currentReq.roomCode != publishedTemplatesForRoom ||
+                        currentReq.templates.hashCode() != publishedTemplatesHash
+                    val result = repository.publishBattleSnapshot(
+                        roomCode = currentReq.roomCode,
+                        battleState = currentReq.state,
+                        templates = currentReq.templates,
+                        status = currentReq.status,
+                        includeTemplates = needTemplates
+                    )
+                    if (result.isSuccess) {
+                        publishedTemplatesForRoom = currentReq.roomCode
+                        publishedTemplatesHash = currentReq.templates.hashCode()
+                        if (showedSyncWarning && _errorMessage.value?.startsWith("Cloud sync delayed") == true) {
+                            _errorMessage.value = null
+                        }
+                        break
+                    }
+                    val err = result.exceptionOrNull()
+                    if (err is CancellationException) throw err
+                    Log.w(TAG, "Failed to sync battle state to cloud (attempt ${attempt + 1})", err)
+                    val fsErr = err?.let { extractFirestoreRootError(it) }
+                    if (fsErr?.code == FirebaseFirestoreException.Code.PERMISSION_DENIED) {
+                        _errorMessage.value = fsErr.message ?: "Cloud sync rejected by room rules."
+                        break
+                    }
+                    attempt++
+                    val delayMs = when (attempt) {
+                        1 -> 350L
+                        2 -> 800L
+                        3 -> 1500L
+                        else -> {
+                            showedSyncWarning = true
+                            _errorMessage.value = "Cloud sync delayed — retrying..."
+                            3000L
+                        }
+                    }
+                    delay(delayMs)
+                    if (currentReq.status == "FINISHED" && attempt >= 3) break
                 }
             }
         }
@@ -206,6 +256,14 @@ class OnlineCoopViewModel(
 
         roomObserverJob = viewModelScope.launch {
             repository.observeRoom(roomCode)
+                .retryWhen { cause, attempt ->
+                    if (cause is CancellationException) return@retryWhen false
+                    val fsErr = extractFirestoreRootError(cause)
+                    if (fsErr?.code == FirebaseFirestoreException.Code.PERMISSION_DENIED) return@retryWhen false
+                    Log.w(TAG, "Room listener error (retrying attempt ${attempt + 1})", fsErr ?: cause)
+                    delay(((attempt + 1) * 750L).coerceAtMost(5000L))
+                    currentRoomCode == roomCode
+                }
                 .catch { error ->
                     val firestoreError = extractFirestoreRootError(error)
                     if (firestoreError == null && error is CancellationException) throw error
@@ -218,7 +276,7 @@ class OnlineCoopViewModel(
                         if (resolvedSlot != null) {
                             currentPlayerSlotId = resolvedSlot
                         }
-                        if (snap.hostUid == currentUserId && actionsObserverJob == null) {
+                        if (snap.hostUid == currentUserId && actionsObserverJob?.isActive != true) {
                             startObservingHostActions(roomCode)
                         }
                     }
@@ -233,15 +291,26 @@ class OnlineCoopViewModel(
         actionsObserverJob?.cancel()
         actionsObserverJob = viewModelScope.launch {
             repository.observeRoomActions(roomCode, currentUserId)
+                .retryWhen { cause, attempt ->
+                    if (cause is CancellationException) return@retryWhen false
+                    val fsErr = extractFirestoreRootError(cause)
+                    if (fsErr?.code == FirebaseFirestoreException.Code.PERMISSION_DENIED) return@retryWhen false
+                    Log.w(TAG, "Actions listener error (retrying attempt ${attempt + 1})", fsErr ?: cause)
+                    delay(((attempt + 1) * 750L).coerceAtMost(5000L))
+                    currentRoomCode == roomCode
+                }
                 .catch { error ->
                     val firestoreError = extractFirestoreRootError(error)
                     if (firestoreError == null && error is CancellationException) throw error
                     Log.w(TAG, "Error observing client actions", firestoreError ?: error)
                 }
+                .onCompletion {
+                    actionsObserverJob = null
+                }
                 .collect { actions ->
                     for (action in actions) {
                         if (processedActionIds.add(action.actionId)) {
-                            _incomingActions.emit(action)
+                            incomingActionsChannel.trySend(action)
                             launch {
                                 repository.consumeAction(roomCode, action.actionId)
                             }
@@ -289,7 +358,7 @@ class OnlineCoopViewModel(
         val code = snap.roomCode.ifBlank { currentRoomCode ?: return }
         if (snap.hostUid.isBlank() || snap.status != "ACTIVE") return
         viewModelScope.launch {
-            repository.submitClientAction(
+            var res = repository.submitClientAction(
                 roomCode = code,
                 hostUid = snap.hostUid,
                 playerId = currentPlayerSlotId,
@@ -299,7 +368,25 @@ class OnlineCoopViewModel(
                 cm = cm,
                 mode = mode,
                 left = left
-            ).onFailure { err ->
+            )
+            if (res.isFailure) {
+                val fsErr = res.exceptionOrNull()?.let { extractFirestoreRootError(it) }
+                if (fsErr?.code != FirebaseFirestoreException.Code.PERMISSION_DENIED) {
+                    delay(350L)
+                    res = repository.submitClientAction(
+                        roomCode = code,
+                        hostUid = snap.hostUid,
+                        playerId = currentPlayerSlotId,
+                        actionType = actionType,
+                        wx = wx,
+                        wy = wy,
+                        cm = cm,
+                        mode = mode,
+                        left = left
+                    )
+                }
+            }
+            res.onFailure { err ->
                 _errorMessage.value = err.message ?: "Failed to send command to Host."
             }
         }
@@ -327,8 +414,9 @@ class OnlineCoopViewModel(
 
     fun applyRemoteBattleSnapshot(
         battleMap: Map<String, Any?>,
-        current: BattleUiState
-    ): BattleUiState? = repository.applyBattleMapToState(battleMap, current)
+        current: BattleUiState,
+        fallbackTemplates: Map<String, UnitTemplate>? = null
+    ): BattleUiState? = repository.applyBattleMapToState(battleMap, current, fallbackTemplates)
 
     fun stopRoomListeners() {
         roomObserverJob?.cancel()
@@ -336,6 +424,8 @@ class OnlineCoopViewModel(
         actionsObserverJob?.cancel()
         actionsObserverJob = null
         currentRoomCode = null
+        publishedTemplatesForRoom = null
+        publishedTemplatesHash = 0
         _activeRoom.value = null
         processedActionIds.clear()
     }

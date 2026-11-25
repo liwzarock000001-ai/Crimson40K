@@ -38,7 +38,8 @@ object UnitMeshSculptor3D {
             UnitArchetype.INTERCESSOR,
             UnitArchetype.HELLBLASTER,
             UnitArchetype.ASSAULT_MARINE,
-            UnitArchetype.CAPTAIN -> buildPrimarisUltramarine(m, archetype)
+            UnitArchetype.CAPTAIN,
+            UnitArchetype.CAPTAIN_TITUS -> buildPrimarisUltramarine(m, archetype)
             UnitArchetype.LEGIONARY -> buildBlackLegionLegionary(m)
 
             UnitArchetype.TERMAGANT -> buildTermagant(m)

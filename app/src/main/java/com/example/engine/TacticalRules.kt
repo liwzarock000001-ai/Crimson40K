@@ -47,7 +47,8 @@ data class CounterAttackOutcome(
     val totalDamageDealt: Int,
     val modelsLost: Int,
     val floatingTexts: List<Pair<GridPos, Pair<String, Long>>>,
-    val logEntry: CombatLogEntry? = null
+    val logEntry: CombatLogEntry? = null,
+    val extraUpdatedUnits: List<BattleUnit> = emptyList()
 )
 
 object TacticalRules {
@@ -67,6 +68,89 @@ object TacticalRules {
 
     fun isWithinMeleeReach(a: BattleUnit, b: BattleUnit): Boolean =
         isWithinMeleeReach(a.worldX, a.worldY, b.worldX, b.worldY)
+
+    fun isAttachedPartner(a: BattleUnit, b: BattleUnit): Boolean =
+        a.attachedLeaderUid == b.uid || a.bodyguardUid == b.uid ||
+            b.attachedLeaderUid == a.uid || b.bodyguardUid == a.uid
+
+    fun partnerOf(unit: BattleUnit, allUnits: List<BattleUnit>?): BattleUnit? {
+        if (allUnits == null) return null
+        val partnerUid = unit.attachedLeaderUid ?: unit.bodyguardUid ?: return null
+        return allUnits.firstOrNull { it.uid == partnerUid && it.isAlive }
+    }
+
+    fun hasEffectivePassive(unit: BattleUnit, templateId: String, allUnits: List<BattleUnit>? = null): Boolean {
+        if (unit.template.id == templateId || templateId in unit.inheritedPassiveIds) return true
+        if (templateId == "captain_titus" && unit.isHeroLeader) return true
+        val partner = partnerOf(unit, allUnits) ?: return false
+        if (partner.template.id == templateId || templateId in partner.inheritedPassiveIds) return true
+        if (templateId == "captain_titus" && partner.isHeroLeader) return true
+        return false
+    }
+
+    fun unitHasFeelNoPain(unit: BattleUnit, allUnits: List<BattleUnit>? = null): Boolean =
+        unit.hasFeelNoPain || unit.isHeroLeader || hasEffectivePassive(unit, "captain_titus", allUnits)
+
+    fun unitHasBladeguardReroll(unit: BattleUnit, allUnits: List<BattleUnit>? = null): Boolean =
+        unit.bladeguardRerollBuffActive || (partnerOf(unit, allUnits)?.bladeguardRerollBuffActive == true)
+
+    fun unitIsStationary(unit: BattleUnit, allUnits: List<BattleUnit>? = null): Boolean {
+        val selfStationary = unit.moveCmLeft >= unit.template.moveCm - 0.1f && !unit.hasAdvanced
+        if (!selfStationary) return false
+        val partner = partnerOf(unit, allUnits) ?: return true
+        return partner.moveCmLeft >= partner.template.moveCm - 0.1f && !partner.hasAdvanced
+    }
+
+    fun modelWorldPositions(unit: BattleUnit): List<WorldPos> {
+        val count = unit.aliveModels.coerceIn(1, 5)
+        val hasAttachedLeader = unit.attachedLeaderUid != null
+        val out = ArrayList<WorldPos>(count + 1)
+        out.add(WorldPos(unit.worldX, unit.worldY))
+        if (count <= 1 && !hasAttachedLeader) return out
+        for (mIdx in 0 until count) {
+            val ox: Float
+            val oz: Float
+            if (hasAttachedLeader) {
+                val angle = (2.0 * Math.PI * mIdx / count.toDouble()).toFloat()
+                val radius = 0.46f
+                ox = cos(angle) * radius
+                oz = sin(angle) * radius
+            } else {
+                ox = modelSubOffsetX(count, mIdx)
+                oz = modelSubOffsetZ(count, mIdx)
+            }
+            out.add(WorldPos(unit.worldX + ox / 1.45f, unit.worldY + oz / 1.45f))
+        }
+        return out
+    }
+
+    private fun modelSubOffsetX(count: Int, idx: Int): Float = when (count) {
+        1 -> 0f
+        2 -> if (idx == 0) -0.34f else 0.34f
+        3 -> if (idx == 0) 0.34f else -0.36f
+        4 -> if (idx == 0 || idx == 2) -0.36f else 0.36f
+        else -> when (idx) {
+            0 -> 0f
+            1, 3 -> -0.44f
+            else -> 0.44f
+        }
+    }
+
+    private fun modelSubOffsetZ(count: Int, idx: Int): Float = when (count) {
+        1 -> 0f
+        2 -> if (idx == 0) -0.28f else 0.28f
+        3 -> when (idx) {
+            0 -> 0f
+            1 -> -0.38f
+            else -> 0.38f
+        }
+        4 -> if (idx < 2) -0.36f else 0.36f
+        else -> when (idx) {
+            0 -> 0f
+            1, 2 -> -0.44f
+            else -> 0.44f
+        }
+    }
 
     fun isWorldWalkable(
         wx: Float,
@@ -91,10 +175,15 @@ object TacticalRules {
             }
         }
 
-        // Prevent overlapping other alive squads
+        val movingUnit = allUnits.firstOrNull { it.uid == movingUnitUid }
+        // Prevent overlapping other alive squads (excluding attached Leader/Bodyguard partner)
         for (i in allUnits.indices) {
             val u = allUnits[i]
-            if (u.isAlive && u.uid != movingUnitUid) {
+            if (u.isAlive &&
+                u.uid != movingUnitUid &&
+                u.uid != movingUnit?.attachedLeaderUid &&
+                u.uid != movingUnit?.bodyguardUid
+            ) {
                 if (hypot(wx - u.worldX, wy - u.worldY) < BASE_SEPARATION_TILES) return false
             }
         }
@@ -226,7 +315,11 @@ object TacticalRules {
                 val wy = gy.toFloat()
                 for (i in units.indices) {
                     val u = units[i]
-                    if (u.isAlive && u.uid != unit.uid) {
+                    if (u.isAlive &&
+                        u.uid != unit.uid &&
+                        u.uid != unit.attachedLeaderUid &&
+                        u.uid != unit.bodyguardUid
+                    ) {
                         if (hypot(wx - u.worldX, wy - u.worldY) < BASE_SEPARATION_TILES) {
                             occupied[gy * W + gx] = true
                         }
@@ -743,7 +836,13 @@ object TacticalRules {
             arch == UnitArchetype.HIVE_TYRANT
     }
 
-    fun weaponSustainedHits(attacker: BattleUnit, mode: WeaponMode, isMelee: Boolean, defender: BattleUnit? = null): Int {
+    fun weaponSustainedHits(
+        attacker: BattleUnit,
+        mode: WeaponMode,
+        isMelee: Boolean,
+        defender: BattleUnit? = null,
+        allUnits: List<BattleUnit>? = null
+    ): Int {
         var result = when (mode) {
             WeaponMode.PISTOL -> attacker.template.pistolSustainedHits.coerceAtLeast(0)
             WeaponMode.AUX_RANGED -> attacker.template.auxRangedProfile?.sustainedHits?.coerceAtLeast(0) ?: 0
@@ -758,12 +857,28 @@ object TacticalRules {
         ) {
             result = maxOf(result, attacker.template.mainSustainedNonMonsterVehicle)
         }
+        // Press the Attack (Captain Titus & attached Bodyguard share passives, or inherited permanently)
+        if (isMelee &&
+            (mode == WeaponMode.MAIN || mode == WeaponMode.SKILL) &&
+            hasEffectivePassive(attacker, "captain_titus", allUnits)
+        ) {
+            val partner = partnerOf(attacker, allUnits)
+            val assaultDoctrineActive = attacker.hasCharged ||
+                attacker.meleeChargeBuffActive ||
+                (partner?.hasCharged == true) ||
+                (partner?.meleeChargeBuffActive == true)
+            if (assaultDoctrineActive) {
+                result = maxOf(result, 1)
+            } else if (defender != null && !isMonsterOrVehicle(defender)) {
+                result = maxOf(result, 1)
+            }
+        }
         if (attacker.template.archetype == UnitArchetype.TERMINATOR && attacker.hasCharged && defender != null && isMelee) {
             val isClaws = attacker.template.terminatorWeapon == com.example.model.TerminatorWeaponChoice.LIGHTNING_CLAWS ||
                 (attacker.template.terminatorWeapon == null && attacker.template.mainWeaponName.contains("claw", ignoreCase = true))
             val targetIsMV = isMonsterOrVehicle(defender)
-            if (!isClaws && targetIsMV) return 1
-            if (isClaws && !targetIsMV) return 1
+            if (!isClaws && targetIsMV) return maxOf(result, 1)
+            if (isClaws && !targetIsMV) return maxOf(result, 1)
         }
         return result
     }
@@ -773,7 +888,8 @@ object TacticalRules {
         mode: WeaponMode,
         coverTag: CoverTag,
         isMelee: Boolean,
-        defender: BattleUnit? = null
+        defender: BattleUnit? = null,
+        allUnits: List<BattleUnit>? = null
     ): Int {
         var needed = if (isMelee) {
             if (attacker.template.isRangedMain) attacker.effectiveMeleeWeaponSkill else attacker.effectiveWeaponSkill
@@ -785,7 +901,13 @@ object TacticalRules {
                 attacker.effectiveBallisticSkill
             }
         }
-        if (!isMelee && attacker.template.archetype == UnitArchetype.INTERCESSOR && attacker.moveCmLeft >= attacker.template.moveCm - 0.1f) {
+        val stationary = unitIsStationary(attacker, allUnits)
+        val hasHeavy = !isMelee && (mode == WeaponMode.MAIN || mode == WeaponMode.SKILL) && attacker.template.mainWeaponHeavy && stationary
+        val hasBolterDiscipline = !isMelee && hasEffectivePassive(attacker, "intercessors", allUnits) && stationary
+        if (hasHeavy) {
+            needed -= 1
+        }
+        if (hasBolterDiscipline && !hasHeavy) {
             needed -= 1
         }
         if (mode == WeaponMode.SKILL &&
@@ -817,6 +939,13 @@ object TacticalRules {
         val antiFly = weaponAntiFly(attacker, mode, isMeleeOverride)
         if (antiFly in 2..6 && defender.template.isFly) {
             needed = minOf(needed, antiFly)
+        }
+        val isMeleeCtx = isMeleeOverride || modeUsesMelee(attacker, mode)
+        val antiNonMV = if (isMeleeCtx && (mode == WeaponMode.MAIN || mode == WeaponMode.SKILL)) {
+            attacker.template.meleeAntiNonMonsterVehicle
+        } else 0
+        if (antiNonMV in 2..6 && !isMonsterOrVehicle(defender)) {
+            needed = minOf(needed, antiNonMV)
         }
         return needed.coerceIn(2, 6)
     }
@@ -859,19 +988,25 @@ object TacticalRules {
                 attacker.template.archetype == UnitArchetype.BIOVORE ||
                 attacker.template.archetype == UnitArchetype.BLADEGUARD ||
                 attacker.template.archetype == UnitArchetype.LEGIONARY ||
-                attacker.template.archetype == UnitArchetype.BRUTALIS_DREADNOUGHT
+                attacker.template.archetype == UnitArchetype.BRUTALIS_DREADNOUGHT ||
+                attacker.template.archetype == UnitArchetype.CAPTAIN_TITUS
             )
         ) return null
         if (!canUseMode(attacker, mode, allUnits)) return null
 
+        // Tabletop Bodyguard rule: if targeting an attached Leader whose Bodyguard is alive, wounds go to Bodyguard
+        val effectiveDefender = if (defender.bodyguardUid != null && allUnits != null) {
+            allUnits.firstOrNull { it.uid == defender.bodyguardUid && it.isAlive } ?: defender
+        } else defender
+
         if (attacker.template.archetype == UnitArchetype.SPORE_MINE) {
-            val distTiles = hypot(atkX - defender.worldX, atkY - defender.worldY)
+            val distTiles = hypot(atkX - effectiveDefender.worldX, atkY - effectiveDefender.worldY)
             if (distTiles > MELEE_MAX_CENTER_TILES) return null
             val hitProb = 3f / 6f
-            val expectedTotal = (defender.aliveModels * hitProb).roundToInt().coerceAtLeast(1)
+            val expectedTotal = (effectiveDefender.aliveModels * hitProb).roundToInt().coerceAtLeast(1)
             return TargetPreview(
                 targetUid = defender.uid,
-                targetName = defender.template.name,
+                targetName = effectiveDefender.template.name,
                 hitChance = (hitProb * 100f).roundToInt(),
                 hitRollNeeded = 3,
                 woundRollNeeded = 1,
@@ -880,9 +1015,9 @@ object TacticalRules {
                 isMelee = true,
                 weaponStrength = 1,
                 weaponAp = 0,
-                targetToughness = defender.template.toughness,
+                targetToughness = effectiveDefender.template.toughness,
                 expectedTotalDamage = expectedTotal,
-                attacksCount = defender.aliveModels,
+                attacksCount = effectiveDefender.aliveModels,
                 coverTag = CoverTag.OPEN,
                 weaponMode = mode,
                 weaponName = "Bio-Self Destruct (1D6/model, <4 = 1W)",
@@ -893,7 +1028,7 @@ object TacticalRules {
             )
         }
 
-        val distTiles = hypot(atkX - defender.worldX, atkY - defender.worldY)
+        val distTiles = hypot(atkX - effectiveDefender.worldX, atkY - effectiveDefender.worldY)
         val isMelee = effectiveIsMelee(attacker, mode, distTiles)
         if (attacker.hasCharged && !isMelee) return null
 
@@ -911,20 +1046,20 @@ object TacticalRules {
         val los = if (!inRange) false else if (!needsLos) true else hasLineOfSight(
             atkX.roundToInt().coerceIn(0, W - 1),
             atkY.roundToInt().coerceIn(0, H - 1),
-            defender.x,
-            defender.y,
+            effectiveDefender.x,
+            effectiveDefender.y,
             map
         )
 
         val ignoreCover = (mode == WeaponMode.SKILL && attacker.template.archetype == UnitArchetype.GENESTEALER) ||
             (!isMelee && attacker.template.archetype == UnitArchetype.INCURSOR)
-        val coverTag = evaluateCoverTag(atkX, atkY, defender, map, ignoreCover)
+        val coverTag = evaluateCoverTag(atkX, atkY, effectiveDefender, map, ignoreCover)
 
-        val hitRollNeeded = computeHitRollNeeded(attacker, mode, coverTag, isMelee, defender)
-        val woundRollNeeded = computeWoundRollNeeded(attacker, defender, mode, coverTag, isMelee)
+        val hitRollNeeded = computeHitRollNeeded(attacker, mode, coverTag, isMelee, effectiveDefender, allUnits)
+        val woundRollNeeded = computeWoundRollNeeded(attacker, effectiveDefender, mode, coverTag, isMelee)
         val s = weaponStrength(attacker, mode, isMelee)
         val ap = weaponAp(attacker, mode, isMelee)
-        val (saveRollNeeded, usingInvuln) = computeEffectiveSave(defender, ap, coverTag)
+        val (saveRollNeeded, usingInvuln) = computeEffectiveSave(effectiveDefender, ap, coverTag)
         val displayWeaponName = weaponDisplayName(attacker, mode, isMelee)
 
         val hitProb = d6SuccessProbability(hitRollNeeded)
@@ -940,14 +1075,18 @@ object TacticalRules {
         val meltaBonus = if (isHalfRange) weaponMelta(attacker, mode, false) else 0
         val rapidFireBonus = if (isHalfRange) weaponRapidFire(attacker, mode, false) else 0
         val isTwinLinked = weaponTwinLinked(attacker, mode, isMelee)
-        val antiFlyTriggered = !isMelee && weaponAntiFly(attacker, mode, false) in 2..6 && defender.template.isFly
+        val antiFlyTriggered = !isMelee && weaponAntiFly(attacker, mode, false) in 2..6 && effectiveDefender.template.isFly
+        val antiNonMVTriggered = isMelee && (mode == WeaponMode.MAIN || mode == WeaponMode.SKILL) &&
+            attacker.template.meleeAntiNonMonsterVehicle in 2..6 && !isMonsterOrVehicle(effectiveDefender)
+        val heavyApplied = !isMelee && (mode == WeaponMode.MAIN || mode == WeaponMode.SKILL) &&
+            attacker.template.mainWeaponHeavy && unitIsStationary(attacker, allUnits)
 
-        val perUnsavedDmg = damagePerUnsavedWound(attacker, defender, mode, isMelee, distTiles)
-        val effectiveWoundsPerHit = minOf(perUnsavedDmg.toFloat(), defender.template.woundsPerModel.toFloat())
+        val perUnsavedDmg = damagePerUnsavedWound(attacker, effectiveDefender, mode, isMelee, distTiles)
+        val effectiveWoundsPerHit = minOf(perUnsavedDmg.toFloat(), effectiveDefender.template.woundsPerModel.toFloat())
         val cleaveX = if (isMelee) weaponCleave(attacker, mode, true) else 0
-        val cleaveBonus = if (cleaveX > 0) (defender.aliveModels / 5) * cleaveX else 0
-        val attacks = attacksCount(attacker, mode, isMelee, distTiles, defender)
-        val baseSustained = weaponSustainedHits(attacker, mode, isMelee, defender)
+        val cleaveBonus = if (cleaveX > 0) (effectiveDefender.aliveModels / 5) * cleaveX else 0
+        val attacks = attacksCount(attacker, mode, isMelee, distTiles, effectiveDefender)
+        val baseSustained = weaponSustainedHits(attacker, mode, isMelee, effectiveDefender, allUnits)
         val sustainedX = maxOf(baseSustained, if (effectiveDarkPact == DarkPactChoice.SUSTAINED_HITS_1) 1 else 0)
         val critRate = 1f / 6f
         val effectiveWoundProb = when {
@@ -965,11 +1104,11 @@ object TacticalRules {
         val expectedTotal = (attacks * woundsPerAttack * failSaveProb * effectiveWoundsPerHit)
             .roundToInt()
             .coerceAtLeast(if (failSaveProb > 0f) 1 else 0)
-        val markedBonusApplied = !isMelee && defender.markedByTeam == attacker.effectiveTeam
+        val markedBonusApplied = !isMelee && effectiveDefender.markedByTeam == attacker.effectiveTeam
 
         return TargetPreview(
             targetUid = defender.uid,
-            targetName = defender.template.name,
+            targetName = if (effectiveDefender.uid != defender.uid) "${effectiveDefender.template.name} (Guard)" else effectiveDefender.template.name,
             hitChance = (hitProb * 100f).roundToInt(),
             hitRollNeeded = hitRollNeeded,
             woundRollNeeded = woundRollNeeded,
@@ -978,7 +1117,7 @@ object TacticalRules {
             isMelee = isMelee,
             weaponStrength = s,
             weaponAp = ap,
-            targetToughness = defender.template.toughness,
+            targetToughness = effectiveDefender.template.toughness,
             expectedTotalDamage = expectedTotal,
             attacksCount = attacks,
             coverTag = coverTag,
@@ -991,6 +1130,8 @@ object TacticalRules {
             meltaBonus = meltaBonus,
             rapidFireBonus = rapidFireBonus,
             antiFlyTriggered = antiFlyTriggered,
+            antiNonMonsterVehicleTriggered = antiNonMVTriggered,
+            heavyApplied = heavyApplied,
             cleaveBonus = cleaveBonus,
             darkPactChoice = effectiveDarkPact,
             markedBonusApplied = markedBonusApplied,
@@ -1050,6 +1191,55 @@ object TacticalRules {
             }
         }
         return (base + cleaveBonus).coerceAtLeast(1)
+    }
+
+    fun canLeadSquad(hero: BattleUnit, squad: BattleUnit): Boolean {
+        if (!hero.isAlive || !squad.isAlive || !hero.isAllyOf(squad) || hero.uid == squad.uid) return false
+        if (!hero.isHeroLeader) return false
+        val allowed = hero.template.leadableIds.ifEmpty {
+            listOf("intercessors", "assault_intercessors", "hellblasters", "bladeguard_veterans")
+        }
+        val isEligibleSquad = squad.template.id in allowed ||
+            squad.template.archetype in setOf(
+                UnitArchetype.INTERCESSOR,
+                UnitArchetype.ASSAULT_MARINE,
+                UnitArchetype.HELLBLASTER,
+                UnitArchetype.BLADEGUARD
+            )
+        return isEligibleSquad && squad.attachedLeaderUid == null && hero.bodyguardUid == null && squad.bodyguardUid == null
+    }
+
+    fun isWithinJoiningReach(a: BattleUnit, b: BattleUnit): Boolean {
+        if (!a.isAlive || !b.isAlive || a.uid == b.uid) return false
+        val posA = modelWorldPositions(a)
+        val posB = modelWorldPositions(b)
+        val reachLimit = MELEE_MAX_CENTER_TILES + 0.08f
+        for (i in posA.indices) {
+            val pa = posA[i]
+            for (j in posB.indices) {
+                val pb = posB[j]
+                if (hypot(pa.x - pb.x, pa.y - pb.y) <= reachLimit) return true
+            }
+        }
+        return false
+    }
+
+    fun applyFeelNoPain(
+        unit: BattleUnit,
+        incomingDamage: Int,
+        rng: Random = Random,
+        hasFnpOverride: Boolean? = null
+    ): Int {
+        val activeFnp = hasFnpOverride ?: (unit.hasFeelNoPain || unit.isHeroLeader || ("captain_titus" in unit.inheritedPassiveIds))
+        if (!activeFnp || incomingDamage <= 0) return incomingDamage
+        var ignored = 0
+        repeat(incomingDamage) {
+            val roll = rng.nextInt(1, 7)
+            if (roll >= 5) {
+                ignored++
+            }
+        }
+        return (incomingDamage - ignored).coerceAtLeast(0)
     }
 
     fun allocateWoundDamage(
@@ -1322,9 +1512,12 @@ object TacticalRules {
             }
         }
 
-        val preview = canTarget(effectiveAttacker, primaryTarget, mode, map, allUnits, appliedDarkPact) ?: initialPreview
+        val actualPrimaryTarget = if (primaryTarget.bodyguardUid != null) {
+            allUnits.firstOrNull { it.uid == primaryTarget.bodyguardUid && it.isAlive } ?: primaryTarget
+        } else primaryTarget
+        val preview = canTarget(effectiveAttacker, actualPrimaryTarget, mode, map, allUnits, appliedDarkPact) ?: initialPreview
 
-        val targetsToHit = mutableListOf(primaryTarget)
+        val targetsToHit = mutableListOf(actualPrimaryTarget)
         if (mode == WeaponMode.SKILL) {
             when (effectiveAttacker.template.archetype) {
                 UnitArchetype.DREADNOUGHT, UnitArchetype.CARNIFEX, UnitArchetype.HIVE_TYRANT -> {
@@ -1337,10 +1530,10 @@ object TacticalRules {
             }
         }
 
-        val updatedTargets = ArrayList<BattleUnit>(targetsToHit.size)
-        val floats = ArrayList<Pair<GridPos, Pair<String, Long>>>(targetsToHit.size * 2 + pactFloats.size)
+        val updatedTargets = ArrayList<BattleUnit>(targetsToHit.size + 2)
+        val floats = ArrayList<Pair<GridPos, Pair<String, Long>>>(targetsToHit.size * 2 + pactFloats.size + 4)
         floats.addAll(pactFloats)
-        val combatLogs = ArrayList<CombatLogEntry>(targetsToHit.size)
+        val combatLogs = ArrayList<CombatLogEntry>(targetsToHit.size * 2)
         var totalHits = 0
         var totalDmg = 0
         var totalKills = 0
@@ -1351,6 +1544,9 @@ object TacticalRules {
         val rerollWoundOnes = effectiveAttacker.template.archetype == UnitArchetype.GENESTEALER ||
             (effectiveAttacker.template.archetype == UnitArchetype.LEGIONARY && effectiveAttacker.legionaryWoundRerollBuffActive)
 
+        var partnerUnitUpdated: BattleUnit? = null
+        val partner = partnerOf(effectiveAttacker, allUnits)
+
         targetsToHit.forEachIndexed { idx, tgt ->
             val tgtPreview = if (idx == 0) preview else canTarget(effectiveAttacker, tgt, mode, map, allUnits, appliedDarkPact) ?: preview
             val tgtDist = hypot(effectiveAttacker.worldX - tgt.worldX, effectiveAttacker.worldY - tgt.worldY)
@@ -1358,7 +1554,7 @@ object TacticalRules {
             val perUnsavedDmg = damagePerUnsavedWound(effectiveAttacker, tgt, mode, tgtPreview.isMelee, tgtDist)
             val isTwinLinked = weaponTwinLinked(effectiveAttacker, mode, tgtPreview.isMelee)
             val sustainedX = maxOf(
-                weaponSustainedHits(effectiveAttacker, mode, tgtPreview.isMelee, tgt),
+                weaponSustainedHits(effectiveAttacker, mode, tgtPreview.isMelee, tgt, allUnits),
                 if (appliedDarkPact == DarkPactChoice.SUSTAINED_HITS_1) 1 else 0
             )
 
@@ -1378,8 +1574,9 @@ object TacticalRules {
             val saveDice = ArrayList<Int>(attacks)
 
             val rerollHitOnes = effectiveAttacker.template.archetype == UnitArchetype.GENESTEALER ||
-                (effectiveAttacker.template.archetype == UnitArchetype.BLADEGUARD && effectiveAttacker.bladeguardRerollBuffActive)
-            val rerollSaveOnes = tgt.bladeguardRerollBuffActive
+                unitHasBladeguardReroll(effectiveAttacker, allUnits)
+            val rerollSaveOnes = unitHasBladeguardReroll(tgt, allUnits)
+            val tgtHasFnp = unitHasFeelNoPain(tgt, allUnits)
 
             repeat(attacks) {
                 if (runningWounds > 0) {
@@ -1433,13 +1630,189 @@ object TacticalRules {
                                     } else {
                                         // Step 4: Model-by-Model Wound Allocation (no excess damage spillover)
                                         val applied = allocateWoundDamage(runningWounds, tgt.template.woundsPerModel, perUnsavedDmg)
-                                        runningWounds -= applied
-                                        tgtDmg += applied
+                                        val finalApplied = if (tgtHasFnp) applyFeelNoPain(tgt, applied, rng, hasFnpOverride = true) else applied
+                                        runningWounds -= finalApplied
+                                        tgtDmg += finalApplied
                                     }
                                 }
                             }
                         }
                     }
+                }
+            }
+
+            // Attached Leader or Bodyguard simultaneous attack (shooting or melee with own weapons)
+            if (idx == 0 && partner != null && runningWounds > 0) {
+                val pIsMelee = tgtPreview.isMelee
+                val pMode = when {
+                    pIsMelee -> WeaponMode.MAIN
+                    mode == WeaponMode.PISTOL && partner.template.hasPistol -> WeaponMode.PISTOL
+                    !partner.template.isRangedMain && partner.template.hasPistol -> WeaponMode.PISTOL
+                    partner.template.isRangedMain -> WeaponMode.MAIN
+                    else -> null
+                }
+                val pCanFireRanged = pIsMelee || (pMode != null && run {
+                    val pRange = weaponRange(partner, pMode)
+                    val pMaxTiles = pRange.toFloat() + 0.45f
+                    val engaged = isEngagedInMelee(partner, allUnits)
+                    val pistolPriv = (pMode == WeaponMode.PISTOL && partner.template.pistolIsPistol) || partner.template.mainWeaponPistol
+                    val advanceOk = !partner.hasAdvanced || (pMode == WeaponMode.MAIN && partner.template.mainWeaponAssault)
+                    !partner.hasCharged && advanceOk && (!engaged || pistolPriv) && tgtDist <= pMaxTiles
+                })
+                if (pMode != null && pCanFireRanged) {
+                    val pAttacks = attacksCount(partner, pMode, pIsMelee, tgtDist, tgt)
+                    val pS = weaponStrength(partner, pMode, pIsMelee)
+                    val pAp = weaponAp(partner, pMode, pIsMelee)
+                    val pD = damagePerUnsavedWound(partner, tgt, pMode, pIsMelee, tgtDist)
+                    val pSustained = weaponSustainedHits(partner, pMode, pIsMelee, tgt, allUnits)
+                    val pTwinLinked = weaponTwinLinked(partner, pMode, pIsMelee)
+                    val pHitRollNeeded = computeHitRollNeeded(partner, pMode, tgtPreview.coverTag, pIsMelee, tgt, allUnits)
+                    val pWoundRollNeeded = computeWoundRollNeeded(partner, tgt, pMode, tgtPreview.coverTag, pIsMelee)
+                    val (pSaveRollNeeded, pUsingInvuln) = computeEffectiveSave(tgt, pAp, tgtPreview.coverTag)
+                    val pRerollHitOnes = partner.template.archetype == UnitArchetype.GENESTEALER ||
+                        unitHasBladeguardReroll(partner, allUnits)
+
+                    var pBaseHits = 0
+                    var pTotalHits = 0
+                    var pSustainedBonus = 0
+                    var pHitRerolls = 0
+                    var pWounds = 0
+                    var pWoundRerolls = 0
+                    var pSaved = 0
+                    var pSaveRerolls = 0
+                    var pDmg = 0
+                    val pHitDice = ArrayList<Int>(pAttacks)
+                    val pWoundDice = ArrayList<Int>(pAttacks)
+                    val pSaveDice = ArrayList<Int>(pAttacks)
+                    val pModelsBefore = tgt.copy(totalWounds = runningWounds).aliveModels
+
+                    repeat(pAttacks) {
+                        if (runningWounds > 0) {
+                            var pHitRoll = rng.nextInt(1, 7)
+                            if (pRerollHitOnes && pHitRoll == 1) {
+                                pHitRerolls++
+                                pHitRoll = rng.nextInt(1, 7)
+                            }
+                            pHitDice.add(pHitRoll)
+                            if (pHitRoll > 1 && pHitRoll >= pHitRollNeeded) {
+                                pBaseHits++
+                                val pExtra = if (pHitRoll == 6 && pSustained > 0) pSustained else 0
+                                pSustainedBonus += pExtra
+                                val hitsFromP = 1 + pExtra
+                                pTotalHits += hitsFromP
+                                repeat(hitsFromP) {
+                                    if (runningWounds > 0) {
+                                        var pWoundRoll = rng.nextInt(1, 7)
+                                        val pFirstWound = pWoundRoll > 1 && pWoundRoll >= pWoundRollNeeded
+                                        if (!pFirstWound && pTwinLinked) {
+                                            pWoundRerolls++
+                                            pWoundRoll = rng.nextInt(1, 7)
+                                        }
+                                        pWoundDice.add(pWoundRoll)
+                                        if (pWoundRoll > 1 && pWoundRoll >= pWoundRollNeeded) {
+                                            pWounds++
+                                            val pSavedRoll = if (pSaveRollNeeded <= 6) {
+                                                var sr = rng.nextInt(1, 7)
+                                                if (rerollSaveOnes && sr == 1) {
+                                                    pSaveRerolls++
+                                                    sr = rng.nextInt(1, 7)
+                                                }
+                                                pSaveDice.add(sr)
+                                                sr > 1 && sr >= pSaveRollNeeded
+                                            } else false
+                                            if (pSavedRoll) {
+                                                pSaved++
+                                            } else {
+                                                val pApp = allocateWoundDamage(runningWounds, tgt.template.woundsPerModel, pD)
+                                                val pFinalApp = if (tgtHasFnp) applyFeelNoPain(tgt, pApp, rng, hasFnpOverride = true) else pApp
+                                                runningWounds -= pFinalApp
+                                                pDmg += pFinalApp
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    val pModelsLost = (pModelsBefore - tgt.copy(totalWounds = runningWounds.coerceAtLeast(0)).aliveModels).coerceAtLeast(0)
+                    val pWeaponName = weaponDisplayName(partner, pMode, pIsMelee)
+                    val pFacingDeg = angleDegToward(partner.worldX, partner.worldY, tgt.worldX, tgt.worldY)
+                    partnerUnitUpdated = partner.copy(
+                        facing = nearestFacingFromDeg(pFacingDeg),
+                        facingDeg = pFacingDeg,
+                        hasShot = partner.hasShot || !pIsMelee,
+                        hasFought = partner.hasFought || pIsMelee,
+                        kills = partner.kills + (if (runningWounds <= 0) 1 else 0),
+                        damageDealt = partner.damageDealt + pDmg
+                    )
+                    if (pDmg > 0) {
+                        floats.add(tgt.pos to ("${partner.template.name.uppercase()}: +${pDmg}W" to 0xFF51CF66L))
+                        tgtDmg += pDmg
+                    }
+                    tgtHits += pTotalHits
+                    val pSteps = buildCombatLogSteps(
+                        hitSkillLabel = if (pIsMelee) "WS" else "BS",
+                        hitRollNeeded = pHitRollNeeded,
+                        hitDice = pHitDice,
+                        baseHits = pBaseHits,
+                        sustainedBonusHits = pSustainedBonus,
+                        totalHits = pTotalHits,
+                        hitRerolls = pHitRerolls,
+                        weaponStrength = pS,
+                        targetToughness = tgt.template.toughness,
+                        woundRollNeeded = pWoundRollNeeded,
+                        woundDice = pWoundDice,
+                        woundsSucceeded = pWounds,
+                        woundRerolls = pWoundRerolls,
+                        saveRollNeeded = pSaveRollNeeded,
+                        usingInvuln = pUsingInvuln,
+                        weaponAp = pAp,
+                        coverTag = tgtPreview.coverTag,
+                        saveDice = pSaveDice,
+                        savesSucceeded = pSaved,
+                        saveRerolls = pSaveRerolls,
+                        twinLinked = pTwinLinked
+                    )
+                    combatLogs.add(
+                        CombatLogEntry(
+                            faction = partner.faction,
+                            title = "${partner.template.name.uppercase()} (CO-OP) ▸ ${tgt.template.name.uppercase()}",
+                            subtitle = "${pWeaponName.uppercase()} • ${if (pIsMelee) "MELEE" else "RANGED"}",
+                            steps = pSteps,
+                            resultSummary = formatCombatResultSummary(
+                                hits = pTotalHits,
+                                wounds = pWounds,
+                                saved = pSaved,
+                                dmg = pDmg,
+                                modelsLost = pModelsLost,
+                                eliminated = runningWounds <= 0
+                            ),
+                            isCounterOrFightFirst = false,
+                            isSuccess = pDmg > 0 || runningWounds <= 0
+                        )
+                    )
+                } else {
+                    val pFacingDeg = angleDegToward(partner.worldX, partner.worldY, tgt.worldX, tgt.worldY)
+                    partnerUnitUpdated = partner.copy(
+                        facing = nearestFacingFromDeg(pFacingDeg),
+                        facingDeg = pFacingDeg,
+                        hasShot = partner.hasShot || !pIsMelee,
+                        hasFought = partner.hasFought || pIsMelee
+                    )
+                }
+            }
+
+            // Honour of Ultramar: If Captain Titus dies in Fight phase without having fought, roll 1D6: 2+ stays until unit finishes fighting / phase closes
+            val isTitusDyingInMelee = tgt.isHeroLeader &&
+                tgtPreview.isMelee && runningWounds <= 0 && !tgt.hasFought
+            var houSurvived = false
+            if (isTitusDyingInMelee) {
+                val houRoll = rng.nextInt(1, 7)
+                if (houRoll >= 2) {
+                    runningWounds = 1
+                    houSurvived = true
+                    floats.add(tgt.pos to ("HONOUR OF ULTRAMAR ($houRoll): TITUS STANDS!" to 0xFFFFD166L))
                 }
             }
 
@@ -1459,9 +1832,25 @@ object TacticalRules {
             val updatedTgt = tgt.copy(
                 totalWounds = newWounds,
                 moveCmLeft = drainedMoveCm,
-                markedByTeam = nextMarkedByTeam
+                markedByTeam = nextMarkedByTeam,
+                honourOfUltramarPendingRemoval = tgt.honourOfUltramarPendingRemoval || houSurvived
             )
             updatedTargets.add(updatedTgt)
+
+            // Detach leader if bodyguard squad is completely destroyed; inherit Bodyguard passive permanently
+            if (updatedTgt.attachedLeaderUid != null && newWounds == 0) {
+                val leader = allUnits.firstOrNull { it.uid == updatedTgt.attachedLeaderUid && it.isAlive }
+                if (leader != null) {
+                    val inherited = (leader.inheritedPassiveIds + updatedTgt.template.id).distinct()
+                    val detachedLeader = leader.copy(
+                        bodyguardUid = null,
+                        hasFeelNoPain = true,
+                        inheritedPassiveIds = inherited
+                    )
+                    updatedTargets.add(detachedLeader)
+                    floats.add(detachedLeader.pos to ("PASSIVE INHERITED • TITUS DETACHED" to 0xFFFFD166L))
+                }
+            }
 
             val modelsLost = (modelsBefore - updatedTgt.aliveModels).coerceAtLeast(0)
             totalEnemyModelsLost += modelsLost
@@ -1597,6 +1986,10 @@ object TacticalRules {
             brutalisStackEarnedThisTurn = nextBrutalisStackEarnedThisTurn
         )
 
+        if (partnerUnitUpdated != null && updatedTargets.none { it.uid == partnerUnitUpdated!!.uid }) {
+            updatedTargets.add(partnerUnitUpdated!!)
+        }
+
         return CombatOutcome(
             updatedAttacker = updatedAttacker,
             updatedTargets = updatedTargets,
@@ -1614,25 +2007,31 @@ object TacticalRules {
         counterAttacker: BattleUnit,
         target: BattleUnit,
         map: Array<Array<TerrainType>>,
-        rng: Random = Random.Default
+        rng: Random = Random.Default,
+        allUnits: List<BattleUnit> = emptyList()
     ): CounterAttackOutcome? {
         if (!counterAttacker.isAlive || counterAttacker.aliveModels <= 0) return null
         if (!target.isAlive || target.aliveModels <= 0 || target.isCloaked) return null
         if (!isWithinMeleeReach(counterAttacker, target)) return null
 
+        val allCtx = if (allUnits.isEmpty()) listOf(counterAttacker, target) else allUnits
+        val actualTarget = if (target.bodyguardUid != null) {
+            allCtx.firstOrNull { it.uid == target.bodyguardUid && it.isAlive } ?: target
+        } else target
+
         val isRangedMain = counterAttacker.template.isRangedMain
         val ws = if (isRangedMain) counterAttacker.effectiveMeleeWeaponSkill else counterAttacker.effectiveWeaponSkill
         val s = weaponStrength(counterAttacker, WeaponMode.MAIN, isMeleeOverride = true)
         val ap = weaponAp(counterAttacker, WeaponMode.MAIN, isMeleeOverride = true)
-        val d = damagePerUnsavedWound(counterAttacker, target, WeaponMode.MAIN, isMeleeOverride = true)
-        val sustainedX = weaponSustainedHits(counterAttacker, WeaponMode.MAIN, isMelee = true, target)
+        val d = damagePerUnsavedWound(counterAttacker, actualTarget, WeaponMode.MAIN, isMeleeOverride = true)
+        val sustainedX = weaponSustainedHits(counterAttacker, WeaponMode.MAIN, isMelee = true, actualTarget, allCtx)
         val isTwinLinked = weaponTwinLinked(counterAttacker, WeaponMode.MAIN, isMelee = true)
 
         val hitRollNeeded = ws.coerceIn(2, 6)
-        val woundRollNeeded = woundRollNeeded(s, target.template.toughness)
-        val (saveRollNeeded, usingInvuln) = computeEffectiveSave(target, ap, CoverTag.OPEN)
+        val woundRollNeeded = computeWoundRollNeeded(counterAttacker, actualTarget, WeaponMode.MAIN, CoverTag.OPEN, isMeleeOverride = true)
+        val (saveRollNeeded, usingInvuln) = computeEffectiveSave(actualTarget, ap, CoverTag.OPEN)
 
-        val attacks = attacksCount(counterAttacker, WeaponMode.MAIN, isMelee = true, defender = target)
+        val attacks = attacksCount(counterAttacker, WeaponMode.MAIN, isMelee = true, defender = actualTarget)
 
         var baseHits = 0
         var tgtHits = 0
@@ -1643,16 +2042,18 @@ object TacticalRules {
         var tgtSaved = 0
         var saveRerolls = 0
         var tgtDmg = 0
-        var runningWounds = target.totalWounds
+        var runningWounds = actualTarget.totalWounds
         val hitDice = ArrayList<Int>(attacks)
         val woundDice = ArrayList<Int>(attacks)
         val saveDice = ArrayList<Int>(attacks)
+        val floats = ArrayList<Pair<GridPos, Pair<String, Long>>>(6)
 
         val rerollCounterHitOnes = counterAttacker.template.archetype == UnitArchetype.GENESTEALER ||
-            (counterAttacker.template.archetype == UnitArchetype.BLADEGUARD && counterAttacker.bladeguardRerollBuffActive)
+            unitHasBladeguardReroll(counterAttacker, allCtx)
         val rerollCounterWoundOnes = counterAttacker.template.archetype == UnitArchetype.GENESTEALER ||
             (counterAttacker.template.archetype == UnitArchetype.LEGIONARY && counterAttacker.legionaryWoundRerollBuffActive)
-        val rerollTargetSaveOnes = target.bladeguardRerollBuffActive
+        val rerollTargetSaveOnes = unitHasBladeguardReroll(actualTarget, allCtx)
+        val targetHasFnp = unitHasFeelNoPain(actualTarget, allCtx)
 
         repeat(attacks) {
             if (runningWounds > 0) {
@@ -1693,9 +2094,10 @@ object TacticalRules {
                                 if (isSaved) {
                                     tgtSaved++
                                 } else {
-                                    val applied = allocateWoundDamage(runningWounds, target.template.woundsPerModel, d)
-                                    runningWounds -= applied
-                                    tgtDmg += applied
+                                    val applied = allocateWoundDamage(runningWounds, actualTarget.template.woundsPerModel, d)
+                                    val finalApplied = if (targetHasFnp) applyFeelNoPain(actualTarget, applied, rng, hasFnpOverride = true) else applied
+                                    runningWounds -= finalApplied
+                                    tgtDmg += finalApplied
                                 }
                             }
                         }
@@ -1704,12 +2106,39 @@ object TacticalRules {
             }
         }
 
-        val modelsBefore = target.aliveModels
+        // Honour of Ultramar in melee counter-attack
+        val isTitusDyingInCounter = actualTarget.isHeroLeader && runningWounds <= 0 && !actualTarget.hasFought
+        var houSurvived = false
+        if (isTitusDyingInCounter) {
+            val houRoll = rng.nextInt(1, 7)
+            if (houRoll >= 2) {
+                runningWounds = 1
+                houSurvived = true
+                floats.add(actualTarget.pos to ("HONOUR OF ULTRAMAR ($houRoll): TITUS STANDS!" to 0xFFFFD166L))
+            }
+        }
+
+        val modelsBefore = actualTarget.aliveModels
         val newWounds = runningWounds.coerceAtLeast(0)
-        val updatedTarget = target.copy(
+        val updatedTarget = actualTarget.copy(
             totalWounds = newWounds,
-            markedByTeam = if (newWounds > 0) target.markedByTeam else null
+            markedByTeam = if (newWounds > 0) actualTarget.markedByTeam else null,
+            honourOfUltramarPendingRemoval = actualTarget.honourOfUltramarPendingRemoval || houSurvived
         )
+        val extraUpdates = mutableListOf<BattleUnit>()
+        if (updatedTarget.attachedLeaderUid != null && newWounds == 0) {
+            val leader = allCtx.firstOrNull { it.uid == updatedTarget.attachedLeaderUid && it.isAlive }
+            if (leader != null) {
+                val inherited = (leader.inheritedPassiveIds + updatedTarget.template.id).distinct()
+                val detachedLeader = leader.copy(
+                    bodyguardUid = null,
+                    hasFeelNoPain = true,
+                    inheritedPassiveIds = inherited
+                )
+                extraUpdates.add(detachedLeader)
+                floats.add(detachedLeader.pos to ("PASSIVE INHERITED • TITUS DETACHED" to 0xFFFFD166L))
+            }
+        }
         val modelsLost = (modelsBefore - updatedTarget.aliveModels).coerceAtLeast(0)
 
         val weaponName = weaponDisplayName(counterAttacker, WeaponMode.MAIN, isMelee = true)
@@ -1722,7 +2151,7 @@ object TacticalRules {
             totalHits = tgtHits,
             hitRerolls = hitRerolls,
             weaponStrength = s,
-            targetToughness = target.template.toughness,
+            targetToughness = actualTarget.template.toughness,
             woundRollNeeded = woundRollNeeded,
             woundDice = woundDice,
             woundsSucceeded = tgtWounds,
@@ -1738,7 +2167,7 @@ object TacticalRules {
         )
         val counterLog = CombatLogEntry(
             faction = counterAttacker.faction,
-            title = "${counterAttacker.template.name.uppercase()} ▸ ${target.template.name.uppercase()}",
+            title = "${counterAttacker.template.name.uppercase()} ▸ ${actualTarget.template.name.uppercase()}",
             subtitle = "⚔️ COUNTER-ATTACK • ${weaponName.uppercase()}",
             steps = steps,
             resultSummary = formatCombatResultSummary(
@@ -1753,7 +2182,6 @@ object TacticalRules {
             isSuccess = tgtDmg > 0 || newWounds == 0
         )
 
-        val floats = ArrayList<Pair<GridPos, Pair<String, Long>>>(4)
         val tag = when {
             tgtHits == 0 -> "COUNTER MISS"
             tgtWounds == 0 -> "COUNTER NO WOUND"
@@ -1766,14 +2194,14 @@ object TacticalRules {
             tgtDmg == 0 && tgtSaved > 0 -> 0xFF4CC9F0L
             else -> 0xFFFF8866L
         }
-        floats.add(target.pos to (tag to col))
+        floats.add(actualTarget.pos to (tag to col))
         if (sustainedBonusHits > 0) {
-            floats.add(target.pos to ("SUSTAINED +$sustainedBonusHits HITS!" to 0xFFFFD166L))
+            floats.add(actualTarget.pos to ("SUSTAINED +$sustainedBonusHits HITS!" to 0xFFFFD166L))
         }
         if (modelsLost > 0 && newWounds > 0) {
-            floats.add(target.pos to ("-$modelsLost MODEL" to 0xFFFF4D58L))
+            floats.add(actualTarget.pos to ("-$modelsLost MODEL" to 0xFFFF4D58L))
         } else if (newWounds == 0) {
-            floats.add(target.pos to ("ELIMINATED!" to 0xFFFF384AL))
+            floats.add(actualTarget.pos to ("ELIMINATED!" to 0xFFFF384AL))
         }
 
         val updatedCounterAttacker = counterAttacker.copy(
@@ -1788,7 +2216,8 @@ object TacticalRules {
             totalDamageDealt = tgtDmg,
             modelsLost = modelsLost,
             floatingTexts = floats,
-            logEntry = counterLog
+            logEntry = counterLog,
+            extraUpdatedUnits = extraUpdates
         )
     }
 
@@ -1983,7 +2412,9 @@ object TacticalRules {
         if (!unit.isAlive || unit.skillCooldownLeft > 0 || isEngagedInMelee(unit, allUnits)) return emptySet()
         val valid = mutableSetOf<GridPos>()
         val enemies = allUnits.filter { it.isAlive && it.isEnemyOf(unit) }
-        val occupied = allUnits.filter { it.isAlive }.map { it.pos }.toSet()
+        val occupied = allUnits.filter {
+            it.isAlive && it.uid != unit.uid && it.uid != unit.attachedLeaderUid && it.uid != unit.bodyguardUid
+        }.map { it.pos }.toSet()
 
         val h = map.size
         val w = map[0].size

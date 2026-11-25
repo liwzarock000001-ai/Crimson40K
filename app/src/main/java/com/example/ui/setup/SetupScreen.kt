@@ -67,6 +67,7 @@ import androidx.compose.ui.unit.dp
 import com.example.R
 import com.example.model.Faction
 import com.example.model.RosterSlot
+import com.example.model.UnitArchetype
 import com.example.model.UnitTemplate
 import com.example.ui.theme.BorderSteel
 import com.example.ui.theme.CardSlate
@@ -527,6 +528,10 @@ private fun FactionSetupCard(
     val pal = factionPalette(faction)
     val overBudget = totalPoints > pointLimit
     val catalog = templates.values.filter { it.faction == faction }
+    val hasHero = roster.any { slot ->
+        val t = templates[slot.templateId]
+        t != null && (t.isHero || t.archetype == UnitArchetype.CAPTAIN_TITUS || t.id == "captain_titus")
+    }
     val crestRes = when (faction) {
         Faction.MARINES -> R.drawable.img_marine_crest
         Faction.BLACK_LEGION -> R.drawable.img_black_legion_crest
@@ -729,10 +734,12 @@ private fun FactionSetupCard(
             )
 
             catalog.forEach { tpl ->
+                val isHero = tpl.isHero || tpl.archetype == UnitArchetype.CAPTAIN_TITUS || tpl.id == "captain_titus"
                 CatalogUnitRow(
                     template = tpl,
                     pointColor = pal.trimBorder,
                     canAfford = totalPoints + tpl.points <= pointLimit,
+                    heroLimitReached = isHero && hasHero,
                     onEdit = { onEditTemplate(tpl.id) },
                     onAdd = { onAddUnit(tpl.id) }
                 )
@@ -761,7 +768,8 @@ private fun DeployedUnitRow(
         horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         Column(modifier = Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            val isHero = template.isHero || template.archetype == UnitArchetype.CAPTAIN_TITUS || template.id == "captain_titus"
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                 Text(
                     text = template.name.uppercase(),
                     style = MaterialTheme.typography.titleSmall,
@@ -769,7 +777,19 @@ private fun DeployedUnitRow(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                Spacer(Modifier.width(6.dp))
+                if (isHero) {
+                    Text(
+                        text = "HERO • MAX 1",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = ImperialGold,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier
+                            .clip(CutCornerShape(3.dp))
+                            .background(InputDark)
+                            .border(0.8.dp, ImperialGold.copy(alpha = 0.7f), CutCornerShape(3.dp))
+                            .padding(horizontal = 4.dp, vertical = 1.dp)
+                    )
+                }
                 Text(
                     text = "${template.points}PT",
                     style = MaterialTheme.typography.labelSmall,
@@ -790,10 +810,14 @@ private fun DeployedUnitRow(
             val apPart = if (template.armorPen == 0) "AP0" else "AP-${template.armorPen}"
             val weaponTags = buildString {
                 if (template.mainWeaponAssault) append(" [ASSAULT]")
+                if (template.mainWeaponHeavy) append(" [HEAVY]")
                 if (template.mainWeaponPistol) append(" [PISTOL]")
                 if (template.mainMelta > 0) append(" [MELTA ${template.mainMelta}]")
                 if (template.mainRapidFire > 0) append(" [RAPID FIRE ${template.mainRapidFire}]")
                 if (template.mainAntiFly in 2..6) append(" [ANTI-FLY ${template.mainAntiFly}+]")
+                if (!template.isRangedMain && template.meleeAntiNonMonsterVehicle in 2..6) {
+                    append(" [ANTI-NON-M/V ${template.meleeAntiNonMonsterVehicle}+]")
+                }
                 if (template.mainCleave > 0) append(" [CLEAVE ${template.mainCleave}]")
                 if (template.mainTwinLinked) append(" [TWIN-LINKED]")
                 if (template.mainSustainedHits > 0) append(" [SUSTAINED ${template.mainSustainedHits}]")
@@ -809,8 +833,9 @@ private fun DeployedUnitRow(
             if (template.isRangedMain) {
                 val mAp = if (template.effectiveMeleeArmorPen == 0) "AP0" else "AP-${template.effectiveMeleeArmorPen}"
                 val mSus = if (template.effectiveMeleeSustainedHits > 0) " [SUSTAINED ${template.effectiveMeleeSustainedHits}]" else ""
+                val mAnti = if (template.meleeAntiNonMonsterVehicle in 2..6) " [ANTI-NON-M/V ${template.meleeAntiNonMonsterVehicle}+]" else ""
                 Text(
-                    text = "MELEE (${template.effectiveMeleeWeaponName})$mSus: WS${template.effectiveMeleeWeaponSkill}+ • A${template.effectiveMeleeAttacks} S${template.effectiveMeleeStrength} $mAp D${template.effectiveMeleeDamage}",
+                    text = "MELEE (${template.effectiveMeleeWeaponName})$mSus$mAnti: WS${template.effectiveMeleeWeaponSkill}+ • A${template.effectiveMeleeAttacks} S${template.effectiveMeleeStrength} $mAp D${template.effectiveMeleeDamage}",
                     style = MaterialTheme.typography.labelSmall,
                     color = TextMuted,
                     maxLines = 1,
@@ -891,30 +916,40 @@ private fun CatalogUnitRow(
     template: UnitTemplate,
     pointColor: Color,
     canAfford: Boolean,
+    heroLimitReached: Boolean = false,
     onEdit: () -> Unit,
     onAdd: () -> Unit
 ) {
     val shape = CutCornerShape(6.dp)
+    val isHero = template.isHero || template.archetype == UnitArchetype.CAPTAIN_TITUS || template.id == "captain_titus"
+    val canAdd = canAfford && !heroLimitReached
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(shape)
             .background(InputDark.copy(alpha = 0.85f))
-            .border(1.dp, DividerIron, shape)
+            .border(1.dp, if (isHero) ImperialGold.copy(alpha = 0.55f) else DividerIron, shape)
             .padding(horizontal = 10.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         Column(modifier = Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                 Text(
                     text = template.name.uppercase(),
                     style = MaterialTheme.typography.titleSmall,
-                    color = if (canAfford) TextPrimary else TextMuted,
+                    color = if (canAdd) TextPrimary else TextMuted,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                Spacer(Modifier.width(6.dp))
+                if (isHero) {
+                    Text(
+                        text = "HERO • MAX 1",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = ImperialGold,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
                 Text(
                     text = "${template.points}PT",
                     style = MaterialTheme.typography.labelSmall,
@@ -923,6 +958,9 @@ private fun CatalogUnitRow(
             }
             val wpnTag = buildString {
                 if (template.mainWeaponAssault) append(" [ASSAULT]")
+                if (template.mainWeaponHeavy) append(" [HEAVY]")
+                if (template.mainRapidFire > 0) append(" [RF ${template.mainRapidFire}]")
+                if (template.meleeAntiNonMonsterVehicle in 2..6) append(" [ANTI-NON-M/V ${template.meleeAntiNonMonsterVehicle}+]")
                 if (template.mainCleave > 0) append(" [CLEAVE ${template.mainCleave}]")
                 if (template.mainSustainedNonMonsterVehicle > 0) append(" [SUSTAINED ${template.mainSustainedNonMonsterVehicle}: NON-M/V]")
                 if (template.mainTwinLinked) append(" [TWIN-LINKED]")
@@ -953,22 +991,24 @@ private fun CatalogUnitRow(
 
         OutlinedButton(
             onClick = onAdd,
-            enabled = canAfford,
+            enabled = canAdd,
             shape = grimdarkBevelShape(4.dp),
-            border = BorderStroke(1.dp, if (canAfford) EmeraldBorder else DividerIron),
+            border = BorderStroke(1.dp, if (canAdd) EmeraldBorder else DividerIron),
             colors = ButtonDefaults.outlinedButtonColors(
-                containerColor = if (canAfford) EmeraldSurface else InputDark,
-                contentColor = if (canAfford) EmeraldBuff else TextMuted,
+                containerColor = if (canAdd) EmeraldSurface else InputDark,
+                contentColor = if (canAdd) EmeraldBuff else TextMuted,
                 disabledContainerColor = InputDark,
                 disabledContentColor = TextMuted
             ),
             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
             modifier = Modifier.height(34.dp)
         ) {
-            if (canAfford) {
+            if (canAdd) {
                 Icon(Icons.Default.Add, contentDescription = "Add ${template.name}", modifier = Modifier.size(14.dp))
                 Spacer(Modifier.width(2.dp))
                 Text("ADD", style = MaterialTheme.typography.labelSmall)
+            } else if (heroLimitReached) {
+                Text("1 HERO", style = MaterialTheme.typography.labelSmall)
             } else {
                 Text("LIMIT", style = MaterialTheme.typography.labelSmall)
             }

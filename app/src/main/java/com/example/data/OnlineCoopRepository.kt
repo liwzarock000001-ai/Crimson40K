@@ -1,6 +1,7 @@
 package com.example.data
 
 import android.content.Context
+import android.util.Log
 import com.example.R
 import com.example.engine.DefaultCatalog
 import com.example.engine.MapGenerator
@@ -150,7 +151,15 @@ class OnlineCoopRepository(
             .whereEqualTo("hostUid", hostUid)
             .snapshots()
             .map { snapshot ->
-                snapshot.documents.mapNotNull { doc -> parseClientAction(doc) }
+                snapshot.documents
+                    .sortedWith(
+                        compareBy<DocumentSnapshot>(
+                            { it.getTimestamp("createdAt", DocumentSnapshot.ServerTimestampBehavior.ESTIMATE)?.seconds ?: 0L },
+                            { it.getTimestamp("createdAt", DocumentSnapshot.ServerTimestampBehavior.ESTIMATE)?.nanoseconds ?: 0 },
+                            { it.id }
+                        )
+                    )
+                    .mapNotNull { doc -> parseClientAction(doc) }
             }
             .catch { error ->
                 val firestoreError = extractFirestoreRootError(error)
@@ -451,22 +460,25 @@ class OnlineCoopRepository(
         roomCode: String,
         battleState: BattleUiState,
         templates: Map<String, UnitTemplate>,
-        status: String
+        status: String,
+        includeTemplates: Boolean = true
     ): Result<Unit> {
         val docPath = "coop_rooms/$roomCode"
         return try {
             requireUserId()
             require(roomCode.isNotBlank()) { "Room code missing." }
             val docRef = db.collection("coop_rooms").document(roomCode)
-            val battleMap = serializeBattleToNativeMap(battleState, templates)
-            docRef.update(
-                mapOf(
-                    "status" to status,
-                    "openForJoin" to false,
-                    "battleState" to battleMap,
-                    "updatedAt" to FieldValue.serverTimestamp()
-                )
-            ).await()
+            val battleMap = serializeBattleToNativeMap(battleState, templates, includeTemplates = includeTemplates)
+            val updates = buildMap<String, Any> {
+                put("status", status)
+                put("openForJoin", false)
+                if (includeTemplates && templates.isNotEmpty()) {
+                    put("customTemplates", templatesToMapList(templates))
+                }
+                put("battleState", battleMap)
+                put("updatedAt", FieldValue.serverTimestamp())
+            }
+            docRef.update(updates).await()
             Result.success(Unit)
         } catch (e: CancellationException) {
             throw e
@@ -630,6 +642,8 @@ class OnlineCoopRepository(
         "templateId" to u.templateId
     )
 
+    private fun safeDouble(v: Float): Double = if (v.isFinite()) v.toDouble() else 0.0
+
     private fun unitToMap(u: BattleUnit): Map<String, Any> = mapOf(
         "uid" to u.uid,
         "templateId" to u.template.id,
@@ -639,14 +653,14 @@ class OnlineCoopRepository(
         "facing" to u.facing.name,
         "totalWounds" to u.totalWounds,
         "maxTotalWounds" to u.maxTotalWounds,
-        "moveCmLeft" to u.moveCmLeft.toDouble(),
+        "moveCmLeft" to safeDouble(u.moveCmLeft),
         "hasAdvanced" to u.hasAdvanced,
         "hasCharged" to u.hasCharged,
         "hasShot" to u.hasShot,
         "hasFought" to u.hasFought,
-        "worldX" to u.worldX.toDouble(),
-        "worldY" to u.worldY.toDouble(),
-        "facingDeg" to u.facingDeg.toDouble(),
+        "worldX" to safeDouble(u.worldX),
+        "worldY" to safeDouble(u.worldY),
+        "facingDeg" to safeDouble(u.facingDeg),
         "skillCooldownLeft" to u.skillCooldownLeft,
         "pistolCooldownLeft" to u.pistolCooldownLeft,
         "buffTurnsLeft" to u.buffTurnsLeft,
@@ -664,12 +678,19 @@ class OnlineCoopRepository(
         "legionaryWoundRerollBuffActive" to u.legionaryWoundRerollBuffActive,
         "brutalisChargeBuffActive" to u.brutalisChargeBuffActive,
         "brutalisAttackStacks" to u.brutalisAttackStacks,
-        "brutalisStackEarnedThisTurn" to u.brutalisStackEarnedThisTurn
+        "brutalisStackEarnedThisTurn" to u.brutalisStackEarnedThisTurn,
+        "attachedLeaderUid" to (u.attachedLeaderUid ?: ""),
+        "bodyguardUid" to (u.bodyguardUid ?: ""),
+        "isHero" to u.isHero,
+        "hasFeelNoPain" to u.hasFeelNoPain,
+        "inheritedPassiveIds" to u.inheritedPassiveIds,
+        "honourOfUltramarPendingRemoval" to u.honourOfUltramarPendingRemoval
     )
 
     private fun serializeBattleToNativeMap(
         state: BattleUiState,
-        templates: Map<String, UnitTemplate>
+        templates: Map<String, UnitTemplate>,
+        includeTemplates: Boolean = true
     ): Map<String, Any> {
         val unitsList = state.units.map { u -> unitToMap(u) }
         val reserveList = state.reserveUnits.map { u -> unitToMap(u) }
@@ -682,7 +703,6 @@ class OnlineCoopRepository(
                 "connectedClient" to p.connectedClient
             )
         }
-        val tplList = templatesToMapList(templates)
         val summaryMap = state.summary?.let { sum ->
             mapOf(
                 "winner" to sum.winner.name,
@@ -696,11 +716,11 @@ class OnlineCoopRepository(
         }
         val movePreviewMap = state.movePreview?.let { mp ->
             mapOf(
-                "targetX" to mp.targetX.toDouble(),
-                "targetY" to mp.targetY.toDouble(),
-                "distanceCm" to mp.distanceCm.toDouble(),
+                "targetX" to safeDouble(mp.targetX),
+                "targetY" to safeDouble(mp.targetY),
+                "distanceCm" to safeDouble(mp.distanceCm),
                 "path" to mp.path.map { wp ->
-                    mapOf("x" to wp.x.toDouble(), "y" to wp.y.toDouble())
+                    mapOf("x" to safeDouble(wp.x), "y" to safeDouble(wp.y))
                 }
             )
         }
@@ -708,13 +728,13 @@ class OnlineCoopRepository(
             mapOf(
                 "targetUid" to cp.targetUid,
                 "targetName" to cp.targetName,
-                "distanceTiles" to cp.distanceTiles.toDouble(),
-                "distanceCm" to cp.distanceCm.toDouble(),
+                "distanceTiles" to safeDouble(cp.distanceTiles),
+                "distanceCm" to safeDouble(cp.distanceCm),
                 "requiredRoll" to cp.requiredRoll,
-                "destinationX" to cp.destinationX.toDouble(),
-                "destinationY" to cp.destinationY.toDouble(),
+                "destinationX" to safeDouble(cp.destinationX),
+                "destinationY" to safeDouble(cp.destinationY),
                 "path" to cp.path.map { wp ->
-                    mapOf("x" to wp.x.toDouble(), "y" to wp.y.toDouble())
+                    mapOf("x" to safeDouble(wp.x), "y" to safeDouble(wp.y))
                 }
             )
         }
@@ -743,6 +763,8 @@ class OnlineCoopRepository(
                 "meltaBonus" to tp.meltaBonus,
                 "rapidFireBonus" to tp.rapidFireBonus,
                 "antiFlyTriggered" to tp.antiFlyTriggered,
+                "antiNonMonsterVehicleTriggered" to tp.antiNonMonsterVehicleTriggered,
+                "heavyApplied" to tp.heavyApplied,
                 "cleaveBonus" to tp.cleaveBonus,
                 "darkPactChoice" to tp.darkPactChoice.name,
                 "markedBonusApplied" to tp.markedBonusApplied,
@@ -751,6 +773,7 @@ class OnlineCoopRepository(
             )
         }
         return buildMap {
+            put("syncRevision", state.syncRevision)
             put("active", state.active)
             put("round", state.round)
             put("activeFaction", state.activeFaction.name)
@@ -760,7 +783,7 @@ class OnlineCoopRepository(
             put("selectedUnitUid", state.selectedUnitUid ?: "")
             put("weaponMode", state.weaponMode.name)
             put("selectedDarkPact", state.selectedDarkPact.name)
-            put("cmStepChoice", state.cmStepChoice.toDouble())
+            put("cmStepChoice", safeDouble(state.cmStepChoice))
             put("moveModeActive", state.moveModeActive)
             put("chargeModeActive", state.chargeModeActive)
             put("isAnimating", state.isAnimating)
@@ -778,8 +801,10 @@ class OnlineCoopRepository(
             put("deploymentTurnPlayerName", state.deploymentTurnPlayerName)
             put("deploymentTeamIndex", state.deploymentTeamIndex)
             put("coopTurnOrder", orderList)
-            put("templates", tplList)
-            put("combatLogs", combatLogsToMapList(state.combatLogs.take(25)))
+            if (includeTemplates && templates.isNotEmpty()) {
+                put("templates", templatesToMapList(templates))
+            }
+            put("combatLogs", combatLogsToMapList(state.combatLogs.take(15)))
             movePreviewMap?.let { put("movePreview", it) }
             chargePreviewMap?.let { put("chargePreview", it) }
             targetPreviewMap?.let { put("targetPreview", it) }
@@ -806,7 +831,7 @@ class OnlineCoopRepository(
                         "rolled" to s.rolled,
                         "passed" to s.passed,
                         "failed" to s.failed,
-                        "diceValues" to s.diceValues,
+                        "diceValues" to s.diceValues.take(30),
                         "note" to s.note
                     )
                 }
@@ -874,8 +899,10 @@ class OnlineCoopRepository(
                 "objectiveControl" to t.objectiveControl,
                 "baseDiameterMm" to t.baseDiameterMm,
                 "isFly" to t.isFly,
+                "isHero" to t.isHero,
                 "mainWeaponName" to t.mainWeaponName,
                 "mainWeaponAssault" to t.mainWeaponAssault,
+                "mainWeaponHeavy" to t.mainWeaponHeavy,
                 "mainWeaponPistol" to t.mainWeaponPistol,
                 "mainSustainedHits" to t.mainSustainedHits,
                 "mainMelta" to t.mainMelta,
@@ -892,6 +919,8 @@ class OnlineCoopRepository(
                 "meleeDamage" to t.meleeDamage,
                 "meleeSustainedHits" to t.meleeSustainedHits,
                 "meleeTwinLinked" to t.meleeTwinLinked,
+                "meleeAntiNonMonsterVehicle" to t.meleeAntiNonMonsterVehicle,
+                "leadableIds" to t.leadableIds,
                 "pistolWeaponName" to t.pistolWeaponName,
                 "pistolAttacks" to t.pistolAttacks,
                 "pistolDamage" to t.pistolDamage,
@@ -1007,8 +1036,10 @@ class OnlineCoopRepository(
                 objectiveControl = ((row["objectiveControl"] as? Number)?.toInt() ?: base.objectiveControl).coerceIn(0, 8),
                 baseDiameterMm = ((row["baseDiameterMm"] as? Number)?.toInt() ?: base.baseDiameterMm).coerceIn(25, 130),
                 isFly = (row["isFly"] as? Boolean) ?: base.isFly,
+                isHero = (row["isHero"] as? Boolean) ?: base.isHero,
                 mainWeaponName = (row["mainWeaponName"] as? String) ?: base.mainWeaponName,
                 mainWeaponAssault = (row["mainWeaponAssault"] as? Boolean) ?: base.mainWeaponAssault,
+                mainWeaponHeavy = (row["mainWeaponHeavy"] as? Boolean) ?: base.mainWeaponHeavy,
                 mainWeaponPistol = (row["mainWeaponPistol"] as? Boolean) ?: base.mainWeaponPistol,
                 mainSustainedHits = (row["mainSustainedHits"] as? Number)?.toInt() ?: base.mainSustainedHits,
                 mainMelta = (row["mainMelta"] as? Number)?.toInt() ?: base.mainMelta,
@@ -1025,6 +1056,8 @@ class OnlineCoopRepository(
                 meleeDamage = (row["meleeDamage"] as? Number)?.toInt() ?: base.meleeDamage,
                 meleeSustainedHits = (row["meleeSustainedHits"] as? Number)?.toInt() ?: base.meleeSustainedHits,
                 meleeTwinLinked = (row["meleeTwinLinked"] as? Boolean) ?: base.meleeTwinLinked,
+                meleeAntiNonMonsterVehicle = (row["meleeAntiNonMonsterVehicle"] as? Number)?.toInt() ?: base.meleeAntiNonMonsterVehicle,
+                leadableIds = (row["leadableIds"] as? List<*>)?.mapNotNull { (it as? String)?.takeIf { s -> s.isNotBlank() } } ?: base.leadableIds,
                 pistolWeaponName = (row["pistolWeaponName"] as? String) ?: base.pistolWeaponName,
                 pistolAttacks = (row["pistolAttacks"] as? Number)?.toInt() ?: base.pistolAttacks,
                 pistolDamage = (row["pistolDamage"] as? Number)?.toInt() ?: base.pistolDamage,
@@ -1100,14 +1133,28 @@ class OnlineCoopRepository(
             legionaryWoundRerollBuffActive = (row["legionaryWoundRerollBuffActive"] as? Boolean) ?: false,
             brutalisChargeBuffActive = (row["brutalisChargeBuffActive"] as? Boolean) ?: false,
             brutalisAttackStacks = ((row["brutalisAttackStacks"] as? Number)?.toInt() ?: 0).coerceIn(0, 4),
-            brutalisStackEarnedThisTurn = (row["brutalisStackEarnedThisTurn"] as? Boolean) ?: false
+            brutalisStackEarnedThisTurn = (row["brutalisStackEarnedThisTurn"] as? Boolean) ?: false,
+            attachedLeaderUid = (row["attachedLeaderUid"] as? String)?.ifBlank { null },
+            bodyguardUid = (row["bodyguardUid"] as? String)?.ifBlank { null },
+            isHero = (row["isHero"] as? Boolean) ?: tpl.isHero,
+            hasFeelNoPain = (row["hasFeelNoPain"] as? Boolean) ?: (tpl.isHero || tpl.archetype == UnitArchetype.CAPTAIN_TITUS),
+            inheritedPassiveIds = (row["inheritedPassiveIds"] as? List<*>)?.mapNotNull { (it as? String)?.takeIf { s -> s.isNotBlank() } } ?: emptyList(),
+            honourOfUltramarPendingRemoval = (row["honourOfUltramarPendingRemoval"] as? Boolean) ?: false
         )
     }
 
-    fun applyBattleMapToState(battleMap: Map<String, Any?>, current: BattleUiState): BattleUiState? {
+    fun applyBattleMapToState(
+        battleMap: Map<String, Any?>,
+        current: BattleUiState,
+        fallbackTemplates: Map<String, UnitTemplate>? = null
+    ): BattleUiState? {
         return try {
             val rawTemplates = (battleMap["templates"] as? List<*>) ?: emptyList<Any>()
-            val baseTemplates = parseTemplatesMapList(rawTemplates)
+            val baseTemplates = if (rawTemplates.isNotEmpty()) {
+                parseTemplatesMapList(rawTemplates)
+            } else {
+                fallbackTemplates ?: DefaultCatalog.defaultTemplates.associateBy { it.id }
+            }
 
             val mapId = (battleMap["mapId"] as? Number)?.toLong() ?: 1L
             val sectorMap = if (current.map.id == mapId) current.map else SectorMap(mapId, MapGenerator.generateSectorMap(mapId))
@@ -1237,6 +1284,8 @@ class OnlineCoopRepository(
                     meltaBonus = (tp["meltaBonus"] as? Number)?.toInt() ?: 0,
                     rapidFireBonus = (tp["rapidFireBonus"] as? Number)?.toInt() ?: 0,
                     antiFlyTriggered = (tp["antiFlyTriggered"] as? Boolean) ?: false,
+                    antiNonMonsterVehicleTriggered = (tp["antiNonMonsterVehicleTriggered"] as? Boolean) ?: false,
+                    heavyApplied = (tp["heavyApplied"] as? Boolean) ?: false,
                     cleaveBonus = (tp["cleaveBonus"] as? Number)?.toInt() ?: 0,
                     darkPactChoice = enumValues<DarkPactChoice>().firstOrNull { it.name == dpRaw } ?: DarkPactChoice.NONE,
                     markedBonusApplied = (tp["markedBonusApplied"] as? Boolean) ?: false,
@@ -1283,9 +1332,11 @@ class OnlineCoopRepository(
                 movePreview = parsedMovePreview,
                 chargeModeActive = parsedChargeMode,
                 chargePreview = parsedChargePreview,
-                targetPreview = parsedTargetPreview
+                targetPreview = parsedTargetPreview,
+                syncRevision = (battleMap["syncRevision"] as? Number)?.toLong() ?: 0L
             )
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.w("OnlineCoopRepo", "Failed to apply battle snapshot", e)
             null
         }
     }

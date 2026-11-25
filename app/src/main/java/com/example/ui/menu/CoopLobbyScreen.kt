@@ -84,6 +84,7 @@ import com.example.model.CoopRosterUnit
 import com.example.model.CoopSlotMode
 import com.example.model.CoopState
 import com.example.model.Faction
+import com.example.model.UnitArchetype
 import com.example.model.UnitTemplate
 import com.example.ui.setup.StatEditDialog
 import com.example.ui.theme.BorderSteel
@@ -1461,6 +1462,13 @@ private fun CommanderLoadoutPane(
 
             HorizontalDivider(color = DividerIron)
 
+            val hasHero = remember(assignedUnits, templates) {
+                assignedUnits.any { entry ->
+                    val t = templates[entry.templateId]
+                    t != null && (t.isHero || t.archetype == UnitArchetype.CAPTAIN_TITUS || t.id == "captain_titus")
+                }
+            }
+
             LazyColumn(
                 modifier = Modifier
                     .weight(1f)
@@ -1514,12 +1522,23 @@ private fun CommanderLoadoutPane(
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = tpl?.name ?: entry.templateId,
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = TextPrimary,
-                                    fontWeight = FontWeight.Bold
-                                )
+                                val isHero = tpl != null && (tpl.isHero || tpl.archetype == UnitArchetype.CAPTAIN_TITUS || tpl.id == "captain_titus")
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                                    Text(
+                                        text = tpl?.name ?: entry.templateId,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = TextPrimary,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    if (isHero) {
+                                        Text(
+                                            text = "HERO • MAX 1",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = ImperialGold,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
                                 if (tpl != null) {
                                     Text(
                                         text = "${tpl.mainWeaponName} • ${tpl.squadSize} models • ${tpl.points} pt",
@@ -1576,13 +1595,20 @@ private fun CommanderLoadoutPane(
                     }
 
                     items(availableTemplates, key = { it.id }) { tpl ->
+                        val isHero = tpl.isHero || tpl.archetype == UnitArchetype.CAPTAIN_TITUS || tpl.id == "captain_titus"
                         val canAfford = totalPts + tpl.points <= pointLimit
+                        val heroLocked = isHero && hasHero
+                        val canAdd = canAfford && !heroLocked
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(CutCornerShape(5.dp))
                                 .background(RowSlate)
-                                .border(1.dp, if (canAfford) BorderSteel else DividerIron, CutCornerShape(5.dp))
+                                .border(
+                                    1.dp,
+                                    if (isHero) ImperialGold.copy(alpha = 0.6f) else if (canAdd) BorderSteel else DividerIron,
+                                    CutCornerShape(5.dp)
+                                )
                                 .padding(horizontal = 10.dp, vertical = 6.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -1592,9 +1618,17 @@ private fun CommanderLoadoutPane(
                                     Text(
                                         text = tpl.name,
                                         style = MaterialTheme.typography.labelMedium,
-                                        color = if (canAfford) TextPrimary else TextMuted,
+                                        color = if (canAdd) TextPrimary else TextMuted,
                                         fontWeight = FontWeight.Bold
                                     )
+                                    if (isHero) {
+                                        Text(
+                                            text = "HERO • MAX 1",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = ImperialGold,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
                                     Text(
                                         text = "${tpl.points} PT",
                                         style = MaterialTheme.typography.labelSmall,
@@ -1629,22 +1663,24 @@ private fun CommanderLoadoutPane(
                             }
                             OutlinedButton(
                                 onClick = { onAddUnit(tpl.id) },
-                                enabled = canAfford,
+                                enabled = canAdd,
                                 shape = grimdarkBevelShape(4.dp),
-                                border = BorderStroke(1.dp, if (canAfford) EmeraldBorder else DividerIron),
+                                border = BorderStroke(1.dp, if (canAdd) EmeraldBorder else DividerIron),
                                 colors = ButtonDefaults.outlinedButtonColors(
-                                    containerColor = if (canAfford) EmeraldSurface else InputDark,
-                                    contentColor = if (canAfford) EmeraldBuff else TextMuted,
+                                    containerColor = if (canAdd) EmeraldSurface else InputDark,
+                                    contentColor = if (canAdd) EmeraldBuff else TextMuted,
                                     disabledContainerColor = InputDark,
                                     disabledContentColor = TextMuted
                                 ),
                                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
                                 modifier = Modifier.height(32.dp)
                             ) {
-                                if (canAfford) {
+                                if (canAdd) {
                                     Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(14.dp))
                                     Spacer(Modifier.width(3.dp))
                                     Text("ADD", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                                } else if (heroLocked) {
+                                    Text("1 HERO", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
                                 } else {
                                     Text("LIMIT", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
                                 }

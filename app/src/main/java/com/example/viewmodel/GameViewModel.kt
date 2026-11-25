@@ -49,8 +49,10 @@ import com.example.model.UnitTemplate
 import com.example.model.WarriorWeaponChoice
 import com.example.model.WeaponMode
 import com.example.model.WorldPos
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -102,12 +104,16 @@ data class SetupUiState(
             val enemyRoster = rosterFor(enemyFaction)
             val playerPts = pointsFor(playerFaction)
             val enemyPts = pointsFor(enemyFaction)
+            val playerHeroes = playerRoster.count { templates[it.templateId]?.let { t -> t.isHero || t.archetype == UnitArchetype.CAPTAIN_TITUS || t.id == "captain_titus" } == true }
+            val enemyHeroes = enemyRoster.count { templates[it.templateId]?.let { t -> t.isHero || t.archetype == UnitArchetype.CAPTAIN_TITUS || t.id == "captain_titus" } == true }
             return when {
                 playerFaction == enemyFaction -> "Commander and Enemy must be different factions."
                 playerRoster.isEmpty() -> "${playerFaction.displayName} require at least 1 squad."
                 enemyRoster.isEmpty() -> "${enemyFaction.displayName} require at least 1 squad."
                 playerPts > pointLimit -> "${playerFaction.displayName} exceed $pointLimit pt limit."
                 enemyPts > pointLimit -> "${enemyFaction.displayName} exceed $pointLimit pt limit."
+                playerHeroes > 1 -> "Maximum 1 Hero (Captain Titus) allowed in Player army."
+                enemyHeroes > 1 -> "Maximum 1 Hero (Captain Titus) allowed in Enemy army."
                 else -> null
             }
         }
@@ -164,7 +170,8 @@ data class BattleUiState(
     val deploymentTurnPlayerId: String? = null,
     val deploymentTurnPlayerName: String = "",
     val deploymentTeamIndex: Int = 0,
-    val combatLogs: List<CombatLogEntry> = emptyList()
+    val combatLogs: List<CombatLogEntry> = emptyList(),
+    val syncRevision: Long = 0L
 ) {
     val isPlayerTurn: Boolean
         get() = !isAiThinking && summary == null && if (isDeploymentPhase) {
@@ -249,13 +256,50 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     val savedSkirmishBattle: StateFlow<SavedSkirmishBattleEntity?>
 
     private var nextIdCounter = 100L
+    private var nextSyncRevision = 1L
     private var lastDeployTeam0Idx = -1
     private var lastDeployTeam1Idx = -1
     private var aiJob: Job? = null
     private var actionJob: Job? = null
+    private var activeActionToken = 0L
     private var splashDismissJob: Job? = null
     private var saveBannerJob: Job? = null
     private var setupStatusJob: Job? = null
+
+    private fun launchAction(block: suspend () -> Unit) {
+        actionJob?.cancel()
+        val token = ++activeActionToken
+        actionJob = viewModelScope.launch {
+            try {
+                block()
+            } finally {
+                if (activeActionToken == token) {
+                    var unlocked = false
+                    _battleState.update { st ->
+                        if (st.isAnimating) {
+                            unlocked = true
+                            recomputeSelectionOverlays(st.copy(isAnimating = false))
+                        } else st
+                    }
+                    if (unlocked) {
+                        syncCoopHostIfNeeded(_battleState.value)
+                    }
+                }
+            }
+        }
+    }
+
+    private data class PendingRemoteCoopAction(
+        val senderPlayerId: String,
+        val actionType: String,
+        val wx: Float?,
+        val wy: Float?,
+        val cm: Float?,
+        val mode: WeaponMode?,
+        val left: Boolean?
+    )
+
+    private val remoteActionQueue = Channel<PendingRemoteCoopAction>(Channel.UNLIMITED)
 
     // Cloud Online Co-op bridge callbacks (wired in MainActivity only after Google Sign-In)
     var onlineLobbySyncPublisher: ((CoopState, Map<String, UnitTemplate>) -> Unit)? = null
@@ -286,6 +330,29 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
         loadSavedSetup()
+
+        viewModelScope.launch {
+            for (cmd in remoteActionQueue) {
+                val runningJob = actionJob
+                if (runningJob?.isActive == true) {
+                    runningJob.join()
+                }
+                if (_battleState.value.isAnimating && actionJob?.isActive != true) {
+                    _battleState.update { st ->
+                        if (st.isAnimating) recomputeSelectionOverlays(st.copy(isAnimating = false)) else st
+                    }
+                }
+                executeRemoteCoopActionNow(
+                    senderPlayerId = cmd.senderPlayerId,
+                    actionType = cmd.actionType,
+                    wx = cmd.wx,
+                    wy = cmd.wy,
+                    cm = cmd.cm,
+                    mode = cmd.mode,
+                    left = cmd.left
+                )
+            }
+        }
     }
 
     fun setScreen(screen: AppScreen) {
@@ -672,6 +739,18 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             _setupState.value.templates
         }
         val unitTpl = templates[templateId]
+        if (isHeroTemplate(unitTpl)) {
+            val hasHero = current.assignedUnits.any { u ->
+                u.ownerPlayerId == playerId && isHeroTemplate(templates[u.templateId])
+            }
+            if (hasHero) {
+                sound.play(SoundType.CLICK)
+                _coopState.update {
+                    it.copy(lobbyError = "Maximum 1 Hero (${unitTpl?.name ?: "Captain Titus"}) allowed per army.")
+                }
+                return
+            }
+        }
         val unitCost = unitTpl?.points ?: 0
         val currentUsed = current.assignedUnits
             .filter { it.ownerPlayerId == playerId }
@@ -740,6 +819,15 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             }
             return
         }
+        val overHeroPlayer = activePlayers.firstOrNull { p ->
+            coop.assignedUnits.count { it.ownerPlayerId == p.id && isHeroTemplate(templates[it.templateId]) } > 1
+        }
+        if (overHeroPlayer != null) {
+            _coopState.update {
+                it.copy(lobbyError = "${overHeroPlayer.name} has more than 1 Hero. Maximum 1 Hero per army.")
+            }
+            return
+        }
         val team0HasUnits = activePlayers.any { it.id in listOf("p1", "p2") && coop.assignedUnits.any { u -> u.ownerPlayerId == it.id } }
         if (!team0HasUnits) {
             _coopState.update {
@@ -771,6 +859,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             val facing = if (teamIndex == 0) Facing.EAST else Facing.WEST
             for (slot in playerSlots) {
                 val tpl = templates[slot.templateId] ?: continue
+                val heroFlag = isHeroTemplate(tpl)
                 reserveUnits.add(
                     BattleUnit(
                         uid = "COOP_${player.id}_${nextIdCounter++}",
@@ -786,7 +875,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                         worldY = -1f,
                         facingDeg = facing.yawDegrees(),
                         ownerPlayerId = player.id,
-                        ownerPlayerName = player.name
+                        ownerPlayerName = player.name,
+                        isHero = heroFlag,
+                        hasFeelNoPain = heroFlag
                     )
                 )
             }
@@ -808,6 +899,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             }
             for (tid in aiTemplateIds) {
                 val tpl = templates[tid] ?: continue
+                val heroFlag = isHeroTemplate(tpl)
                 reserveUnits.add(
                     BattleUnit(
                         uid = "COOP_AI_${nextIdCounter++}",
@@ -823,7 +915,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                         worldY = -1f,
                         facingDeg = Facing.WEST.yawDegrees(),
                         ownerPlayerId = "AI",
-                        ownerPlayerName = "AI Command"
+                        ownerPlayerName = "AI Command",
+                        isHero = heroFlag,
+                        hasFeelNoPain = heroFlag
                     )
                 )
             }
@@ -916,7 +1010,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun syncCoopHostIfNeeded(state: BattleUiState) {
         if (state.isCoopMode && _coopState.value.networkRole == CoopNetworkRole.LOCAL_OR_HOST && _coopState.value.serverRunning) {
-            onlineHostStatePublisher?.invoke(state, _setupState.value.templates)
+            val stamped = state.copy(syncRevision = nextSyncRevision++)
+            onlineHostStatePublisher?.invoke(stamped, _setupState.value.templates)
         }
     }
 
@@ -942,6 +1037,12 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
         val prev = _battleState.value
+        if (prev.active && prev.isCoopMode && prev.map.id == syncedBattle.map.id &&
+            syncedBattle.syncRevision > 0L && prev.syncRevision > syncedBattle.syncRevision &&
+            roomStatus != "FINISHED" && syncedBattle.summary == null
+        ) {
+            return
+        }
         val localId = _coopState.value.localPlayerId
         val adjustedSummary = syncedBattle.summary?.let { sum ->
             if (syncedBattle.isCoopMode && sum.winnerLabel.isNotBlank()) {
@@ -1023,6 +1124,29 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         left: Boolean? = null
     ) {
         if (_coopState.value.networkRole != CoopNetworkRole.LOCAL_OR_HOST) return
+        remoteActionQueue.trySend(
+            PendingRemoteCoopAction(
+                senderPlayerId = senderPlayerId,
+                actionType = actionType,
+                wx = wx,
+                wy = wy,
+                cm = cm,
+                mode = mode,
+                left = left
+            )
+        )
+    }
+
+    private fun executeRemoteCoopActionNow(
+        senderPlayerId: String,
+        actionType: String,
+        wx: Float? = null,
+        wy: Float? = null,
+        cm: Float? = null,
+        mode: WeaponMode? = null,
+        left: Boolean? = null
+    ) {
+        if (_coopState.value.networkRole != CoopNetworkRole.LOCAL_OR_HOST) return
         val state = _battleState.value
         if (!state.active || !state.isCoopMode) return
         val senderSlot = state.coopTurnOrder.firstOrNull { it.id == senderPlayerId } ?: return
@@ -1046,6 +1170,11 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             "STRIKE" -> confirmStrike(fromLanClient = true, darkPactOverride = cm?.toInt()?.let { DarkPactChoice.entries.getOrNull(it) })
             "WEAPON_MODE" -> if (mode != null) selectWeaponMode(mode, fromLanClient = true)
             "ROTATE" -> if (left != null) rotateSelectedUnit(left, fromLanClient = true)
+            "JOIN_SQUAD" -> if (wx != null && wy != null) {
+                val hero = state.units.getOrNull(wx.roundToInt())
+                val squad = state.units.getOrNull(wy.roundToInt())
+                if (hero != null && squad != null) joinSquad(hero.uid, squad.uid, fromLanClient = true)
+            }
             "FIGHT_FIRST" -> triggerFightFirst(fromLanClient = true)
             "END_TURN" -> endPlayerTurn(fromLanClient = true)
         }
@@ -1156,10 +1285,22 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private fun isHeroTemplate(tpl: UnitTemplate?): Boolean =
+        tpl != null && (tpl.isHero || tpl.archetype == UnitArchetype.CAPTAIN_TITUS || tpl.id == "captain_titus")
+
     fun addRosterUnit(faction: Faction, templateId: String) {
         sound.play(SoundType.CLICK)
         _setupState.update { state ->
             val tpl = state.templates[templateId]
+            if (isHeroTemplate(tpl)) {
+                val existingHeroes = state.rosterFor(faction).count { isHeroTemplate(state.templates[it.templateId]) }
+                if (existingHeroes >= 1) {
+                    return@update state.copy(
+                        statusMessage = "Maximum 1 Hero (${tpl?.name ?: "Captain Titus"}) allowed per army!",
+                        statusIsError = true
+                    )
+                }
+            }
             val cost = tpl?.points ?: 0
             val used = state.pointsFor(faction)
             if (used + cost > state.pointLimit) {
@@ -1200,13 +1341,17 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             val limit = state.pointLimit
             val chosen = mutableListOf<RosterSlot>()
             var spent = 0
+            var pickedHero = false
             val rng = Random(System.nanoTime())
             var guard = 0
             while (guard < 40) {
                 guard++
-                val affordable = pool.filter { spent + it.points <= limit }
+                val affordable = pool.filter { tpl ->
+                    spent + tpl.points <= limit && (!pickedHero || !isHeroTemplate(tpl))
+                }
                 if (affordable.isEmpty()) break
                 val pick = affordable[rng.nextInt(affordable.size)]
+                if (isHeroTemplate(pick)) pickedHero = true
                 chosen.add(RosterSlot("rnd_${nextIdCounter++}", pick.id))
                 spent += pick.points
                 if (chosen.size >= 8) break
@@ -1404,6 +1549,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         roster.forEachIndexed { index, slot ->
             val tpl = templates[slot.templateId] ?: return@forEachIndexed
             val pos = candidateSpots.getOrElse(index) { GridPos(startCols.first(), (index + 1).coerceIn(1, MapGenerator.GRID_H - 2)) }
+            val heroFlag = isHeroTemplate(tpl)
             out.add(
                 BattleUnit(
                     uid = "${faction.name}_${index}_${nextIdCounter++}",
@@ -1419,7 +1565,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     worldY = pos.y.toFloat(),
                     facingDeg = facing.yawDegrees(),
                     ownerPlayerId = ownerPlayerId,
-                    ownerPlayerName = ownerPlayerName
+                    ownerPlayerName = ownerPlayerName,
+                    isHero = heroFlag,
+                    hasFeelNoPain = heroFlag
                 )
             )
         }
@@ -1731,8 +1879,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             state.weaponMode == WeaponMode.SKILL
         ) {
             if (pos in state.reachableTiles.keys) {
-                actionJob?.cancel()
-                actionJob = viewModelScope.launch {
+                launchAction {
                     performTeleport(selected.uid, pos)
                 }
             } else {
@@ -1755,8 +1902,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             state.weaponMode == WeaponMode.SKILL
         ) {
             if (pos in state.reachableTiles.keys) {
-                actionJob?.cancel()
-                actionJob = viewModelScope.launch {
+                launchAction {
                     performSeedSporeMine(selected.uid, pos)
                 }
             } else {
@@ -1791,9 +1937,15 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 unitHit.faction == state.activeFaction
             }
             if (state.canCommandUnit(unitHit, fromLanClient)) {
+                val effectiveHit = if (unitHit.uid == state.selectedUnitUid) {
+                    val partnerUid = unitHit.attachedLeaderUid ?: unitHit.bodyguardUid
+                    state.units.firstOrNull { it.uid == partnerUid && it.isAlive && state.canCommandUnit(it, fromLanClient) } ?: unitHit
+                } else {
+                    unitHit
+                }
                 sound.play(SoundType.CLICK)
                 val updated = state.copy(
-                    selectedUnitUid = unitHit.uid,
+                    selectedUnitUid = effectiveHit.uid,
                     weaponMode = WeaponMode.MAIN,
                     selectedDarkPact = DarkPactChoice.NONE,
                     moveModeActive = false,
@@ -1801,7 +1953,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     targetPreview = null,
                     chargeModeActive = false,
                     chargePreview = null,
-                    focusGridPos = if (state.autoFocusCamera) unitHit.pos else state.focusGridPos
+                    focusGridPos = if (state.autoFocusCamera) effectiveHit.pos else state.focusGridPos
                 )
                 val ready = recomputeSelectionOverlays(updated)
                 _battleState.value = ready
@@ -1967,17 +2119,21 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         }
         sound.play(SoundType.CLICK)
         val (roll, bonusCm) = TacticalRules.rollAdvanceBonus()
+        val partnerUid = selected.attachedLeaderUid ?: selected.bodyguardUid
         val updatedUnits = state.units.map { u ->
-            if (u.uid != selected.uid) u
-            else u.copy(
-                moveCmLeft = u.moveCmLeft + bonusCm,
-                hasAdvanced = true,
-                activeBuffLabel = if (u.template.mainWeaponAssault) {
-                    "ADVANCE +$roll cm (ASSAULT)"
-                } else {
-                    "ADVANCE +$roll cm (NO SHOOT/CHRG)"
-                }
-            )
+            if (u.uid != selected.uid && u.uid != partnerUid) u
+            else {
+                val canAssault = TacticalRules.hasEffectivePassive(u, "assault_intercessors", state.units) || u.template.mainWeaponAssault
+                u.copy(
+                    moveCmLeft = u.moveCmLeft + bonusCm,
+                    hasAdvanced = true,
+                    activeBuffLabel = if (canAssault) {
+                        "ADVANCE +$roll cm (ASSAULT)"
+                    } else {
+                        "ADVANCE +$roll cm (NO SHOOT/CHRG)"
+                    }
+                )
+            }
         }
         spawnFloatingText(selected.pos, "ADVANCE +$roll cm (+${bonusCm.toInt()} cm)", 0xFF38D96CL)
         val advLog = CombatLogEntry(
@@ -2073,8 +2229,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         val selected = state.selectedUnit ?: return
         if (!state.canCommandUnit(selected, fromLanClient)) return
         val preview = state.chargePreview ?: return
-        actionJob?.cancel()
-        actionJob = viewModelScope.launch {
+        launchAction {
             executeChargeAttempt(selected.uid, preview)
         }
     }
@@ -2116,8 +2271,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         } else {
             sound.play(SoundType.CLICK)
             spawnFloatingText(charger.pos, "CHARGE FAIL $d1+$d2=$total (${preview.requiredRoll}+)", 0xFFFF4D58L)
+            val partnerUid = charger.attachedLeaderUid ?: charger.bodyguardUid
             val updatedUnits = state.units.map { u ->
-                if (u.uid != unitUid) u else u.copy(hasCharged = true, moveCmLeft = 0f)
+                if (u.uid != unitUid && u.uid != partnerUid) u else u.copy(hasCharged = true, moveCmLeft = 0f)
             }
             val next = recomputeSelectionOverlays(
                 state.copy(
@@ -2136,6 +2292,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private suspend fun performChargeDash(unitUid: String, preview: ChargePreview) {
         val stateBefore = _battleState.value
         val unit = stateBefore.units.firstOrNull { it.uid == unitUid && it.isAlive } ?: return
+        val partnerUid = unit.attachedLeaderUid ?: unit.bodyguardUid
         val target = stateBefore.units.firstOrNull { it.uid == preview.targetUid && it.isAlive }
         if (preview.path.isEmpty()) return
 
@@ -2150,7 +2307,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
         _battleState.update { state ->
             val updatedUnits = state.units.map { u ->
-                if (u.uid != unitUid) u
+                if (u.uid != unitUid && u.uid != partnerUid) u
                 else {
                     val isBrutalis = u.template.archetype == UnitArchetype.BRUTALIS_DREADNOUGHT
                     u.copy(
@@ -2199,7 +2356,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     val gy = ny.roundToInt().coerceIn(0, MapGenerator.GRID_H - 1)
                     _battleState.update { st ->
                         val updatedUnits = st.units.map { u ->
-                            if (u.uid != unitUid) u
+                            if (u.uid != unitUid && u.uid != partnerUid) u
                             else u.copy(
                                 worldX = nx,
                                 worldY = ny,
@@ -2226,7 +2383,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
             _battleState.update { state ->
                 val alignedUnits = state.units.map { u ->
-                    if (u.uid != unitUid) u
+                    if (u.uid != unitUid && u.uid != partnerUid) u
                     else u.copy(
                         x = destGrid.x,
                         y = destGrid.y,
@@ -2255,8 +2412,15 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             }
             syncCoopHostIfNeeded(_battleState.value)
         } finally {
+            var unlocked = false
             _battleState.update { st ->
-                if (st.isAnimating) recomputeSelectionOverlays(st.copy(isAnimating = false)) else st
+                if (st.isAnimating) {
+                    unlocked = true
+                    recomputeSelectionOverlays(st.copy(isAnimating = false))
+                } else st
+            }
+            if (unlocked) {
+                syncCoopHostIfNeeded(_battleState.value)
             }
         }
     }
@@ -2295,8 +2459,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             )
             return
         }
-        actionJob?.cancel()
-        actionJob = viewModelScope.launch {
+        launchAction {
             performContinuousMove(selected.uid, preview)
         }
     }
@@ -2316,8 +2479,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
         val preview = state.movePreview ?: return
-        actionJob?.cancel()
-        actionJob = viewModelScope.launch {
+        launchAction {
             performContinuousMove(selected.uid, preview)
         }
     }
@@ -2362,51 +2524,64 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             focusGridPos = if (state.autoFocusCamera) dest else state.focusGridPos,
             projectiles = state.projectiles + beaconVfx
         )
-        spawnFloatingText(dest, "TELEPORT BEACON...", 0xFF4CC9F0L)
-        delay(500L)
+        try {
+            spawnFloatingText(dest, "TELEPORT BEACON...", 0xFF4CC9F0L)
+            delay(500L)
 
-        sound.play(SoundType.WARP_STRIKE)
-        val lightningVfx = ProjectileVfx(
-            id = nextIdCounter++,
-            fromX = dest.x.toFloat(),
-            fromY = dest.y.toFloat(),
-            toX = dest.x.toFloat(),
-            toY = dest.y.toFloat(),
-            colorArgb = 0xFFFFFFFFL,
-            isWarpLightning = true,
-            startTimeMs = System.currentTimeMillis()
-        )
-        spawnFloatingText(startPos, "WARP OUT", 0xFF64DFDFL)
-        spawnFloatingText(dest, "TELEPORT STRIKE!", 0xFF48CAE4L)
+            sound.play(SoundType.WARP_STRIKE)
+            val lightningVfx = ProjectileVfx(
+                id = nextIdCounter++,
+                fromX = dest.x.toFloat(),
+                fromY = dest.y.toFloat(),
+                toX = dest.x.toFloat(),
+                toY = dest.y.toFloat(),
+                colorArgb = 0xFFFFFFFFL,
+                isWarpLightning = true,
+                startTimeMs = System.currentTimeMillis()
+            )
+            spawnFloatingText(startPos, "WARP OUT", 0xFF64DFDFL)
+            spawnFloatingText(dest, "TELEPORT STRIKE!", 0xFF48CAE4L)
 
-        val updatedUnits = _battleState.value.units.map { u ->
-            if (u.uid != unitUid) u
-            else {
-                val nextFacing = TacticalRules.facingToward(u.pos, dest)
-                val nextDeg = TacticalRules.angleDegToward(u.worldX, u.worldY, dest.x.toFloat(), dest.y.toFloat())
-                u.copy(
-                    x = dest.x,
-                    y = dest.y,
-                    worldX = dest.x.toFloat(),
-                    worldY = dest.y.toFloat(),
-                    facing = nextFacing,
-                    facingDeg = nextDeg,
-                    moveCmLeft = 0f,
-                    skillCooldownLeft = u.template.skillCooldown
+            val updatedUnits = _battleState.value.units.map { u ->
+                if (u.uid != unitUid) u
+                else {
+                    val nextFacing = TacticalRules.facingToward(u.pos, dest)
+                    val nextDeg = TacticalRules.angleDegToward(u.worldX, u.worldY, dest.x.toFloat(), dest.y.toFloat())
+                    u.copy(
+                        x = dest.x,
+                        y = dest.y,
+                        worldX = dest.x.toFloat(),
+                        worldY = dest.y.toFloat(),
+                        facing = nextFacing,
+                        facingDeg = nextDeg,
+                        moveCmLeft = 0f,
+                        skillCooldownLeft = u.template.skillCooldown
+                    )
+                }
+            }
+            val withAuras = TacticalRules.applyAuras(updatedUnits)
+            _battleState.value = recomputeSelectionOverlays(
+                _battleState.value.copy(
+                    units = withAuras,
+                    isAnimating = false,
+                    focusGridPos = if (_battleState.value.autoFocusCamera) dest else _battleState.value.focusGridPos,
+                    projectiles = _battleState.value.projectiles + lightningVfx
                 )
+            )
+            syncCoopHostIfNeeded(_battleState.value)
+            scheduleVfxCleanup()
+        } finally {
+            var unlocked = false
+            _battleState.update { st ->
+                if (st.isAnimating) {
+                    unlocked = true
+                    recomputeSelectionOverlays(st.copy(isAnimating = false))
+                } else st
+            }
+            if (unlocked) {
+                syncCoopHostIfNeeded(_battleState.value)
             }
         }
-        val withAuras = TacticalRules.applyAuras(updatedUnits)
-        _battleState.value = recomputeSelectionOverlays(
-            _battleState.value.copy(
-                units = withAuras,
-                isAnimating = false,
-                focusGridPos = if (_battleState.value.autoFocusCamera) dest else _battleState.value.focusGridPos,
-                projectiles = _battleState.value.projectiles + lightningVfx
-            )
-        )
-        syncCoopHostIfNeeded(_battleState.value)
-        scheduleVfxCleanup()
     }
 
     private suspend fun performSeedSporeMine(unitUid: String, dest: GridPos) {
@@ -2511,8 +2686,15 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             syncCoopHostIfNeeded(_battleState.value)
             scheduleVfxCleanup()
         } finally {
+            var unlocked = false
             _battleState.update { st ->
-                if (st.isAnimating) recomputeSelectionOverlays(st.copy(isAnimating = false)) else st
+                if (st.isAnimating) {
+                    unlocked = true
+                    recomputeSelectionOverlays(st.copy(isAnimating = false))
+                } else st
+            }
+            if (unlocked) {
+                syncCoopHostIfNeeded(_battleState.value)
             }
         }
     }
@@ -2520,6 +2702,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private suspend fun performContinuousMove(unitUid: String, preview: MovePreview) {
         val stateBefore = _battleState.value
         val unit = stateBefore.units.firstOrNull { it.uid == unitUid && it.isAlive } ?: return
+        val partnerUid = unit.attachedLeaderUid ?: unit.bodyguardUid
         if (preview.path.isEmpty()) return
         sound.play(SoundType.CLICK)
 
@@ -2530,7 +2713,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
         _battleState.update { state ->
             val updatedUnits = state.units.map { u ->
-                if (u.uid != unitUid) u
+                if (u.uid != unitUid && u.uid != partnerUid) u
                 else u.copy(moveCmLeft = (u.moveCmLeft - preview.distanceCm).coerceAtLeast(0f))
             }
             state.copy(
@@ -2562,7 +2745,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     val gy = ny.roundToInt().coerceIn(0, MapGenerator.GRID_H - 1)
                     _battleState.update { st ->
                         val updatedUnits = st.units.map { u ->
-                            if (u.uid != unitUid) u
+                            if (u.uid != unitUid && u.uid != partnerUid) u
                             else u.copy(
                                 worldX = nx,
                                 worldY = ny,
@@ -2594,8 +2777,15 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             }
             syncCoopHostIfNeeded(_battleState.value)
         } finally {
+            var unlocked = false
             _battleState.update { st ->
-                if (st.isAnimating) recomputeSelectionOverlays(st.copy(isAnimating = false)) else st
+                if (st.isAnimating) {
+                    unlocked = true
+                    recomputeSelectionOverlays(st.copy(isAnimating = false))
+                } else st
+            }
+            if (unlocked) {
+                syncCoopHostIfNeeded(_battleState.value)
             }
         }
     }
@@ -2603,12 +2793,14 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private suspend fun performMoveAlongPath(unitUid: String, path: List<GridPos>, totalCost: Int) {
         if (path.isEmpty()) return
         sound.play(SoundType.CLICK)
+        val unitBefore = _battleState.value.units.firstOrNull { it.uid == unitUid && it.isAlive }
+        val partnerUid = unitBefore?.attachedLeaderUid ?: unitBefore?.bodyguardUid
         val dest = path.last()
         val cmCost = totalCost * TacticalRules.CM_PER_TILE
 
         _battleState.update { state ->
             val updatedUnits = state.units.map { u ->
-                if (u.uid != unitUid) u
+                if (u.uid != unitUid && u.uid != partnerUid) u
                 else u.copy(moveCmLeft = (u.moveCmLeft - cmCost).coerceAtLeast(0f))
             }
             state.copy(
@@ -2626,7 +2818,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 delay(220L)
                 _battleState.update { state ->
                     val updatedUnits = state.units.map { u ->
-                        if (u.uid != unitUid) u
+                        if (u.uid != unitUid && u.uid != partnerUid) u
                         else {
                             val nextDeg = TacticalRules.angleDegToward(u.worldX, u.worldY, step.x.toFloat(), step.y.toFloat())
                             val nextFacing = TacticalRules.nearestFacingFromDeg(nextDeg)
@@ -2659,8 +2851,15 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             }
             syncCoopHostIfNeeded(_battleState.value)
         } finally {
+            var unlocked = false
             _battleState.update { st ->
-                if (st.isAnimating) recomputeSelectionOverlays(st.copy(isAnimating = false)) else st
+                if (st.isAnimating) {
+                    unlocked = true
+                    recomputeSelectionOverlays(st.copy(isAnimating = false))
+                } else st
+            }
+            if (unlocked) {
+                syncCoopHostIfNeeded(_battleState.value)
             }
         }
     }
@@ -2701,8 +2900,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         val pactChoice = if (attacker.template.archetype == UnitArchetype.LEGIONARY) {
             darkPactOverride ?: preview.darkPactChoice
         } else DarkPactChoice.NONE
-        actionJob?.cancel()
-        actionJob = viewModelScope.launch {
+        launchAction {
             executeAttack(attacker.uid, target.uid, preview.weaponMode, darkPactChoice = pactChoice)
         }
     }
@@ -2729,8 +2927,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             spawnFloatingText(selected.pos, "NO ADJACENT ENEMY", 0xFFFF4D58L)
             return
         }
-        actionJob?.cancel()
-        actionJob = viewModelScope.launch {
+        launchAction {
             spawnFloatingText(selected.pos, "⚡ FIGHT FIRST!", 0xFFFFD166L)
             executeAttack(selected.uid, adjEnemy.uid, WeaponMode.MAIN, skipCounterAttack = true)
         }
@@ -2747,8 +2944,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         var attacker = state.units.firstOrNull { it.uid == attackerUid && it.isAlive } ?: return
         var target = state.units.firstOrNull { it.uid == targetUid && it.isAlive } ?: return
 
-        val distTiles = hypot(attacker.worldX - target.worldX, attacker.worldY - target.worldY)
-        val isMelee = TacticalRules.effectiveIsMelee(attacker, mode, distTiles)
+        try {
+            val distTiles = hypot(attacker.worldX - target.worldX, attacker.worldY - target.worldY)
+            val isMelee = TacticalRules.effectiveIsMelee(attacker, mode, distTiles)
 
         // Von Ryan's Leaper Tabletop Passive: Fight First pre-strike when engaged in melee
         var leaperPreStruck = false
@@ -2760,7 +2958,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             _battleState.update { it.copy(isAnimating = true) }
             spawnFloatingText(target.pos, "⚡ FIGHT FIRST!", 0xFFFFD166L)
             sound.play(SoundType.MELEE)
-            val preOutcome = TacticalRules.resolveMeleeCounterAttack(target, attacker, state.map.rows)
+            val preOutcome = TacticalRules.resolveMeleeCounterAttack(target, attacker, state.map.rows, allUnits = state.units)
             if (preOutcome != null) {
                 val preNow = System.currentTimeMillis()
                 val preProj = ProjectileVfx(
@@ -2785,11 +2983,13 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 }
                 val leaperWithFought = preOutcome.updatedDefender.copy(hasFought = true)
+                val preExtraMap = preOutcome.extraUpdatedUnits.associateBy { it.uid }
                 val preUnits = TacticalRules.applyAuras(
                     state.units.map { u ->
                         when (u.uid) {
                             leaperWithFought.uid -> leaperWithFought
                             preOutcome.updatedAttacker.uid -> preOutcome.updatedAttacker
+                            in preExtraMap -> preExtraMap.getValue(u.uid)
                             else -> u
                         }
                     }
@@ -2913,17 +3113,53 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
         val survivingAttacker = newUnits.firstOrNull { it.uid == attacker.uid }
         val counterDefenders = if (isMelee && !skipCounterAttack && !leaperPreStruck && survivingAttacker != null && survivingAttacker.isAlive) {
-            outcome.updatedTargets.mapNotNull { t ->
+            val baseDefs = outcome.updatedTargets.mapNotNull { t ->
                 newUnits.firstOrNull { it.uid == t.uid && it.isAlive && it.aliveModels > 0 && !it.isCloaked }?.takeIf { def ->
                     TacticalRules.isWithinMeleeReach(def, survivingAttacker)
                 }
             }
+            val withPartners = mutableListOf<BattleUnit>()
+            for (def in baseDefs) {
+                if (withPartners.none { it.uid == def.uid }) withPartners.add(def)
+                val pUid = def.attachedLeaderUid ?: def.bodyguardUid
+                if (pUid != null && withPartners.none { it.uid == pUid }) {
+                    val partner = newUnits.firstOrNull { it.uid == pUid && it.isAlive && it.aliveModels > 0 && !it.isCloaked }
+                    if (partner != null && TacticalRules.isWithinMeleeReach(partner, survivingAttacker)) {
+                        withPartners.add(partner)
+                    }
+                }
+            }
+            withPartners
         } else emptyList()
         val willCounterAttack = counterDefenders.isNotEmpty()
 
+        val (postAttackUnits, departedAttackHou) = if (!willCounterAttack) {
+            resolveHonourOfUltramarDepartures(newUnits, requireHasFought = true)
+        } else {
+            newUnits to emptyList()
+        }
+        val houAttackFloats = departedAttackHou.mapIndexed { idx, d ->
+            FloatingTextVfx(
+                id = nextIdCounter++,
+                gridX = d.x.toFloat(),
+                gridY = d.y.toFloat() - idx * 0.35f,
+                text = "HONOUR FULFILLED • TITUS FALLS",
+                colorArgb = 0xFFFFD166L,
+                startTimeMs = now + 600L
+            )
+        }
+        val houAttackKillsPlayer = departedAttackHou.count { d ->
+            val dIsSide0 = if (state.isCoopMode) d.effectiveTeam == 0 else d.faction == state.playerFaction
+            !dIsSide0
+        }
+        val houAttackKillsEnemy = departedAttackHou.count { d ->
+            val dIsSide0 = if (state.isCoopMode) d.effectiveTeam == 0 else d.faction == state.playerFaction
+            dIsSide0
+        }
+
         val attackLogs = outcome.logEntries.map { it.copy(id = nextIdCounter++, round = state.round) }
         val updated = state.copy(
-            units = newUnits,
+            units = postAttackUnits,
             weaponMode = WeaponMode.MAIN,
             selectedDarkPact = DarkPactChoice.NONE,
             moveModeActive = false,
@@ -2934,10 +3170,10 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             targetPreview = null,
             isAnimating = willCounterAttack,
             projectiles = (if (proj != null) state.projectiles + proj else state.projectiles).filter { now - it.startTimeMs < 1800 },
-            floatingTexts = (state.floatingTexts + floats).filter { now - it.startTimeMs < 3200 },
+            floatingTexts = (state.floatingTexts + floats + houAttackFloats).filter { now - it.startTimeMs < 3200 },
             focusGridPos = if (state.autoFocusCamera) target.pos else state.focusGridPos,
-            playerKills = state.playerKills + addedPlayerKills,
-            enemyKills = state.enemyKills + addedEnemyKills,
+            playerKills = state.playerKills + addedPlayerKills + houAttackKillsPlayer,
+            enemyKills = state.enemyKills + addedEnemyKills + houAttackKillsEnemy,
             combatLogs = appendCombatLogs(state.combatLogs, attackLogs)
         )
         val afterHit = checkVictoryOrUpdate(recomputeSelectionOverlays(updated))
@@ -2949,7 +3185,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             for (survivingDefender in counterDefenders) {
                 val preCheck = _battleState.value
                 if (!preCheck.active || preCheck.summary != null) return
-                val liveAtkBefore = preCheck.units.firstOrNull { it.uid == attacker.uid && it.isAlive } ?: break
+                val liveAtkBefore = preCheck.units.firstOrNull { it.uid == attacker.uid && it.isAlive }
+                    ?: preCheck.units.firstOrNull { it.uid == attacker.bodyguardUid && it.isAlive }
+                    ?: break
                 val liveDefBefore = preCheck.units.firstOrNull { it.uid == survivingDefender.uid && it.isAlive } ?: continue
 
                 spawnFloatingText(liveDefBefore.pos, "⚔️ COUNTER-ATTACK (2s)", 0xFFFFD166L)
@@ -2969,7 +3207,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     val counterOutcome = TacticalRules.resolveMeleeCounterAttack(
                         rotatedDefender,
                         liveAttacker,
-                        currentState.map.rows
+                        currentState.map.rows,
+                        allUnits = currentState.units
                     )
                     if (counterOutcome != null) {
                         val counterNow = System.currentTimeMillis()
@@ -3000,11 +3239,13 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                             )
                         }
 
+                        val extraMap = counterOutcome.extraUpdatedUnits.associateBy { it.uid }
                         val afterCounterUnits = TacticalRules.applyAuras(
                             currentState.units.map { u ->
                                 when (u.uid) {
                                     counterOutcome.updatedDefender.uid -> counterOutcome.updatedDefender
                                     counterOutcome.updatedAttacker.uid -> counterOutcome.updatedAttacker
+                                    in extraMap -> extraMap.getValue(u.uid)
                                     else -> u
                                 }
                             }
@@ -3034,9 +3275,53 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
             _battleState.update { st ->
-                if (!st.active) st else recomputeSelectionOverlays(st.copy(isAnimating = false))
+                if (!st.active) st else {
+                    val (settledUnits, departedHou) = resolveHonourOfUltramarDepartures(st.units, requireHasFought = true)
+                    val endKillsPlayer = departedHou.count { d ->
+                        val dIsSide0 = if (st.isCoopMode) d.effectiveTeam == 0 else d.faction == st.playerFaction
+                        !dIsSide0
+                    }
+                    val endKillsEnemy = departedHou.count { d ->
+                        val dIsSide0 = if (st.isCoopMode) d.effectiveTeam == 0 else d.faction == st.playerFaction
+                        dIsSide0
+                    }
+                    val houNow = System.currentTimeMillis()
+                    val endFloats = departedHou.map { d ->
+                        FloatingTextVfx(
+                            id = nextIdCounter++,
+                            gridX = d.x.toFloat(),
+                            gridY = d.y.toFloat(),
+                            text = "HONOUR FULFILLED • TITUS FALLS",
+                            colorArgb = 0xFFFFD166L,
+                            startTimeMs = houNow
+                        )
+                    }
+                    checkVictoryOrUpdate(
+                        recomputeSelectionOverlays(
+                            st.copy(
+                                units = TacticalRules.applyAuras(settledUnits),
+                                isAnimating = false,
+                                playerKills = st.playerKills + endKillsPlayer,
+                                enemyKills = st.enemyKills + endKillsEnemy,
+                                floatingTexts = (st.floatingTexts + endFloats).filter { houNow - it.startTimeMs < 3200 }
+                            )
+                        )
+                    )
+                }
             }
             syncCoopHostIfNeeded(_battleState.value)
+        }
+        } finally {
+            var unlocked = false
+            _battleState.update { st ->
+                if (st.isAnimating) {
+                    unlocked = true
+                    recomputeSelectionOverlays(st.copy(isAnimating = false))
+                } else st
+            }
+            if (unlocked) {
+                syncCoopHostIfNeeded(_battleState.value)
+            }
         }
     }
 
@@ -3051,13 +3336,16 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         sound.play(SoundType.CLICK)
 
         if (mode == WeaponMode.SKILL) {
+            if (selected.isHeroLeader) {
+                spawnFloatingText(selected.pos, "HONOUR OF ULTRAMAR: AUTO (2+ IN FIGHT)", 0xFFFFD166L)
+                return
+            }
             if (selected.template.archetype == UnitArchetype.SPORE_MINE) {
                 val adjEnemy = state.units.firstOrNull {
                     it.isAlive && selected.isEnemyOf(it) && TacticalRules.isWithinMeleeReach(selected, it)
                 }
                 if (adjEnemy != null) {
-                    actionJob?.cancel()
-                    actionJob = viewModelScope.launch {
+                    launchAction {
                         executeAttack(selected.uid, adjEnemy.uid, WeaponMode.MAIN)
                     }
                 } else {
@@ -3115,9 +3403,75 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         val nextDeg = ((selected.facingDeg + delta) % 360f + 360f) % 360f
         val nextFacing = TacticalRules.nearestFacingFromDeg(nextDeg)
         val units = state.units.map {
-            if (it.uid == selected.uid) it.copy(facing = nextFacing, facingDeg = nextDeg) else it
+            if (it.uid == selected.uid || it.uid == selected.attachedLeaderUid || it.uid == selected.bodyguardUid) {
+                it.copy(facing = nextFacing, facingDeg = nextDeg)
+            } else it
         }
         _battleState.value = state.copy(selectedUnitUid = selected.uid, units = units, movePreview = null)
+        syncCoopHostIfNeeded(_battleState.value)
+    }
+
+    fun joinSquad(heroUid: String, targetSquadUid: String, fromLanClient: Boolean = false) {
+        val state = _battleState.value
+        if (!state.canAcceptInput(fromLanClient) || state.isDeploymentPhase) return
+        if (shouldForwardToLanHost(fromLanClient)) {
+            val hIdx = state.units.indexOfFirst { it.uid == heroUid }
+            val sIdx = state.units.indexOfFirst { it.uid == targetSquadUid }
+            if (hIdx >= 0 && sIdx >= 0) {
+                forwardClientAction("JOIN_SQUAD") {
+                    it.put("wx", hIdx.toDouble())
+                    it.put("wy", sIdx.toDouble())
+                }
+            }
+            return
+        }
+        sound.play(SoundType.CLICK)
+        _battleState.update { st ->
+            val units = st.units.toMutableList()
+            val heroIdx = units.indexOfFirst { it.uid == heroUid && it.isHeroLeader }
+            val squadIdx = units.indexOfFirst { it.uid == targetSquadUid }
+            if (heroIdx < 0 || squadIdx < 0) return@update st
+            val hero = units[heroIdx]
+            val squad = units[squadIdx]
+            if (!TacticalRules.canLeadSquad(hero, squad) || !TacticalRules.isWithinJoiningReach(hero, squad)) {
+                return@update st
+            }
+            val syncedMove = minOf(hero.moveCmLeft, squad.moveCmLeft)
+            val syncedAdv = hero.hasAdvanced || squad.hasAdvanced
+            val syncedCharged = hero.hasCharged || squad.hasCharged
+            val updatedHero = hero.copy(
+                isHero = true,
+                bodyguardUid = squad.uid,
+                worldX = squad.worldX,
+                worldY = squad.worldY,
+                x = squad.x,
+                y = squad.y,
+                facing = squad.facing,
+                facingDeg = squad.facingDeg,
+                moveCmLeft = syncedMove,
+                hasAdvanced = syncedAdv,
+                hasCharged = syncedCharged,
+                hasFeelNoPain = true
+            )
+            val updatedSquad = squad.copy(
+                attachedLeaderUid = hero.uid,
+                moveCmLeft = syncedMove,
+                hasAdvanced = syncedAdv,
+                hasCharged = syncedCharged,
+                hasFeelNoPain = true
+            )
+            units[heroIdx] = updatedHero
+            units[squadIdx] = updatedSquad
+            spawnFloatingText(updatedHero.pos, "CAPTAIN TITUS JOINED!", 0xFF51CF66L)
+            recomputeSelectionOverlays(
+                st.copy(
+                    units = TacticalRules.applyAuras(units),
+                    movePreview = null,
+                    chargePreview = null,
+                    targetPreview = null
+                )
+            )
+        }
         syncCoopHostIfNeeded(_battleState.value)
     }
 
@@ -3154,7 +3508,11 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun endPlayerTurn(fromLanClient: Boolean = false) {
-        val state = _battleState.value
+        var state = _battleState.value
+        if (!fromLanClient && state.isAnimating && actionJob?.isActive != true && aiJob?.isActive != true) {
+            state = recomputeSelectionOverlays(state.copy(isAnimating = false))
+            _battleState.value = state
+        }
         if (!state.canAcceptInput(fromLanClient) || state.isDeploymentPhase) return
         if (shouldForwardToLanHost(fromLanClient)) {
             forwardClientAction("END_TURN")
@@ -3163,45 +3521,53 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         sound.play(SoundType.TURN_HORN)
 
         if (!state.isCoopMode) {
-            val aiFaction = state.units.firstOrNull { it.isAlive && it.faction != state.playerFaction }?.faction ?: state.enemyFaction
-            val refreshedUnits = refreshFactionForNewTurn(clearTurnScopedMeleeBuffs(state.units), aiFaction)
+            val (settledUnits, departedHou) = resolveHonourOfUltramarDepartures(state.units, requireHasFought = false)
+            val aiFaction = settledUnits.firstOrNull { it.isAlive && it.faction != state.playerFaction }?.faction ?: state.enemyFaction
+            val refreshedUnits = refreshFactionForNewTurn(clearTurnScopedMeleeBuffs(settledUnits), aiFaction)
             val firstAi = refreshedUnits.firstOrNull { it.faction == aiFaction && it.isAlive }
             val playerModels = refreshedUnits.filter { it.faction == state.playerFaction && it.isAlive }.sumOf { it.aliveModels }
             val enemyModels = refreshedUnits.filter { it.faction == aiFaction && it.isAlive }.sumOf { it.aliveModels }
 
-            val updated = state.copy(
-                activeFaction = aiFaction,
-                units = TacticalRules.applyAuras(refreshedUnits),
-                selectedUnitUid = firstAi?.uid,
-                weaponMode = WeaponMode.MAIN,
-                selectedDarkPact = DarkPactChoice.NONE,
-                moveModeActive = false,
-                movePreview = null,
-                chargeModeActive = false,
-                chargePreview = null,
-                chargeableUids = emptySet(),
-                reachableTiles = emptyMap(),
-                attackableUids = emptySet(),
-                targetPreview = null,
-                isAiThinking = true,
-                focusGridPos = if (state.autoFocusCamera) firstAi?.pos else state.focusGridPos,
-                turnSplash = TurnSplashData(
-                    round = state.round,
+            val updated = checkVictoryOrUpdate(
+                state.copy(
                     activeFaction = aiFaction,
-                    isPlayerTurn = false,
-                    marineModelsAlive = refreshedUnits.filter { it.faction == Faction.MARINES && it.isAlive }.sumOf { it.aliveModels },
-                    xenosModelsAlive = refreshedUnits.filter { it.faction == Faction.XENOS && it.isAlive }.sumOf { it.aliveModels },
-                    playerKills = state.playerKills,
-                    playerLosses = state.enemyKills,
-                    playerFaction = state.playerFaction,
-                    enemyFaction = aiFaction,
-                    playerModelsAlive = playerModels,
-                    enemyModelsAlive = enemyModels
+                    units = TacticalRules.applyAuras(refreshedUnits),
+                    selectedUnitUid = firstAi?.uid,
+                    weaponMode = WeaponMode.MAIN,
+                    selectedDarkPact = DarkPactChoice.NONE,
+                    moveModeActive = false,
+                    movePreview = null,
+                    chargeModeActive = false,
+                    chargePreview = null,
+                    chargeableUids = emptySet(),
+                    reachableTiles = emptyMap(),
+                    attackableUids = emptySet(),
+                    targetPreview = null,
+                    playerKills = state.playerKills + departedHou.count { it.faction != state.playerFaction },
+                    enemyKills = state.enemyKills + departedHou.count { it.faction == state.playerFaction },
+                    isAiThinking = true,
+                    isAnimating = false,
+                    focusGridPos = if (state.autoFocusCamera) firstAi?.pos else state.focusGridPos,
+                    turnSplash = TurnSplashData(
+                        round = state.round,
+                        activeFaction = aiFaction,
+                        isPlayerTurn = false,
+                        marineModelsAlive = refreshedUnits.filter { it.faction == Faction.MARINES && it.isAlive }.sumOf { it.aliveModels },
+                        xenosModelsAlive = refreshedUnits.filter { it.faction == Faction.XENOS && it.isAlive }.sumOf { it.aliveModels },
+                        playerKills = state.playerKills + departedHou.count { it.faction != state.playerFaction },
+                        playerLosses = state.enemyKills + departedHou.count { it.faction == state.playerFaction },
+                        playerFaction = state.playerFaction,
+                        enemyFaction = aiFaction,
+                        playerModelsAlive = playerModels,
+                        enemyModelsAlive = enemyModels
+                    )
                 )
             )
             _battleState.value = updated
-            scheduleSplashAutoDismiss()
-            runAiTurnLoop(aiFaction)
+            if (updated.summary == null) {
+                scheduleSplashAutoDismiss()
+                runAiTurnLoop(aiFaction)
+            }
             return
         }
 
@@ -3216,52 +3582,66 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     ) {
         val player = state.coopTurnOrder.getOrNull(playerIdx) ?: return
         val isAiTurn = player.isAi
-        val refreshedUnits = TacticalRules.applyAuras(refreshCoopPlayerForNewTurn(clearTurnScopedMeleeBuffs(state.units), player.id))
+        val (settledUnits, departedHou) = resolveHonourOfUltramarDepartures(state.units, requireHasFought = false)
+        val refreshedUnits = TacticalRules.applyAuras(refreshCoopPlayerForNewTurn(clearTurnScopedMeleeBuffs(settledUnits), player.id))
         val firstUnit = refreshedUnits.firstOrNull { it.ownerPlayerId == player.id && it.isAlive }
-        val updated = recomputeSelectionOverlays(
-            state.copy(
-                round = targetRound,
-                activeFaction = player.faction,
-                units = refreshedUnits,
-                selectedUnitUid = firstUnit?.uid,
-                coopTurnIndex = playerIdx,
-                activeCoopPlayerId = player.id,
-                activeCoopPlayerName = player.name,
-                weaponMode = WeaponMode.MAIN,
-                selectedDarkPact = DarkPactChoice.NONE,
-                moveModeActive = false,
-                movePreview = null,
-                chargeModeActive = false,
-                chargePreview = null,
-                targetPreview = null,
-                isAiThinking = isAiTurn,
-                focusGridPos = if (state.autoFocusCamera) firstUnit?.pos else state.focusGridPos,
-                turnSplash = buildCoopTurnSplash(
+        val houKills0 = departedHou.count { it.effectiveTeam != 0 }
+        val houKills1 = departedHou.count { it.effectiveTeam == 0 }
+        val updated = checkVictoryOrUpdate(
+            recomputeSelectionOverlays(
+                state.copy(
                     round = targetRound,
                     activeFaction = player.faction,
-                    isPlayerTurn = !isAiTurn && player.id == state.localControlledPlayerId,
                     units = refreshedUnits,
-                    playerFaction = state.playerFaction,
-                    enemyFaction = state.enemyFaction,
-                    playerKills = state.playerKills,
-                    enemyKills = state.enemyKills,
-                    commanderLabel = if (isAiTurn) "${player.name.uppercase()} (AI) TURN" else "${player.name.uppercase()} TURN"
+                    selectedUnitUid = firstUnit?.uid,
+                    coopTurnIndex = playerIdx,
+                    activeCoopPlayerId = player.id,
+                    activeCoopPlayerName = player.name,
+                    weaponMode = WeaponMode.MAIN,
+                    selectedDarkPact = DarkPactChoice.NONE,
+                    moveModeActive = false,
+                    movePreview = null,
+                    chargeModeActive = false,
+                    chargePreview = null,
+                    targetPreview = null,
+                    playerKills = state.playerKills + houKills0,
+                    enemyKills = state.enemyKills + houKills1,
+                    isAiThinking = isAiTurn,
+                    isAnimating = false,
+                    focusGridPos = if (state.autoFocusCamera) firstUnit?.pos else state.focusGridPos,
+                    turnSplash = buildCoopTurnSplash(
+                        round = targetRound,
+                        activeFaction = player.faction,
+                        isPlayerTurn = !isAiTurn && player.id == state.localControlledPlayerId,
+                        units = refreshedUnits,
+                        playerFaction = state.playerFaction,
+                        enemyFaction = state.enemyFaction,
+                        playerKills = state.playerKills + houKills0,
+                        enemyKills = state.enemyKills + houKills1,
+                        commanderLabel = if (isAiTurn) "${player.name.uppercase()} (AI) TURN" else "${player.name.uppercase()} TURN"
+                    )
                 )
             )
         )
         _battleState.value = updated
         syncCoopHostIfNeeded(updated)
-        scheduleSplashAutoDismiss()
-        if (isAiTurn) {
-            runAiTurnLoop(player.faction, aiOwnerId = player.id)
+        if (updated.summary == null) {
+            scheduleSplashAutoDismiss()
+            if (isAiTurn) {
+                runAiTurnLoop(player.faction, aiOwnerId = player.id)
+            }
         }
     }
 
     private fun advanceCoopTurnAfter(state: BattleUiState, finishedOwnerId: String?) {
         if (!state.active || state.summary != null || !state.isCoopMode) return
         val turnOrder = state.coopTurnOrder
+        if (turnOrder.isEmpty()) return
         if (finishedOwnerId != "AI") {
-            val nextPlayerIdx = ((state.coopTurnIndex + 1) until turnOrder.size).firstOrNull { idx ->
+            val currentIdx = finishedOwnerId?.let { id ->
+                turnOrder.indexOfFirst { it.id == id }.takeIf { it >= 0 }
+            } ?: state.coopTurnIndex.coerceIn(-1, turnOrder.lastIndex)
+            val nextPlayerIdx = ((currentIdx + 1) until turnOrder.size).firstOrNull { idx ->
                 val p = turnOrder[idx]
                 p.isActive && state.units.any { it.ownerPlayerId == p.id && it.isAlive }
             }
@@ -3274,42 +3654,52 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             val aliveAiUnits = state.units.filter { it.ownerPlayerId == "AI" && it.isAlive }
             if (aliveAiUnits.isNotEmpty()) {
                 val aiFaction = aliveAiUnits.first().faction
-                val refreshedUnits = TacticalRules.applyAuras(refreshCoopPlayerForNewTurn(clearTurnScopedMeleeBuffs(state.units), "AI"))
+                val (settledUnits, departedHou) = resolveHonourOfUltramarDepartures(state.units, requireHasFought = false)
+                val refreshedUnits = TacticalRules.applyAuras(refreshCoopPlayerForNewTurn(clearTurnScopedMeleeBuffs(settledUnits), "AI"))
                 val firstAi = refreshedUnits.firstOrNull { it.ownerPlayerId == "AI" && it.isAlive }
-                val updated = state.copy(
-                    activeFaction = aiFaction,
-                    units = refreshedUnits,
-                    selectedUnitUid = firstAi?.uid,
-                    activeCoopPlayerId = "AI",
-                    activeCoopPlayerName = "AI Command",
-                    weaponMode = WeaponMode.MAIN,
-                    selectedDarkPact = DarkPactChoice.NONE,
-                    moveModeActive = false,
-                    movePreview = null,
-                    chargeModeActive = false,
-                    chargePreview = null,
-                    chargeableUids = emptySet(),
-                    reachableTiles = emptyMap(),
-                    attackableUids = emptySet(),
-                    targetPreview = null,
-                    isAiThinking = true,
-                    focusGridPos = if (state.autoFocusCamera) firstAi?.pos else state.focusGridPos,
-                    turnSplash = buildCoopTurnSplash(
-                        round = state.round,
+                val houKills0 = departedHou.count { it.effectiveTeam != 0 }
+                val houKills1 = departedHou.count { it.effectiveTeam == 0 }
+                val updated = checkVictoryOrUpdate(
+                    state.copy(
                         activeFaction = aiFaction,
-                        isPlayerTurn = false,
                         units = refreshedUnits,
-                        playerFaction = state.playerFaction,
-                        enemyFaction = state.enemyFaction,
-                        playerKills = state.playerKills,
-                        enemyKills = state.enemyKills,
-                        commanderLabel = "AI COMMAND TURN"
+                        selectedUnitUid = firstAi?.uid,
+                        activeCoopPlayerId = "AI",
+                        activeCoopPlayerName = "AI Command",
+                        weaponMode = WeaponMode.MAIN,
+                        selectedDarkPact = DarkPactChoice.NONE,
+                        moveModeActive = false,
+                        movePreview = null,
+                        chargeModeActive = false,
+                        chargePreview = null,
+                        chargeableUids = emptySet(),
+                        reachableTiles = emptyMap(),
+                        attackableUids = emptySet(),
+                        targetPreview = null,
+                        playerKills = state.playerKills + houKills0,
+                        enemyKills = state.enemyKills + houKills1,
+                        isAiThinking = true,
+                        isAnimating = false,
+                        focusGridPos = if (state.autoFocusCamera) firstAi?.pos else state.focusGridPos,
+                        turnSplash = buildCoopTurnSplash(
+                            round = state.round,
+                            activeFaction = aiFaction,
+                            isPlayerTurn = false,
+                            units = refreshedUnits,
+                            playerFaction = state.playerFaction,
+                            enemyFaction = state.enemyFaction,
+                            playerKills = state.playerKills + houKills0,
+                            enemyKills = state.enemyKills + houKills1,
+                            commanderLabel = "AI COMMAND TURN"
+                        )
                     )
                 )
                 _battleState.value = updated
                 syncCoopHostIfNeeded(updated)
-                scheduleSplashAutoDismiss()
-                runAiTurnLoop(aiFaction, aiOwnerId = "AI")
+                if (updated.summary == null) {
+                    scheduleSplashAutoDismiss()
+                    runAiTurnLoop(aiFaction, aiOwnerId = "AI")
+                }
                 return
             }
         }
@@ -3318,31 +3708,32 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         val nextRound = state.round + 1
         val firstIdx = turnOrder.indexOfFirst { p ->
             p.isActive && state.units.any { it.ownerPlayerId == p.id && it.isAlive }
-        }.takeIf { it >= 0 } ?: 0
+        }.takeIf { it >= 0 } ?: return
         activateCoopTurnForPlayer(state, firstIdx, nextRound)
     }
 
     private fun runAiTurnLoop(aiFaction: Faction, aiOwnerId: String? = null) {
         aiJob?.cancel()
         aiJob = viewModelScope.launch {
-            delay(1400)
-            var guard = 0
-            while (guard < 40) {
-                guard++
-                val current = _battleState.value
-                if (!current.active || current.summary != null ||
-                    (current.isCoopMode && current.activeCoopPlayerId != aiOwnerId) ||
-                    (!current.isCoopMode && current.activeFaction != aiFaction)
-                ) break
+            try {
+                delay(1400)
+                var guard = 0
+                while (guard < 40) {
+                    guard++
+                    val current = _battleState.value
+                    if (!current.active || current.summary != null ||
+                        (current.isCoopMode && current.activeCoopPlayerId != aiOwnerId) ||
+                        (!current.isCoopMode && current.activeFaction != aiFaction)
+                    ) break
 
-                val decision = withContext(Dispatchers.Default) {
-                    AiController.decideNextAction(
-                        aiFaction = aiFaction,
-                        units = current.units,
-                        map = current.map.rows,
-                        aiOwnerId = aiOwnerId
-                    )
-                }
+                    val decision = withContext(Dispatchers.Default) {
+                        AiController.decideNextAction(
+                            aiFaction = aiFaction,
+                            units = current.units,
+                            map = current.map.rows,
+                            aiOwnerId = aiOwnerId
+                        )
+                    }
                 when (decision) {
                     is AiDecision.SelfSkill -> {
                         val units = current.units.map {
@@ -3371,13 +3762,18 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     }
                     is AiDecision.Advance -> {
                         val (roll, bonusCm) = TacticalRules.rollAdvanceBonus()
+                        val advUnit0 = current.units.firstOrNull { it.uid == decision.unitUid }
+                        val advPartnerUid = advUnit0?.attachedLeaderUid ?: advUnit0?.bodyguardUid
                         val units = current.units.map { u ->
-                            if (u.uid != decision.unitUid) u
-                            else u.copy(
-                                moveCmLeft = u.moveCmLeft + bonusCm,
-                                hasAdvanced = true,
-                                activeBuffLabel = if (u.template.mainWeaponAssault) "ADVANCE +$roll cm (ASSAULT)" else "ADVANCE +$roll cm"
-                            )
+                            if (u.uid != decision.unitUid && u.uid != advPartnerUid) u
+                            else {
+                                val canAssault = TacticalRules.hasEffectivePassive(u, "assault_intercessors", current.units) || u.template.mainWeaponAssault
+                                u.copy(
+                                    moveCmLeft = u.moveCmLeft + bonusCm,
+                                    hasAdvanced = true,
+                                    activeBuffLabel = if (canAssault) "ADVANCE +$roll cm (ASSAULT)" else "ADVANCE +$roll cm"
+                                )
+                            }
                         }
                         val u = units.firstOrNull { it.uid == decision.unitUid }
                         val advLog = u?.let { advUnit ->
@@ -3437,50 +3833,100 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
             // Transition to next Co-op player/bot or back to Skirmish player turn
             val endState = _battleState.value
-            if (endState.active && endState.summary == null) {
+            val stillSameTurn = endState.active && endState.summary == null &&
+                ((endState.isCoopMode && endState.activeCoopPlayerId == aiOwnerId) ||
+                    (!endState.isCoopMode && endState.activeFaction == aiFaction))
+            if (stillSameTurn) {
                 sound.play(SoundType.TURN_HORN)
                 if (endState.isCoopMode) {
                     advanceCoopTurnAfter(endState, aiOwnerId)
                 } else {
                     val nextRound = endState.round + 1
-                    val refreshed = TacticalRules.applyAuras(refreshFactionForNewTurn(clearTurnScopedMeleeBuffs(endState.units), endState.playerFaction))
+                    val (settledEndUnits, departedEndHou) = resolveHonourOfUltramarDepartures(endState.units, requireHasFought = false)
+                    val refreshed = TacticalRules.applyAuras(refreshFactionForNewTurn(clearTurnScopedMeleeBuffs(settledEndUnits), endState.playerFaction))
                     val firstPlayer = refreshed.firstOrNull { it.faction == endState.playerFaction && it.isAlive }
-                    val resolvedEnemy = endState.units.firstOrNull { it.faction != endState.playerFaction }?.faction ?: endState.enemyFaction
+                    val resolvedEnemy = refreshed.firstOrNull { it.faction != endState.playerFaction }?.faction ?: endState.enemyFaction
                     val playerModels = refreshed.filter { it.faction == endState.playerFaction && it.isAlive }.sumOf { it.aliveModels }
                     val enemyModels = refreshed.filter { it.faction != endState.playerFaction && it.isAlive }.sumOf { it.aliveModels }
-                    val nextState = endState.copy(
-                        round = nextRound,
-                        activeFaction = endState.playerFaction,
-                        units = refreshed,
-                        selectedUnitUid = firstPlayer?.uid,
-                        weaponMode = WeaponMode.MAIN,
-                        selectedDarkPact = DarkPactChoice.NONE,
-                        moveModeActive = false,
-                        movePreview = null,
-                        chargeModeActive = false,
-                        chargePreview = null,
-                        chargeableUids = emptySet(),
-                        isAiThinking = false,
-                        focusGridPos = if (endState.autoFocusCamera) firstPlayer?.pos else endState.focusGridPos,
-                        turnSplash = TurnSplashData(
+                    val nextPlayerKills = endState.playerKills + departedEndHou.count { it.faction != endState.playerFaction }
+                    val nextEnemyKills = endState.enemyKills + departedEndHou.count { it.faction == endState.playerFaction }
+                    val nextState = checkVictoryOrUpdate(
+                        endState.copy(
                             round = nextRound,
                             activeFaction = endState.playerFaction,
-                            isPlayerTurn = true,
-                            marineModelsAlive = refreshed.filter { it.faction == Faction.MARINES && it.isAlive }.sumOf { it.aliveModels },
-                            xenosModelsAlive = refreshed.filter { it.faction == Faction.XENOS && it.isAlive }.sumOf { it.aliveModels },
-                            playerKills = endState.playerKills,
-                            playerLosses = endState.enemyKills,
-                            playerFaction = endState.playerFaction,
-                            enemyFaction = resolvedEnemy,
-                            playerModelsAlive = playerModels,
-                            enemyModelsAlive = enemyModels
+                            units = refreshed,
+                            selectedUnitUid = firstPlayer?.uid,
+                            weaponMode = WeaponMode.MAIN,
+                            selectedDarkPact = DarkPactChoice.NONE,
+                            moveModeActive = false,
+                            movePreview = null,
+                            chargeModeActive = false,
+                            chargePreview = null,
+                            chargeableUids = emptySet(),
+                            isAiThinking = false,
+                            isAnimating = false,
+                            playerKills = nextPlayerKills,
+                            enemyKills = nextEnemyKills,
+                            focusGridPos = if (endState.autoFocusCamera) firstPlayer?.pos else endState.focusGridPos,
+                            turnSplash = TurnSplashData(
+                                round = nextRound,
+                                activeFaction = endState.playerFaction,
+                                isPlayerTurn = true,
+                                marineModelsAlive = refreshed.filter { it.faction == Faction.MARINES && it.isAlive }.sumOf { it.aliveModels },
+                                xenosModelsAlive = refreshed.filter { it.faction == Faction.XENOS && it.isAlive }.sumOf { it.aliveModels },
+                                playerKills = nextPlayerKills,
+                                playerLosses = nextEnemyKills,
+                                playerFaction = endState.playerFaction,
+                                enemyFaction = resolvedEnemy,
+                                playerModelsAlive = playerModels,
+                                enemyModelsAlive = enemyModels
+                            )
                         )
                     )
                     _battleState.value = recomputeSelectionOverlays(nextState)
-                    scheduleSplashAutoDismiss()
+                    if (nextState.summary == null) {
+                        scheduleSplashAutoDismiss()
+                    }
+                }
+            }
+            } catch (ce: CancellationException) {
+                throw ce
+            } catch (_: Throwable) {
+                val cur = _battleState.value
+                if (cur.active && cur.summary == null) {
+                    val healed = cur.copy(isAnimating = false)
+                    if (healed.isCoopMode && healed.activeCoopPlayerId == aiOwnerId) {
+                        _battleState.value = healed
+                        advanceCoopTurnAfter(healed, aiOwnerId)
+                    } else if (!healed.isCoopMode && healed.activeFaction == aiFaction) {
+                        _battleState.value = recomputeSelectionOverlays(healed.copy(isAiThinking = false, activeFaction = healed.playerFaction))
+                    }
                 }
             }
         }
+    }
+
+    private fun resolveHonourOfUltramarDepartures(
+        units: List<BattleUnit>,
+        requireHasFought: Boolean
+    ): Pair<List<BattleUnit>, List<BattleUnit>> {
+        val departing = units.filter { u ->
+            u.isAlive && u.honourOfUltramarPendingRemoval && (!requireHasFought || u.hasFought)
+        }
+        if (departing.isEmpty()) return units to emptyList()
+        val departingUids = departing.map { it.uid }.toSet()
+        val updated = units.map { u ->
+            when {
+                u.uid in departingUids -> u.copy(
+                    totalWounds = 0,
+                    honourOfUltramarPendingRemoval = false,
+                    bodyguardUid = null
+                )
+                u.attachedLeaderUid in departingUids -> u.copy(attachedLeaderUid = null)
+                else -> u
+            }
+        }
+        return updated to departing
     }
 
     private fun refreshCoopPlayerForNewTurn(units: List<BattleUnit>, ownerId: String): List<BattleUnit> {

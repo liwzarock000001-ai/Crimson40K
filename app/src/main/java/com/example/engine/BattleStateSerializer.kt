@@ -64,6 +64,12 @@ object BattleStateSerializer {
                 put("brutalisChargeBuffActive", u.brutalisChargeBuffActive)
                 put("brutalisAttackStacks", u.brutalisAttackStacks)
                 put("brutalisStackEarnedThisTurn", u.brutalisStackEarnedThisTurn)
+                put("attachedLeaderUid", u.attachedLeaderUid ?: "")
+                put("bodyguardUid", u.bodyguardUid ?: "")
+                put("isHero", u.isHero)
+                put("hasFeelNoPain", u.hasFeelNoPain)
+                put("inheritedPassiveIds", JSONArray(u.inheritedPassiveIds))
+                put("honourOfUltramarPendingRemoval", u.honourOfUltramarPendingRemoval)
             })
         }
         return arr.toString()
@@ -118,7 +124,15 @@ object BattleStateSerializer {
                         legionaryWoundRerollBuffActive = o.optBoolean("legionaryWoundRerollBuffActive", false),
                         brutalisChargeBuffActive = o.optBoolean("brutalisChargeBuffActive", false),
                         brutalisAttackStacks = o.optInt("brutalisAttackStacks", 0).coerceIn(0, 4),
-                        brutalisStackEarnedThisTurn = o.optBoolean("brutalisStackEarnedThisTurn", false)
+                        brutalisStackEarnedThisTurn = o.optBoolean("brutalisStackEarnedThisTurn", false),
+                        attachedLeaderUid = o.optString("attachedLeaderUid").ifBlank { null },
+                        bodyguardUid = o.optString("bodyguardUid").ifBlank { null },
+                        isHero = o.optBoolean("isHero", tpl.isHero),
+                        hasFeelNoPain = o.optBoolean("hasFeelNoPain", tpl.isHero || tpl.archetype == com.example.model.UnitArchetype.CAPTAIN_TITUS),
+                        inheritedPassiveIds = o.optJSONArray("inheritedPassiveIds")?.let { pArr ->
+                            (0 until pArr.length()).mapNotNull { idx -> pArr.optString(idx).takeIf { it.isNotBlank() } }
+                        } ?: emptyList(),
+                        honourOfUltramarPendingRemoval = o.optBoolean("honourOfUltramarPendingRemoval", false)
                     )
                 )
             }
@@ -212,6 +226,8 @@ object BattleStateSerializer {
                 put("meltaBonus", tp.meltaBonus)
                 put("rapidFireBonus", tp.rapidFireBonus)
                 put("antiFlyTriggered", tp.antiFlyTriggered)
+                put("antiNonMonsterVehicleTriggered", tp.antiNonMonsterVehicleTriggered)
+                put("heavyApplied", tp.heavyApplied)
                 put("cleaveBonus", tp.cleaveBonus)
                 put("darkPactChoice", tp.darkPactChoice.name)
                 put("markedBonusApplied", tp.markedBonusApplied)
@@ -432,6 +448,8 @@ object BattleStateSerializer {
                     meltaBonus = tp.optInt("meltaBonus", 0),
                     rapidFireBonus = tp.optInt("rapidFireBonus", 0),
                     antiFlyTriggered = tp.optBoolean("antiFlyTriggered", false),
+                    antiNonMonsterVehicleTriggered = tp.optBoolean("antiNonMonsterVehicleTriggered", false),
+                    heavyApplied = tp.optBoolean("heavyApplied", false),
                     cleaveBonus = tp.optInt("cleaveBonus", 0),
                     darkPactChoice = runCatching {
                         DarkPactChoice.valueOf(tp.optString("darkPactChoice", DarkPactChoice.NONE.name))

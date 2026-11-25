@@ -56,6 +56,7 @@ enum class UnitArchetype {
     DREADNOUGHT,
     BRUTALIS_DREADNOUGHT,
     CAPTAIN,
+    CAPTAIN_TITUS,
     LEGIONARY,
     TERMAGANT,
     HORMAGAUNT,
@@ -113,6 +114,7 @@ data class UnitTemplate(
     val objectiveControl: Int = 1,
     val baseDiameterMm: Int = 32,
     val isFly: Boolean = false,
+    val isHero: Boolean = false,
     val skillName: String,
     val skillDesc: String,
     val skillCooldown: Int,
@@ -122,6 +124,7 @@ data class UnitTemplate(
     val terminatorWeapon: TerminatorWeaponChoice? = null,
     val mainWeaponName: String = "Primary Weapon",
     val mainWeaponAssault: Boolean = false,
+    val mainWeaponHeavy: Boolean = false,
     val mainWeaponPistol: Boolean = false,
     val mainSustainedHits: Int = 0,
     val mainMelta: Int = 0,
@@ -138,6 +141,7 @@ data class UnitTemplate(
     val meleeDamage: Int = 1,
     val meleeSustainedHits: Int = 0,
     val meleeTwinLinked: Boolean = false,
+    val meleeAntiNonMonsterVehicle: Int = 0,
     val pistolWeaponName: String = "Bolt Pistol",
     val pistolAttacks: Int = 1,
     val pistolDamage: Int = 0,
@@ -151,6 +155,7 @@ data class UnitTemplate(
     val pistolTwinLinked: Boolean = false,
     val pistolRapidFire: Int = 0,
     val pistolAntiFly: Int = 0,
+    val leadableIds: List<String> = emptyList(),
     val auxRangedProfile: WeaponProfile? = null,
     val warriorMeleeProfile: WeaponProfile? = null,
     val warriorRangedProfile: WeaponProfile? = null,
@@ -254,8 +259,16 @@ data class BattleUnit(
     val legionaryWoundRerollBuffActive: Boolean = false,
     val brutalisChargeBuffActive: Boolean = false,
     val brutalisAttackStacks: Int = 0,
-    val brutalisStackEarnedThisTurn: Boolean = false
+    val brutalisStackEarnedThisTurn: Boolean = false,
+    val attachedLeaderUid: String? = null,
+    val bodyguardUid: String? = null,
+    val isHero: Boolean = false,
+    val hasFeelNoPain: Boolean = false,
+    val inheritedPassiveIds: List<String> = emptyList(),
+    val honourOfUltramarPendingRemoval: Boolean = false
 ) {
+    val isHeroLeader: Boolean
+        get() = isHero || template.isHero || template.archetype == UnitArchetype.CAPTAIN_TITUS || template.id == "captain_titus"
     val pos: GridPos get() = GridPos(x, y)
     val worldPos: WorldPos get() = WorldPos(worldX, worldY)
     val isAlive: Boolean get() = totalWounds > 0
@@ -362,6 +375,8 @@ data class TargetPreview(
     val meltaBonus: Int = 0,
     val rapidFireBonus: Int = 0,
     val antiFlyTriggered: Boolean = false,
+    val antiNonMonsterVehicleTriggered: Boolean = false,
+    val heavyApplied: Boolean = false,
     val cleaveBonus: Int = 0,
     val darkPactChoice: DarkPactChoice = DarkPactChoice.NONE,
     val markedBonusApplied: Boolean = false,

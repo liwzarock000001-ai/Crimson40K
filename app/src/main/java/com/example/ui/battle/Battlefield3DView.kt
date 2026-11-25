@@ -2,12 +2,21 @@ package com.example.ui.battle
 
 import android.graphics.PixelFormat
 import android.opengl.GLSurfaceView
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.CutCornerShape
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -26,19 +35,26 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.engine.MapGenerator
+import com.example.engine.TacticalRules
 import com.example.model.Faction
 import com.example.model.GridPos
+import com.example.model.UnitArchetype
+import com.example.ui.theme.ColorTokens
+import com.example.ui.theme.ImperialGold
 import com.example.ui.theme.MarineBright
 import com.example.ui.theme.TacticalCyan
 import com.example.ui.theme.XenosViolet
@@ -46,6 +62,7 @@ import com.example.viewmodel.BattleUiState
 import kotlinx.coroutines.channels.Channel
 import kotlin.math.abs
 import kotlin.math.cos
+import kotlin.math.roundToInt
 import kotlin.math.sin
 
 @Composable
@@ -57,6 +74,7 @@ fun Battlefield3DView(
     zoomStepTrigger: Int = 0,
     zoomStepDirection: Int = 0,
     onWorldTap: (Float, Float) -> Unit,
+    onJoinSquad: (String, String) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -139,7 +157,14 @@ fun Battlefield3DView(
         }
     }
 
-    LaunchedEffect(state.floatingTexts.isNotEmpty(), state.isAnimating, state.movePreview) {
+    LaunchedEffect(
+        state.floatingTexts.isNotEmpty(),
+        state.isAnimating,
+        state.movePreview,
+        state.units,
+        state.selectedUnitUid,
+        state.isPlayerTurn
+    ) {
         if (state.floatingTexts.isNotEmpty() || state.isAnimating) {
             overlayWakeChannel.trySend(Unit)
         } else {
@@ -169,6 +194,13 @@ fun Battlefield3DView(
     val vecScratch = remember { FloatArray(4) }
     val clipScratch = remember { FloatArray(4) }
     val outXY = remember { FloatArray(2) }
+    val btnVpScratch = remember { FloatArray(16) }
+    val btnProjScratch = remember { FloatArray(16) }
+    val btnViewScratch = remember { FloatArray(16) }
+    val btnEyeScratch = remember { FloatArray(3) }
+    val btnVecScratch = remember { FloatArray(4) }
+    val btnClipScratch = remember { FloatArray(4) }
+    val btnOutXY = remember { FloatArray(2) }
     val plateLabelCache = remember { HashMap<String, TextLayoutResult>(32) }
     val floatTextCache = remember { HashMap<Long, Pair<Long, TextLayoutResult>>(16) }
 
@@ -273,8 +305,9 @@ fun Battlefield3DView(
                 val woundsFrac = (unit.totalWounds.toFloat() / unit.maxTotalWounds.coerceAtLeast(1)).coerceIn(0f, 1f)
 
                 val plateAlpha = ((cam.distance - 1.35f) / 1.4f).coerceIn(0.28f, 1f)
+                val leaderLift = if (unit.bodyguardUid != null) 26f * density else 0f
                 val left = sx - plateW * 0.5f
-                val top = sy - plateH - 4f * density
+                val top = sy - plateH - 4f * density - leaderLift
 
                 drawRoundRect(
                     color = Color(0xE60B0D11).copy(alpha = 0.90f * plateAlpha),
@@ -351,6 +384,41 @@ fun Battlefield3DView(
                     drawText(
                         textLayoutResult = markMeasured,
                         topLeft = Offset(mLeft + mPadX, mTop + mPadY),
+                        alpha = plateAlpha
+                    )
+                }
+
+                // In-world Leader badge when Hero is attached to a Bodyguard
+                if (unit.bodyguardUid != null) {
+                    val leaderBadge = "🛡️ LEADER"
+                    val lMeasured = plateLabelCache.getOrPut(leaderBadge) {
+                        textMeasurer.measure(
+                            leaderBadge,
+                            TextStyle(color = Color(0xFFFFD166), fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                        )
+                    }
+                    val lPadX = 5f * density
+                    val lPadY = 2f * density
+                    val lW = lMeasured.size.width + lPadX * 2f
+                    val lH = lMeasured.size.height + lPadY * 2f
+                    val lLeft = sx - lW * 0.5f
+                    val lTop = top - lH - (if (unit.isMarked) 22f else 3.5f) * density
+                    drawRoundRect(
+                        color = Color(0xEE2A1E0B).copy(alpha = plateAlpha),
+                        topLeft = Offset(lLeft, lTop),
+                        size = Size(lW, lH),
+                        cornerRadius = cornerR
+                    )
+                    drawRoundRect(
+                        color = Color(0xFFFFD166).copy(alpha = plateAlpha),
+                        topLeft = Offset(lLeft, lTop),
+                        size = Size(lW, lH),
+                        cornerRadius = cornerR,
+                        style = Stroke(width = 1f * density)
+                    )
+                    drawText(
+                        textLayoutResult = lMeasured,
+                        topLeft = Offset(lLeft + lPadX, lTop + lPadY),
                         alpha = plateAlpha
                     )
                 }
@@ -444,6 +512,81 @@ fun Battlefield3DView(
                         }
                     }
                 }
+            }
+        }
+
+        // 4. Interactive Overhead "JOIN" UI Button above Captain Titus when within 2cm of an eligible squad
+        val joinCandidates = remember(
+            state.units,
+            state.isPlayerTurn,
+            state.isAnimating,
+            state.isDeploymentPhase,
+            state.isCoopMode,
+            state.activeCoopPlayerId
+        ) {
+            if (!state.isPlayerTurn || state.isAnimating || state.isDeploymentPhase) {
+                emptyList()
+            } else {
+                state.units.mapNotNull { hero ->
+                    val isHero = hero.isHeroLeader
+                    if (!hero.isAlive || !isHero || hero.bodyguardUid != null) return@mapNotNull null
+                    val squad = state.units.firstOrNull { other ->
+                        other.isAlive && other.uid != hero.uid && other.isAllyOf(hero) &&
+                            TacticalRules.canLeadSquad(hero, other) &&
+                            TacticalRules.isWithinJoiningReach(hero, other) &&
+                            (state.canCommandUnit(hero) || state.canCommandUnit(other))
+                    } ?: return@mapNotNull null
+                    hero to squad
+                }
+            }
+        }
+
+        joinCandidates.forEach { (hero, squad) ->
+            OutlinedButton(
+                onClick = { onJoinSquad(hero.uid, squad.uid) },
+                shape = CutCornerShape(6.dp),
+                border = BorderStroke(1.5.dp, ImperialGold),
+                colors = ButtonDefaults.outlinedButtonColors(
+                    containerColor = ColorTokens.CyanSurface.copy(alpha = 0.96f),
+                    contentColor = TacticalCyan
+                ),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                modifier = Modifier
+                    .offset {
+                        @Suppress("UNUSED_VARIABLE")
+                        val tick = overlayDrawTick
+                        val cam = cameraRig.snapshot()
+                        cam.buildVpMatrixInto(btnVpScratch, btnProjScratch, btnViewScratch, btnEyeScratch, viewW, viewH)
+                        val visible = cam.projectWorldToOut(
+                            hero.worldX, 1.38f, hero.worldY,
+                            btnVpScratch, viewW, viewH,
+                            btnVecScratch, btnClipScratch, btnOutXY
+                        )
+                        if (!visible) {
+                            IntOffset(-5000, -5000)
+                        } else {
+                            val btnW = (76f * density).roundToInt()
+                            val btnH = (48f * density).roundToInt()
+                            val px = (btnOutXY[0] - btnW * 0.5f).roundToInt()
+                            val py = (btnOutXY[1] - btnH - (if (hero.isMarked) 34f else 18f) * density).roundToInt()
+                            if (px < -140 || px > viewW.roundToInt() + 140 || py < -140 || py > viewH.roundToInt() + 140) {
+                                IntOffset(-5000, -5000)
+                            } else {
+                                IntOffset(px, py)
+                            }
+                        }
+                    }
+                    .minimumInteractiveComponentSize()
+                    .testTag("join_overhead_button")
+            ) {
+                Text(
+                    text = "JOIN",
+                    color = ImperialGold,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Black,
+                    maxLines = 1,
+                    softWrap = false
+                )
             }
         }
     }

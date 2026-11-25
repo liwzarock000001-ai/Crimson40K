@@ -472,9 +472,19 @@ class GlesBattleRenderer(
             val meshVariant = if (useClaws) "CLAWS" else ""
             val unitVbo = getOrUploadVbo(MeshCatalog3D.getUnitMesh(unit.template.archetype, meshVariant))
 
+            val hasAttachedLeader = unit.attachedLeaderUid != null
             for (mIdx in 0 until count) {
-                val ox = subOffsetX(count, mIdx)
-                val oz = subOffsetZ(count, mIdx)
+                val ox: Float
+                val oz: Float
+                if (hasAttachedLeader) {
+                    val angle = (2.0 * Math.PI * mIdx / count.toDouble()).toFloat()
+                    val radius = 0.46f
+                    ox = cos(angle) * radius
+                    oz = sin(angle) * radius
+                } else {
+                    ox = subOffsetX(count, mIdx)
+                    oz = subOffsetZ(count, mIdx)
+                }
                 val wx = ux + ox
                 val wz = uz + oz
 

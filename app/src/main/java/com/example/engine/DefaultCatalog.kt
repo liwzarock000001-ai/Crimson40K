@@ -11,7 +11,7 @@ import org.json.JSONObject
 
 object DefaultCatalog {
 
-    const val CATALOG_EDITION = 13
+    const val CATALOG_EDITION = 14
 
     val defaultTemplates: List<UnitTemplate> = listOf(
         // --- ULTRAMARINES (Warhammer 40,000 11th Edition) ---
@@ -219,6 +219,56 @@ object DefaultCatalog {
             pistolArmorPen = 1,
             pistolRange = 4, // 18"
             pistolCooldown = 1
+        ),
+        UnitTemplate(
+            id = "captain_titus",
+            name = "Captain Titus",
+            faction = Faction.MARINES,
+            archetype = UnitArchetype.CAPTAIN_TITUS,
+            role = "HERO • Chapter Champion",
+            points = 105,
+            squadSize = 1,
+            woundsPerModel = 5,
+            toughness = 5,
+            save = 2,
+            invulnSave = 4,
+            armorPen = 1,
+            moveCm = 15,
+            strength = 5,
+            damage = 2,
+            attacksPerModel = 2,
+            range = 5, // 24"
+            ballisticSkill = 2,
+            weaponSkill = 2,
+            leadership = 5,
+            objectiveControl = 2,
+            isHero = true,
+            skillName = "Honour of Ultramar (Auto)",
+            skillDesc = "Auto Passive — Timing: Fight phase, this model dies. Condition: Its unit was not yet selected to fight in the phase. Result: Roll 1D6; on 2+, model stays on the battlefield and leaves as soon as its unit finishes fighting (or when the phase closes).",
+            skillCooldown = 0,
+            passiveName = "Press the Attack • Feel No Pain 5+",
+            passiveDesc = "Press the Attack: Melee attacks carry [Sustained Hits 1: non-Monster/Vehicle] (or [Sustained Hits 1] vs any target on Charge/Assault Doctrine). Feel No Pain 5+: Roll 1D6 per allocated wound; 5+ ignores wound. Leader (Max 1 Hero): Joins Intercessors, Assault Intercessors, Hellblasters, or Bladeguard Veterans.",
+            mainWeaponName = "Master-crafted Bolter",
+            mainWeaponAssault = true,
+            mainWeaponHeavy = true,
+            mainRapidFire = 1,
+            mainSustainedHits = 0,
+            meleeWeaponName = "Master-crafted Chainsword",
+            meleeAttacks = 8,
+            meleeWeaponSkill = 2,
+            meleeStrength = 5,
+            meleeArmorPen = 1,
+            meleeDamage = 2,
+            meleeSustainedHits = 0,
+            meleeAntiNonMonsterVehicle = 2,
+            pistolWeaponName = "Bolt Pistol",
+            pistolAttacks = 1,
+            pistolDamage = 1,
+            pistolStrength = 5,
+            pistolArmorPen = 1,
+            pistolRange = 3,
+            pistolCooldown = 1,
+            leadableIds = listOf("intercessors", "assault_intercessors", "hellblasters", "bladeguard_veterans")
         ),
         UnitTemplate(
             id = "terminators",
@@ -723,7 +773,8 @@ object DefaultCatalog {
         RosterSlot("m4", "terminators"),
         RosterSlot("m5", "dreadnought"),
         RosterSlot("m6", "bladeguard_veterans"),
-        RosterSlot("m7", "brutalis_dreadnought")
+        RosterSlot("m7", "brutalis_dreadnought"),
+        RosterSlot("m8", "captain_titus")
     )
 
     fun defaultXenosRoster(): List<RosterSlot> = listOf(
@@ -805,11 +856,13 @@ object DefaultCatalog {
                 put("objectiveControl", t.objectiveControl)
                 put("baseDiameterMm", t.baseDiameterMm)
                 put("isFly", t.isFly)
+                put("isHero", t.isHero)
                 put("skillCooldown", t.skillCooldown)
                 put("weaponChoice", t.weaponChoice?.name ?: "")
                 put("terminatorWeapon", t.terminatorWeapon?.name ?: "")
                 put("mainWeaponName", t.mainWeaponName)
                 put("mainWeaponAssault", t.mainWeaponAssault)
+                put("mainWeaponHeavy", t.mainWeaponHeavy)
                 put("mainWeaponPistol", t.mainWeaponPistol)
                 put("mainSustainedHits", t.mainSustainedHits)
                 put("mainMelta", t.mainMelta)
@@ -826,6 +879,8 @@ object DefaultCatalog {
                 put("meleeDamage", t.meleeDamage)
                 put("meleeSustainedHits", t.meleeSustainedHits)
                 put("meleeTwinLinked", t.meleeTwinLinked)
+                put("meleeAntiNonMonsterVehicle", t.meleeAntiNonMonsterVehicle)
+                put("leadableIds", JSONArray(t.leadableIds))
                 put("pistolAttacks", t.pistolAttacks)
                 put("pistolDamage", t.pistolDamage)
                 put("pistolStrength", t.pistolStrength)
@@ -931,11 +986,13 @@ object DefaultCatalog {
                     objectiveControl = obj.optInt("objectiveControl", existing.objectiveControl).coerceIn(0, 8),
                     baseDiameterMm = obj.optInt("baseDiameterMm", existing.baseDiameterMm).coerceIn(25, 130),
                     isFly = obj.optBoolean("isFly", existing.isFly),
-                    skillCooldown = if (id == "terminators") existing.skillCooldown else obj.optInt("skillCooldown", existing.skillCooldown).coerceIn(1, 8),
+                    isHero = obj.optBoolean("isHero", existing.isHero),
+                    skillCooldown = if (id == "terminators" || id == "captain_titus") existing.skillCooldown else obj.optInt("skillCooldown", existing.skillCooldown).coerceIn(0, 8),
                     weaponChoice = wc,
                     terminatorWeapon = tw,
                     mainWeaponName = if (isLegacyTerminator) existing.mainWeaponName else obj.optString("mainWeaponName", existing.mainWeaponName).ifBlank { existing.mainWeaponName },
                     mainWeaponAssault = if (isLegacyTerminator) existing.mainWeaponAssault else if (obj.has("mainWeaponAssault")) obj.optBoolean("mainWeaponAssault", existing.mainWeaponAssault) else existing.mainWeaponAssault,
+                    mainWeaponHeavy = obj.optBoolean("mainWeaponHeavy", existing.mainWeaponHeavy),
                     mainWeaponPistol = if (isLegacyTerminator) existing.mainWeaponPistol else if (obj.has("mainWeaponPistol")) obj.optBoolean("mainWeaponPistol", existing.mainWeaponPistol) else existing.mainWeaponPistol,
                     mainSustainedHits = obj.optInt("mainSustainedHits", existing.mainSustainedHits).coerceIn(0, 6),
                     mainMelta = obj.optInt("mainMelta", existing.mainMelta).coerceIn(0, 10),
@@ -952,6 +1009,10 @@ object DefaultCatalog {
                     meleeDamage = obj.optInt("meleeDamage", existing.meleeDamage).coerceIn(1, 500),
                     meleeSustainedHits = obj.optInt("meleeSustainedHits", existing.meleeSustainedHits).coerceIn(0, 6),
                     meleeTwinLinked = obj.optBoolean("meleeTwinLinked", existing.meleeTwinLinked),
+                    meleeAntiNonMonsterVehicle = obj.optInt("meleeAntiNonMonsterVehicle", existing.meleeAntiNonMonsterVehicle).coerceIn(0, 6),
+                    leadableIds = obj.optJSONArray("leadableIds")?.let { lArr ->
+                        (0 until lArr.length()).mapNotNull { idx -> lArr.optString(idx).takeIf { it.isNotBlank() } }
+                    } ?: existing.leadableIds,
                     pistolAttacks = obj.optInt("pistolAttacks", existing.pistolAttacks).coerceIn(1, 10),
                     pistolDamage = obj.optInt("pistolDamage", existing.pistolDamage).coerceIn(0, 200),
                     pistolStrength = obj.optInt("pistolStrength", existing.pistolStrength).coerceIn(1, 20),

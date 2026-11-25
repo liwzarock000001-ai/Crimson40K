@@ -52,8 +52,8 @@ service cloud.firestore {
              data.actionType in [
                'TAP_WORLD', 'TOGGLE_MOVE', 'ADVANCE', 'SET_CM', 'WALK_CM',
                'CONFIRM_MOVE', 'CANCEL_MOVE', 'TOGGLE_CHARGE', 'CONFIRM_CHARGE',
-               'CANCEL_CHARGE', 'STRIKE', 'WEAPON_MODE', 'ROTATE', 'FIGHT_FIRST', 'END_TURN',
-               'DEPLOY_UNIT'
+               'CANCEL_CHARGE', 'STRIKE', 'SELECT_DARK_PACT', 'WEAPON_MODE', 'ROTATE',
+               'JOIN_SQUAD', 'FIGHT_FIRST', 'END_TURN', 'DEPLOY_UNIT'
              ] &&
              (!('wx' in data) || data.wx is number) &&
              (!('wy' in data) || data.wy is number) &&

@@ -10,9 +10,11 @@ import com.example.model.CoverTag
 import com.example.model.Facing
 import com.example.model.Faction
 import com.example.model.GridPos
+import com.example.model.RosterSlot
 import com.example.model.TerrainType
 import com.example.model.TerminatorWeaponChoice
 import com.example.model.UnitArchetype
+import com.example.model.UnitTemplate
 import com.example.model.WarriorWeaponChoice
 import com.example.model.WeaponMode
 import com.example.ui.battle.UnitMeshSculptor3D
@@ -1216,9 +1218,30 @@ class TacticalEngineTest {
     @Test
     fun allTwelveUnitsMatchWarhammer40k11thEditionStatsPointsAndMigrateOldConfigs() {
         val byId = DefaultCatalog.defaultTemplates.associateBy { it.id }
-        assertEquals(17, byId.size)
+        assertEquals(18, byId.size)
 
         // --- Ultramarines (11e) ---
+        val titus = byId.getValue("captain_titus")
+        assertTrue(titus.isHero)
+        assertEquals(105, titus.points)
+        assertEquals(1, titus.squadSize)
+        assertEquals(5, titus.toughness)
+        assertEquals(2, titus.save)
+        assertEquals(4, titus.invulnSave)
+        assertEquals(5, titus.woundsPerModel)
+        assertEquals(0, titus.skillCooldown)
+        assertTrue(titus.mainWeaponAssault)
+        assertTrue(titus.mainWeaponHeavy)
+        assertEquals(1, titus.mainRapidFire)
+        assertEquals(8, titus.meleeAttacks)
+        assertEquals(2, titus.meleeWeaponSkill)
+        assertEquals(0, titus.meleeSustainedHits)
+        assertEquals(2, titus.meleeAntiNonMonsterVehicle)
+        assertEquals(
+            setOf("assault_intercessors", "intercessors", "hellblasters", "bladeguard_veterans"),
+            titus.leadableIds.toSet()
+        )
+
         val intercessors = byId.getValue("intercessors")
         assertEquals(85, intercessors.points)
         assertEquals(5, intercessors.squadSize)
@@ -2309,5 +2332,328 @@ class TacticalEngineTest {
         assertFalse(p1Leaper.isEnemyOf(p2AllyLeaper))
         assertTrue(p1Leaper.isEnemyOf(p3EnemyLeaper))
     }
-}
 
+    @Test
+    fun captainTitusJoinEligibilityModelReachAndHeroLimit() {
+        val byId = DefaultCatalog.defaultTemplates.associateBy { it.id }
+        val titusTpl = byId.getValue("captain_titus")
+        val intercessorsTpl = byId.getValue("intercessors")
+        val assaultTpl = byId.getValue("assault_intercessors")
+        val hellblastersTpl = byId.getValue("hellblasters")
+        val bladeguardTpl = byId.getValue("bladeguard_veterans")
+        val dreadTpl = byId.getValue("dreadnought")
+        val termisTpl = byId.getValue("terminators")
+        val incursorsTpl = byId.getValue("incursors")
+
+        fun spawn(uid: String, tpl: UnitTemplate, wx: Float, wy: Float): BattleUnit = BattleUnit(
+            uid = uid,
+            template = tpl,
+            faction = tpl.faction,
+            x = wx.toInt(),
+            y = wy.toInt(),
+            worldX = wx,
+            worldY = wy,
+            facing = Facing.EAST,
+            totalWounds = tpl.maxTotalWounds,
+            maxTotalWounds = tpl.maxTotalWounds,
+            moveCmLeft = tpl.moveCm.toFloat(),
+            isHero = tpl.isHero,
+            hasFeelNoPain = tpl.isHero
+        )
+
+        val titus = spawn("t1", titusTpl, 5f, 5f)
+        val intercessors = spawn("i1", intercessorsTpl, 5.4f, 5f)
+        val assault = spawn("a1", assaultTpl, 5.4f, 5f)
+        val hellblasters = spawn("h1", hellblastersTpl, 5.4f, 5f)
+        val bladeguard = spawn("b1", bladeguardTpl, 5.4f, 5f)
+        val dread = spawn("d1", dreadTpl, 5.4f, 5f)
+        val termis = spawn("tm1", termisTpl, 5.4f, 5f)
+        val incursors = spawn("inc1", incursorsTpl, 5.4f, 5f)
+
+        assertTrue(TacticalRules.canLeadSquad(titus, intercessors))
+        assertTrue(TacticalRules.canLeadSquad(titus, assault))
+        assertTrue(TacticalRules.canLeadSquad(titus, hellblasters))
+        assertTrue(TacticalRules.canLeadSquad(titus, bladeguard))
+        assertFalse(TacticalRules.canLeadSquad(titus, dread))
+        assertFalse(TacticalRules.canLeadSquad(titus, termis))
+        assertFalse(TacticalRules.canLeadSquad(titus, incursors))
+
+        // Far apart (> 2cm) vs within 2cm of a squad edge model
+        val farIntercessors = spawn("i_far", intercessorsTpl, 9f, 5f)
+        assertFalse(TacticalRules.isWithinJoiningReach(titus, farIntercessors))
+
+        // Center-to-center is ~1.05 tile (~2.1cm), while edge sub-model of a 5-man squad is 0.42 tile closer -> within 2cm
+        val edgeIntercessors = spawn("i_edge", intercessorsTpl, 6.0f, 5f)
+        assertTrue(TacticalRules.isWithinJoiningReach(titus, edgeIntercessors))
+
+        // Hero limit: max 1 Hero in Skirmish army validation
+        val setupDoubleHero = com.example.viewmodel.SetupUiState(
+            templates = byId,
+            playerFaction = Faction.MARINES,
+            enemyFaction = Faction.XENOS,
+            marineRoster = listOf(RosterSlot("s1", "captain_titus"), RosterSlot("s2", "captain_titus"))
+        )
+        assertNotNull(setupDoubleHero.validationWarning)
+        assertFalse(setupDoubleHero.canDeploy)
+    }
+
+    @Test
+    fun captainTitusHeavyAntiNonMvPressTheAttackAndFeelNoPain() {
+        val map = Array(MapGenerator.GRID_H) { Array(MapGenerator.GRID_W) { TerrainType.OPEN } }
+        val byId = DefaultCatalog.defaultTemplates.associateBy { it.id }
+        val titusTpl = byId.getValue("captain_titus")
+        val gauntTpl = byId.getValue("termagants")
+        val carnifexTpl = byId.getValue("carnifex")
+
+        val titusStationary = BattleUnit(
+            uid = "t1",
+            template = titusTpl,
+            faction = Faction.MARINES,
+            x = 2,
+            y = 6,
+            facing = Facing.EAST,
+            totalWounds = 5,
+            maxTotalWounds = 5,
+            moveCmLeft = titusTpl.moveCm.toFloat(),
+            isHero = true,
+            hasFeelNoPain = true
+        )
+        val enemyInfantry = BattleUnit(
+            uid = "g1",
+            template = gauntTpl,
+            faction = Faction.XENOS,
+            x = 5,
+            y = 6,
+            facing = Facing.WEST,
+            totalWounds = 10,
+            maxTotalWounds = 10,
+            moveCmLeft = 15f
+        )
+
+        // 1. Heavy +1 Hit when stationary (heavyApplied flag)
+        val stationaryShot = TacticalRules.canTarget(titusStationary, enemyInfantry, WeaponMode.MAIN, map, listOf(titusStationary, enemyInfantry))!!
+        assertTrue(stationaryShot.heavyApplied)
+        val movedTitus = titusStationary.copy(moveCmLeft = 10f)
+        val movedShot = TacticalRules.canTarget(movedTitus, enemyInfantry, WeaponMode.MAIN, map, listOf(movedTitus, enemyInfantry))!!
+        assertFalse(movedShot.heavyApplied)
+
+        // 2. Press the Attack + Anti-Non-Monster/Vehicle 2+ in melee
+        val adjGaunt = enemyInfantry.copy(x = 3, y = 6, worldX = 3f, worldY = 6f)
+        val meleeVsInfantry = TacticalRules.canTarget(titusStationary, adjGaunt, WeaponMode.MAIN, map, listOf(titusStationary, adjGaunt))!!
+        assertTrue(meleeVsInfantry.isMelee)
+        assertTrue(meleeVsInfantry.antiNonMonsterVehicleTriggered)
+        assertEquals(2, meleeVsInfantry.woundRollNeeded)
+        assertEquals(1, meleeVsInfantry.sustainedHits)
+
+        val adjCarnifex = BattleUnit(
+            uid = "c1",
+            template = carnifexTpl,
+            faction = Faction.XENOS,
+            x = 3,
+            y = 6,
+            facing = Facing.WEST,
+            totalWounds = 8,
+            maxTotalWounds = 8,
+            moveCmLeft = 20f
+        )
+        val meleeVsMonsterNoCharge = TacticalRules.canTarget(titusStationary, adjCarnifex, WeaponMode.MAIN, map, listOf(titusStationary, adjCarnifex))!!
+        assertFalse(meleeVsMonsterNoCharge.antiNonMonsterVehicleTriggered)
+        assertEquals(0, meleeVsMonsterNoCharge.sustainedHits)
+
+        val chargedTitus = titusStationary.copy(hasCharged = true)
+        val meleeVsMonsterCharged = TacticalRules.canTarget(chargedTitus, adjCarnifex, WeaponMode.MAIN, map, listOf(chargedTitus, adjCarnifex))!!
+        assertEquals(1, meleeVsMonsterCharged.sustainedHits)
+
+        // 3. Feel No Pain 5+: 6s ignore wounds, so Titus takes 0 wounds!
+        val alwaysSixRng = object : Random() {
+            override fun nextBits(bitCount: Int): Int = 0
+            override fun nextInt(from: Int, until: Int): Int = 6
+        }
+        val remainingAfterFnp = TacticalRules.applyFeelNoPain(titusStationary, incomingDamage = 4, rng = alwaysSixRng)
+        assertEquals(0, remainingAfterFnp)
+    }
+
+    @Test
+    fun leaderBodyguardTargetingSimultaneousCombatZeroOverkillAndHonourOfUltramar() {
+        val map = Array(MapGenerator.GRID_H) { Array(MapGenerator.GRID_W) { TerrainType.OPEN } }
+        val byId = DefaultCatalog.defaultTemplates.associateBy { it.id }
+        val titusTpl = byId.getValue("captain_titus")
+        val intercessorsTpl = byId.getValue("intercessors")
+        val carnifexTpl = byId.getValue("carnifex")
+
+        val titus = BattleUnit(
+            uid = "leader_titus",
+            template = titusTpl,
+            faction = Faction.MARINES,
+            x = 5,
+            y = 6,
+            facing = Facing.EAST,
+            totalWounds = 5,
+            maxTotalWounds = 5,
+            moveCmLeft = 15f,
+            isHero = true,
+            hasFeelNoPain = true,
+            bodyguardUid = "bg_intercessors"
+        )
+        val bodyguard = BattleUnit(
+            uid = "bg_intercessors",
+            template = intercessorsTpl,
+            faction = Faction.MARINES,
+            x = 5,
+            y = 6,
+            facing = Facing.EAST,
+            totalWounds = 2, // last 2W model remaining!
+            maxTotalWounds = intercessorsTpl.maxTotalWounds,
+            moveCmLeft = 15f,
+            attachedLeaderUid = "leader_titus"
+        )
+        val carnifex = BattleUnit(
+            uid = "foe_carnifex",
+            template = carnifexTpl.copy(attacksPerModel = 2, weaponSkill = 2, strength = 12, armorPen = 4, damage = 4),
+            faction = Faction.XENOS,
+            x = 6,
+            y = 6,
+            facing = Facing.WEST,
+            totalWounds = 20,
+            maxTotalWounds = 20,
+            moveCmLeft = 20f
+        )
+
+        val all = listOf(titus, bodyguard, carnifex)
+
+        // 1. Simultaneous combat: triggering melee from Bodyguard resolves BOTH Bodyguard and Titus weapons
+        val alwaysHitFailSave = object : Random() {
+            private val seq = intArrayOf(5, 5, 1)
+            private var idx = 0
+            override fun nextBits(bitCount: Int): Int = 0
+            override fun nextInt(from: Int, until: Int): Int = seq[idx++ % seq.size]
+        }
+        val simulOutcome = TacticalRules.resolveAttack(
+            attacker = bodyguard,
+            primaryTarget = carnifex,
+            allUnits = all,
+            mode = WeaponMode.MAIN,
+            map = map,
+            rng = alwaysHitFailSave
+        )
+        assertTrue(simulOutcome.updatedTargets.first { it.uid == carnifex.uid }.totalWounds < 20)
+        assertEquals(2, simulOutcome.logEntries.size) // Both Bodyguard and Titus logged
+
+        // 2. Targeting Titus routes to Bodyguard first -> Bodyguard dies with huge overkill -> Titus takes 0 spillover and inherits Intercessors passive permanently
+        val killBodyguardOutcome = TacticalRules.resolveAttack(
+            attacker = carnifex,
+            primaryTarget = titus,
+            allUnits = all,
+            mode = WeaponMode.MAIN,
+            map = map,
+            rng = object : Random() {
+                private val seq = intArrayOf(6, 6, 1, 1) // Hit 6, Wound 6, Save 1, FNP 1
+                private var idx = 0
+                override fun nextBits(bitCount: Int): Int = 0
+                override fun nextInt(from: Int, until: Int): Int = seq[idx++ % seq.size]
+            }
+        )
+        val updatedBg = killBodyguardOutcome.updatedTargets.first { it.uid == bodyguard.uid }
+        assertEquals(0, updatedBg.totalWounds)
+        val detachedTitus = killBodyguardOutcome.updatedTargets.firstOrNull { it.uid == titus.uid }
+        assertNotNull(detachedTitus)
+        assertNull(detachedTitus!!.bodyguardUid)
+        assertEquals(5, detachedTitus.totalWounds) // Zero spillover!
+        assertTrue("intercessors" in detachedTitus.inheritedPassiveIds)
+
+        // 3. Honour of Ultramar: Titus dying in Fight phase while !hasFought rolls 2+ to stay at 1W with honourOfUltramarPendingRemoval = true
+        val soloTitus = detachedTitus.copy(hasFought = false, totalWounds = 1)
+        val honourOut = TacticalRules.resolveAttack(
+            attacker = carnifex,
+            primaryTarget = soloTitus,
+            allUnits = listOf(soloTitus, carnifex),
+            mode = WeaponMode.MAIN,
+            map = map,
+            rng = object : Random() {
+                // Hit 6, Wound 6, Save 1, FNP 1 (fails FNP 5+), Honour 5 (passes 2+!)
+                private val seq = intArrayOf(6, 6, 1, 1, 5)
+                private var idx = 0
+                override fun nextBits(bitCount: Int): Int = 0
+                override fun nextInt(from: Int, until: Int): Int = seq[idx++ % seq.size]
+            }
+        )
+        val standingTitus = honourOut.updatedTargets.first { it.uid == soloTitus.uid }
+        assertTrue(standingTitus.isAlive)
+        assertEquals(1, standingTitus.totalWounds)
+        assertTrue(standingTitus.honourOfUltramarPendingRemoval)
+    }
+
+    @Test
+    fun coopTurnOwnershipSyncRevisionAndAnimationLockChecks() {
+        val byId = DefaultCatalog.defaultTemplates.associateBy { it.id }
+        val bladeguardTpl = byId.getValue("bladeguard_veterans")
+        val gauntTpl = byId.getValue("termagants")
+
+        val p1Unit = BattleUnit(
+            uid = "u_p1",
+            template = bladeguardTpl,
+            faction = Faction.MARINES,
+            x = 2,
+            y = 5,
+            facing = Facing.EAST,
+            totalWounds = bladeguardTpl.maxTotalWounds,
+            maxTotalWounds = bladeguardTpl.maxTotalWounds,
+            moveCmLeft = bladeguardTpl.moveCm.toFloat(),
+            ownerPlayerId = "p1",
+            ownerPlayerName = "NEETMANTH"
+        )
+        val p3Unit = BattleUnit(
+            uid = "u_p3",
+            template = gauntTpl,
+            faction = Faction.XENOS,
+            x = 18,
+            y = 5,
+            facing = Facing.WEST,
+            totalWounds = gauntTpl.maxTotalWounds,
+            maxTotalWounds = gauntTpl.maxTotalWounds,
+            moveCmLeft = gauntTpl.moveCm.toFloat(),
+            ownerPlayerId = "p3",
+            ownerPlayerName = "Guest"
+        )
+
+        val p1TurnOnP3Device = com.example.viewmodel.BattleUiState(
+            active = true,
+            round = 3,
+            activeFaction = Faction.MARINES,
+            playerFaction = Faction.MARINES,
+            enemyFaction = Faction.XENOS,
+            units = listOf(p1Unit, p3Unit),
+            selectedUnitUid = p1Unit.uid,
+            isCoopMode = true,
+            coopTurnIndex = 0,
+            activeCoopPlayerId = "p1",
+            activeCoopPlayerName = "NEETMANTH",
+            localControlledPlayerId = "p3",
+            isAnimating = false,
+            isAiThinking = false,
+            syncRevision = 42L
+        )
+        assertFalse(p1TurnOnP3Device.isPlayerTurn)
+        assertFalse(p1TurnOnP3Device.canAcceptInput(isRemoteClientAction = false))
+        assertTrue(p1TurnOnP3Device.canAcceptInput(isRemoteClientAction = true))
+
+        // After host clears animation and advances turn to p3 (Round 3), p3 controls their units immediately
+        val p3TurnOnP3Device = p1TurnOnP3Device.copy(
+            activeFaction = Faction.XENOS,
+            selectedUnitUid = p3Unit.uid,
+            coopTurnIndex = 1,
+            activeCoopPlayerId = "p3",
+            activeCoopPlayerName = "Guest",
+            syncRevision = 43L
+        )
+        assertTrue(p3TurnOnP3Device.isPlayerTurn)
+        assertTrue(p3TurnOnP3Device.canAcceptInput(isRemoteClientAction = false))
+        assertTrue(p3TurnOnP3Device.canCommandUnit(p3Unit, isRemoteClientAction = false))
+        assertFalse(p3TurnOnP3Device.canCommandUnit(p1Unit, isRemoteClientAction = false))
+
+        // Stuck animation blocks both local and remote actions, reinforcing why finally/turn transitions must clear it
+        val stuckAnimState = p3TurnOnP3Device.copy(isAnimating = true)
+        assertFalse(stuckAnimState.canAcceptInput(isRemoteClientAction = false))
+        assertFalse(stuckAnimState.canAcceptInput(isRemoteClientAction = true))
+    }
+}

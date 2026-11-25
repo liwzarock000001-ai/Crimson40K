@@ -255,6 +255,29 @@ test("Host can sync customTemplates and non-hosts cannot alter them; FIGHT_FIRST
       createdAt: new Date(Date.now() - 100),
     })
   );
+
+  await assertSucceeds(
+    bobDb.collection("coop_rooms").doc(ROOM_CODE).collection("actions").doc("act_join").set({
+      userId: BOB_UID,
+      hostUid: ALICE_UID,
+      playerId: "p2",
+      actionType: "JOIN_SQUAD",
+      wx: 0,
+      wy: 1,
+      createdAt: new Date(Date.now() - 80),
+    })
+  );
+
+  await assertSucceeds(
+    bobDb.collection("coop_rooms").doc(ROOM_CODE).collection("actions").doc("act_pact").set({
+      userId: BOB_UID,
+      hostUid: ALICE_UID,
+      playerId: "p2",
+      actionType: "SELECT_DARK_PACT",
+      cm: 1,
+      createdAt: new Date(Date.now() - 60),
+    })
+  );
 });
 
 test("Host can set and update pointLimit within 500..5000 while invalid bounds and non-host updates fail", async () => {

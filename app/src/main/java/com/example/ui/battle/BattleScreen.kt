@@ -164,6 +164,7 @@ fun BattleScreen(
     onDismissTurnSplash: () -> Unit,
     onSelectReserveUnit: (String) -> Unit = {},
     onSaveBattle: () -> Unit = {},
+    onJoinSquad: (String, String) -> Unit = { _, _ -> },
     onExitToSetup: () -> Unit
 ) {
     var showConfirmExit by remember { mutableStateOf(false) }
@@ -211,6 +212,7 @@ fun BattleScreen(
             zoomStepTrigger = zoomStepTrigger,
             zoomStepDirection = zoomStepDirection,
             onWorldTap = onWorldTap,
+            onJoinSquad = onJoinSquad,
             modifier = Modifier.fillMaxSize()
         )
 
@@ -584,6 +586,7 @@ fun BattleScreen(
                 selectedUnit?.let { unit ->
                     UnitStatusCard(
                         unit = unit,
+                        allUnits = state.units,
                         isEngagedInMelee = isSelectedEngaged,
                         collapsed = state.unitCardCollapsed,
                         onToggleCollapse = onToggleUnitCard,
@@ -612,6 +615,7 @@ fun BattleScreen(
                     onFightFirst = onFightFirst,
                     onSelectWeaponMode = onSelectWeaponMode,
                     onEndTurn = onEndTurn,
+                    onJoinSquad = onJoinSquad,
                     onInspectSkill = { template -> viewingSkillInfoTemplate = template }
                 )
             }
@@ -991,6 +995,7 @@ private fun TargetPreviewBanner(
                     overflow = TextOverflow.Ellipsis
                 )
                 if (preview.markedBonusApplied ||
+                    preview.heavyApplied ||
                     preview.sustainedHits > 0 ||
                     preview.lethalHits ||
                     preview.rerollWoundOnes ||
@@ -998,6 +1003,7 @@ private fun TargetPreviewBanner(
                     preview.meltaBonus > 0 ||
                     preview.rapidFireBonus > 0 ||
                     preview.antiFlyTriggered ||
+                    preview.antiNonMonsterVehicleTriggered ||
                     preview.cleaveBonus > 0
                 ) {
                     FlowRow(
@@ -1009,6 +1015,14 @@ private fun TargetPreviewBanner(
                                 text = "◎ MARKED (+1 HIT)",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = WarmAmber,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        if (preview.heavyApplied) {
+                            Text(
+                                text = "[HEAVY +1 HIT]",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = EmeraldBuff,
                                 fontWeight = FontWeight.Bold
                             )
                         }
@@ -1049,6 +1063,14 @@ private fun TargetPreviewBanner(
                                 text = "[ANTI-FLY]",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = TacticalCyan,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        if (preview.antiNonMonsterVehicleTriggered) {
+                            Text(
+                                text = "[ANTI-NON-M/V 2+]",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = CrimsonSoft,
                                 fontWeight = FontWeight.Bold
                             )
                         }
@@ -1171,12 +1193,18 @@ private fun TargetPreviewBanner(
 @Composable
 private fun UnitStatusCard(
     unit: BattleUnit,
+    allUnits: List<BattleUnit> = emptyList(),
     isEngagedInMelee: Boolean,
     collapsed: Boolean,
     onToggleCollapse: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val pal = factionPalette(unit.faction)
+    val attachedPartner = remember(unit, allUnits) {
+        (unit.attachedLeaderUid ?: unit.bodyguardUid)?.let { pid ->
+            allUnits.firstOrNull { it.uid == pid && it.isAlive }
+        }
+    }
 
     GrimdarkBevelPanel(
         cut = 8.dp,
@@ -1302,6 +1330,24 @@ private fun UnitStatusCard(
                     if (unit.brutalisChargeBuffActive) {
                         StatPill("CHARGE", "+2S +1AP", WarmAmber)
                     }
+                    if (unit.isHeroLeader) {
+                        StatPill("TYPE", "HERO", ImperialGold)
+                    }
+                    if (unit.bodyguardUid != null && attachedPartner != null) {
+                        StatPill("LEADING", attachedPartner.template.name.take(14).uppercase(), TacticalCyan)
+                    }
+                    if (unit.attachedLeaderUid != null && attachedPartner != null) {
+                        StatPill("LEADER", attachedPartner.template.name.take(14).uppercase(), ImperialGold)
+                    }
+                    if (TacticalRules.unitHasFeelNoPain(unit, allUnits)) {
+                        StatPill("FNP", "5+", EmeraldBuff)
+                    }
+                    if (unit.honourOfUltramarPendingRemoval) {
+                        StatPill("HONOUR", "LAST STAND", WarmAmber)
+                    }
+                    if (unit.inheritedPassiveIds.isNotEmpty()) {
+                        StatPill("INHERITED", "${unit.inheritedPassiveIds.size} PASSIVE", EmeraldBuff)
+                    }
                     if (unit.template.archetype == UnitArchetype.BRUTALIS_DREADNOUGHT) {
                         StatPill(
                             "STACK",
@@ -1329,6 +1375,32 @@ private fun UnitStatusCard(
                         val tagShape = remember { CutCornerShape(3.dp) }
                         Text(
                             text = "ASSAULT",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = EmeraldBuff,
+                            modifier = Modifier
+                                .clip(tagShape)
+                                .background(EmeraldSurface)
+                                .border(0.8.dp, EmeraldBorder, tagShape)
+                                .padding(horizontal = 5.dp, vertical = 1.dp)
+                        )
+                    }
+                    if (unit.template.mainWeaponHeavy) {
+                        val tagShape = remember { CutCornerShape(3.dp) }
+                        Text(
+                            text = "HEAVY",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = TacticalCyan,
+                            modifier = Modifier
+                                .clip(tagShape)
+                                .background(TacticalCyan.copy(alpha = 0.16f))
+                                .border(0.8.dp, TacticalCyan.copy(alpha = 0.55f), tagShape)
+                                .padding(horizontal = 5.dp, vertical = 1.dp)
+                        )
+                    }
+                    if (unit.template.mainRapidFire > 0) {
+                        val tagShape = remember { CutCornerShape(3.dp) }
+                        Text(
+                            text = "RAPID FIRE ${unit.template.mainRapidFire}",
                             style = MaterialTheme.typography.labelSmall,
                             color = EmeraldBuff,
                             modifier = Modifier
@@ -1403,6 +1475,19 @@ private fun UnitStatusCard(
                                 .padding(horizontal = 5.dp, vertical = 1.dp)
                         )
                     }
+                    if (!unit.template.isRangedMain && unit.template.meleeAntiNonMonsterVehicle in 2..6) {
+                        val tagShape = remember { CutCornerShape(3.dp) }
+                        Text(
+                            text = "ANTI-NON-M/V ${unit.template.meleeAntiNonMonsterVehicle}+",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = CrimsonSoft,
+                            modifier = Modifier
+                                .clip(tagShape)
+                                .background(CrimsonSurface)
+                                .border(0.8.dp, CrimsonSoft.copy(alpha = 0.65f), tagShape)
+                                .padding(horizontal = 5.dp, vertical = 1.dp)
+                        )
+                    }
                 }
                 Spacer(Modifier.height(3.dp))
                 val effectiveAp = unit.effectiveMainArmorPen
@@ -1453,6 +1538,19 @@ private fun UnitStatusCard(
                                     .clip(tagShape)
                                     .background(InputDark)
                                     .border(0.8.dp, WarmAmber.copy(alpha = 0.65f), tagShape)
+                                    .padding(horizontal = 5.dp, vertical = 1.dp)
+                            )
+                        }
+                        if (unit.template.meleeAntiNonMonsterVehicle in 2..6) {
+                            val tagShape = remember { CutCornerShape(3.dp) }
+                            Text(
+                                text = "ANTI-NON-M/V ${unit.template.meleeAntiNonMonsterVehicle}+",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = CrimsonSoft,
+                                modifier = Modifier
+                                    .clip(tagShape)
+                                    .background(CrimsonSurface)
+                                    .border(0.8.dp, CrimsonSoft.copy(alpha = 0.65f), tagShape)
                                     .padding(horizontal = 5.dp, vertical = 1.dp)
                             )
                         }
@@ -1852,6 +1950,7 @@ private fun ActionDock(
     onFightFirst: () -> Unit,
     onSelectWeaponMode: (WeaponMode) -> Unit,
     onEndTurn: () -> Unit,
+    onJoinSquad: (String, String) -> Unit,
     onInspectSkill: (UnitTemplate) -> Unit
 ) {
     val enabled = isPlayerTurn && canCommandSelected && selected != null
@@ -1900,7 +1999,23 @@ private fun ActionDock(
                 horizontalAlignment = Alignment.End,
                 verticalArrangement = Arrangement.spacedBy(5.dp)
             ) {
+                val attachedPartner = remember(selected, allUnits) {
+                    selected?.let { s ->
+                        (s.attachedLeaderUid ?: s.bodyguardUid)?.let { pid ->
+                            allUnits.firstOrNull { it.uid == pid && it.isAlive }
+                        }
+                    }
+                }
                 if (selected != null) {
+                    val passiveBannerText = buildString {
+                        append("💡 ${selected.template.passiveName}: ${selected.template.passiveDesc}")
+                        if (attachedPartner != null) {
+                            append("\n🛡️ SHARED (${attachedPartner.template.name}): ${attachedPartner.template.passiveName} — ${attachedPartner.template.passiveDesc}")
+                        }
+                        if (selected.inheritedPassiveIds.isNotEmpty()) {
+                            append("\n⚡ INHERITED PASSIVES: ${selected.inheritedPassiveIds.joinToString(", ").uppercase()}")
+                        }
+                    }
                     GrimdarkBevelPanel(
                         cut = 5.dp,
                         borderColor = pal.trimBorder,
@@ -1908,7 +2023,7 @@ private fun ActionDock(
                         bottomColor = pal.panelBottom,
                         showRivets = false,
                         onClick = { onInspectSkill(selected.template) },
-                        modifier = Modifier.widthIn(max = 350.dp)
+                        modifier = Modifier.widthIn(max = 365.dp)
                     ) {
                         Row(
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
@@ -1916,10 +2031,10 @@ private fun ActionDock(
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             Text(
-                                text = "💡 ${selected.template.passiveName}: ${selected.template.passiveDesc}",
+                                text = passiveBannerText,
                                 style = MaterialTheme.typography.labelSmall,
                                 color = pal.headerText,
-                                maxLines = 2,
+                                maxLines = if (attachedPartner != null || selected.inheritedPassiveIds.isNotEmpty()) 4 else 2,
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.weight(1f)
                             )
@@ -1996,6 +2111,42 @@ private fun ActionDock(
             )
 
             if (selected != null) {
+                val joinPair: Pair<BattleUnit, BattleUnit>? = if (selected.bodyguardUid == null && selected.attachedLeaderUid == null) {
+                    val isTitus = selected.isHero || selected.template.archetype == UnitArchetype.CAPTAIN_TITUS || selected.template.id == "captain_titus"
+                    if (isTitus) {
+                        val squad = allUnits.firstOrNull { u ->
+                            u.isAlive && u.uid != selected.uid && u.isAllyOf(selected) &&
+                            TacticalRules.canLeadSquad(selected, u) &&
+                            TacticalRules.isWithinJoiningReach(selected, u)
+                        }
+                        if (squad != null) (selected to squad) else null
+                    } else {
+                        val hero = allUnits.firstOrNull { u ->
+                            u.isAlive && u.uid != selected.uid && u.isAllyOf(selected) &&
+                            (u.isHero || u.template.archetype == UnitArchetype.CAPTAIN_TITUS || u.template.id == "captain_titus") &&
+                            TacticalRules.canLeadSquad(u, selected) &&
+                            TacticalRules.isWithinJoiningReach(selected, u)
+                        }
+                        if (hero != null) (hero to selected) else null
+                    }
+                } else null
+
+                if (joinPair != null) {
+                    val targetName = if (selected.uid == joinPair.first.uid) joinPair.second.template.name else joinPair.first.template.name
+                    ActionDockButton(
+                        title = "Join",
+                        subtitle = targetName.take(12),
+                        icon = Icons.Default.Check,
+                        containerTop = ColorTokens.CyanSurface,
+                        containerBottom = PanelIronBottom,
+                        borderColor = TacticalCyan,
+                        textColor = TacticalCyan,
+                        enabled = enabled,
+                        onClick = { onJoinSquad(joinPair.first.uid, joinPair.second.uid) },
+                        testTag = "join_squad_button"
+                    )
+                }
+
                 val canMove = enabled && !isEngaged && selected.moveCmLeft >= 0.25f
                 ActionDockButton(
                     title = "Move",
@@ -2146,12 +2297,14 @@ private fun ActionDock(
                 val isAssaultMarine = selected.template.archetype == UnitArchetype.ASSAULT_MARINE
                 val isBladeguard = selected.template.archetype == UnitArchetype.BLADEGUARD
                 val isLegionary = selected.template.archetype == UnitArchetype.LEGIONARY
+                val isHeroLeader = selected.isHeroLeader
                 val isMeleeSkill = TacticalRules.modeUsesMelee(selected, WeaponMode.SKILL)
-                val isUtilitySkill = isTerminator || isBiovore || isSporeMine || selected.template.archetype == UnitArchetype.HORMAGAUNT || isLeaper || isAssaultMarine || isBladeguard || isLegionary
+                val isUtilitySkill = isTerminator || isBiovore || isSporeMine || selected.template.archetype == UnitArchetype.HORMAGAUNT || isLeaper || isAssaultMarine || isBladeguard || isLegionary || isHeroLeader
                 val skillReady = enabled && TacticalRules.canUseMode(selected, WeaponMode.SKILL, allUnits)
                 val isSkillOn = weaponMode == WeaponMode.SKILL
-                val isBuffActive = selected.isCloaked || selected.meleeChargeBuffActive || selected.bladeguardRerollBuffActive || selected.legionaryWoundRerollBuffActive
+                val isBuffActive = selected.isCloaked || selected.meleeChargeBuffActive || selected.bladeguardRerollBuffActive || selected.legionaryWoundRerollBuffActive || isHeroLeader
                 val skillSubtitle = when {
+                    isHeroLeader -> "AUTO 2+"
                     isBuffActive -> "ACTIVE 1T"
                     selected.skillCooldownLeft > 0 -> "CD ${selected.skillCooldownLeft}"
                     isBiovore && selected.hasShot -> "SEEDED"
@@ -2175,16 +2328,19 @@ private fun ActionDock(
                     else -> "READY"
                 }
                 ActionDockButton(
-                    title = if (isTerminator) "Teleport" else if (isBiovore) "Seed Mine" else if (isSporeMine) "Detonate" else "Skill",
+                    title = if (isHeroLeader) "Honour" else if (isTerminator) "Teleport" else if (isBiovore) "Seed Mine" else if (isSporeMine) "Detonate" else "Skill",
                     subtitle = skillSubtitle,
                     icon = null,
                     containerTop = if (isSkillOn || isBuffActive) ColorTokens.CyanSurface else ColorTokens.SkillSurface,
                     containerBottom = PanelIronBottom,
-                    borderColor = if (isSkillOn || isBuffActive) TacticalCyan else ColorTokens.SkillBorder,
-                    textColor = if (isBuffActive) TacticalCyan else WarmAmber,
+                    borderColor = if (isHeroLeader) ImperialGold else if (isSkillOn || isBuffActive) TacticalCyan else ColorTokens.SkillBorder,
+                    textColor = if (isHeroLeader) ImperialGold else if (isBuffActive) TacticalCyan else WarmAmber,
                     enabled = true,
                     onClick = {
-                        if (skillReady) {
+                        if (isHeroLeader) {
+                            onSelectWeaponMode(WeaponMode.SKILL)
+                            onInspectSkill(selected.template)
+                        } else if (skillReady) {
                             onSelectWeaponMode(WeaponMode.SKILL)
                         } else {
                             onInspectSkill(selected.template)
@@ -2195,6 +2351,38 @@ private fun ActionDock(
                     },
                     testTag = "skill_button"
                 )
+            }
+
+            if (attachedPartner != null) {
+                if (attachedPartner.isHeroLeader) {
+                    ActionDockButton(
+                        title = "Honour",
+                        subtitle = "AUTO 2+",
+                        icon = null,
+                        containerTop = ColorTokens.SkillSurface,
+                        containerBottom = PanelIronBottom,
+                        borderColor = ImperialGold,
+                        textColor = ImperialGold,
+                        enabled = true,
+                        onClick = { onInspectSkill(attachedPartner.template) },
+                        onLongClick = { onInspectSkill(attachedPartner.template) },
+                        testTag = "leader_skill_button"
+                    )
+                } else if (attachedPartner.template.archetype != UnitArchetype.BRUTALIS_DREADNOUGHT) {
+                    ActionDockButton(
+                        title = attachedPartner.template.skillName.take(8),
+                        subtitle = "SQUAD SKILL",
+                        icon = null,
+                        containerTop = ColorTokens.SkillSurface,
+                        containerBottom = PanelIronBottom,
+                        borderColor = TacticalCyan,
+                        textColor = TacticalCyan,
+                        enabled = true,
+                        onClick = { onInspectSkill(attachedPartner.template) },
+                        onLongClick = { onInspectSkill(attachedPartner.template) },
+                        testTag = "bodyguard_skill_button"
+                    )
+                }
             }
 
             ActionDockButton(
@@ -2426,7 +2614,11 @@ private fun SkillInfoDialog(
                 )
                 Spacer(Modifier.height(2.dp))
                 Text(
-                    text = "${template.name} • Cooldown: ${template.skillCooldown} Turns",
+                    text = if (template.skillCooldown == 0) {
+                        "${template.name} • Auto / Always Active"
+                    } else {
+                        "${template.name} • Cooldown: ${template.skillCooldown} Turns"
+                    },
                     style = MaterialTheme.typography.labelSmall,
                     color = TacticalCyan
                 )

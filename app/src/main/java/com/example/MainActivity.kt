@@ -134,6 +134,7 @@ class MainActivity : ComponentActivity() {
                                 onDismissTurnSplash = vm::dismissTurnSplash,
                                 onSelectReserveUnit = vm::selectReserveUnit,
                                 onSaveBattle = vm::saveSkirmishBattleToDatabase,
+                                onJoinSquad = vm::joinSquad,
                                 onExitToSetup = vm::returnToSetup
                             )
                             AppScreen.SETTINGS -> SettingsScreen(
@@ -259,7 +260,11 @@ private fun CoopFlowHost(
                 if (!isHost) {
                     val bMap = room.battleMap
                     if (bMap != null && (room.status == "ACTIVE" || room.status == "FINISHED")) {
-                        val synced = onlineVm.applyRemoteBattleSnapshot(bMap, vm.battleState.value)
+                        val synced = onlineVm.applyRemoteBattleSnapshot(
+                            battleMap = bMap,
+                            current = vm.battleState.value,
+                            fallbackTemplates = room.customTemplates
+                        )
                         if (synced != null) {
                             vm.applyOnlineBattleState(synced, room.status)
                         }
@@ -319,6 +324,7 @@ private fun CoopFlowHost(
                         onDismissTurnSplash = vm::dismissTurnSplash,
                         onSelectReserveUnit = vm::selectReserveUnit,
                         onSaveBattle = vm::saveSkirmishBattleToDatabase,
+                        onJoinSquad = vm::joinSquad,
                         onExitToSetup = {
                             val inactiveBattle = battleState.copy(
                                 active = false,
