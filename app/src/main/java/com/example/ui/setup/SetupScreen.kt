@@ -52,6 +52,10 @@ import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -68,6 +72,7 @@ import com.example.R
 import com.example.model.Faction
 import com.example.model.RosterSlot
 import com.example.model.UnitArchetype
+import com.example.model.UnitRoleCategory
 import com.example.model.UnitTemplate
 import com.example.ui.theme.BorderSteel
 import com.example.ui.theme.CardSlate
@@ -89,6 +94,8 @@ import com.example.ui.theme.MarineText
 import com.example.ui.theme.PanelIronBottom
 import com.example.ui.theme.PanelIronTop
 import com.example.ui.theme.RowSlate
+import com.example.ui.theme.TabletopCategoryBadge
+import com.example.ui.theme.TabletopCategoryFilterTabs
 import com.example.ui.theme.TacticalCyan
 import com.example.ui.theme.TextMuted
 import com.example.ui.theme.TextPrimary
@@ -527,7 +534,24 @@ private fun FactionSetupCard(
 ) {
     val pal = factionPalette(faction)
     val overBudget = totalPoints > pointLimit
-    val catalog = templates.values.filter { it.faction == faction }
+    val catalog = remember(templates, faction) {
+        templates.values
+            .filter { it.faction == faction }
+            .sortedWith(compareBy<UnitTemplate> { it.category.sortOrder }.thenBy { it.points })
+    }
+    var selectedCategory by remember(faction) { mutableStateOf(UnitRoleCategory.ALL) }
+    val categoryCounts = remember(catalog) {
+        buildMap {
+            put(UnitRoleCategory.ALL, catalog.size)
+            UnitRoleCategory.entries.filter { it != UnitRoleCategory.ALL }.forEach { cat ->
+                put(cat, catalog.count { it.category == cat })
+            }
+        }
+    }
+    val filteredCatalog = remember(catalog, selectedCategory) {
+        if (selectedCategory == UnitRoleCategory.ALL) catalog
+        else catalog.filter { it.category == selectedCategory }
+    }
     val hasHero = roster.any { slot ->
         val t = templates[slot.templateId]
         t != null && (t.isHero || t.archetype == UnitArchetype.CAPTAIN_TITUS || t.id == "captain_titus")
@@ -725,24 +749,54 @@ private fun FactionSetupCard(
             Spacer(Modifier.height(2.dp))
             Text(
                 text = when (faction) {
-                    Faction.MARINES -> "ARMORY REINFORCEMENTS"
-                    Faction.BLACK_LEGION -> "WARP-FORGED REINFORCEMENTS"
-                    Faction.XENOS -> "TYRANID BIO-STRAINS"
+                    Faction.MARINES -> "ARMORY REINFORCEMENTS • ED11 DATASHEETS"
+                    Faction.BLACK_LEGION -> "WARP-FORGED REINFORCEMENTS • ED11 DATASHEETS"
+                    Faction.XENOS -> "TYRANID BIO-STRAINS • ED11 DATASHEETS"
                 },
                 style = MaterialTheme.typography.labelSmall,
                 color = TextMuted
             )
 
-            catalog.forEach { tpl ->
-                val isHero = tpl.isHero || tpl.archetype == UnitArchetype.CAPTAIN_TITUS || tpl.id == "captain_titus"
-                CatalogUnitRow(
-                    template = tpl,
-                    pointColor = pal.trimBorder,
-                    canAfford = totalPoints + tpl.points <= pointLimit,
-                    heroLimitReached = isHero && hasHero,
-                    onEdit = { onEditTemplate(tpl.id) },
-                    onAdd = { onAddUnit(tpl.id) }
-                )
+            TabletopCategoryFilterTabs(
+                selectedCategory = selectedCategory,
+                onSelectCategory = { selectedCategory = it },
+                categoryCounts = categoryCounts,
+                accentColor = pal.trimBorder
+            )
+
+            val groupedCatalog = remember(filteredCatalog) {
+                filteredCatalog.groupBy { it.category }.toSortedMap(compareBy { it.sortOrder })
+            }
+            groupedCatalog.forEach { (cat, unitsInCat) ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 4.dp, bottom = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        text = "${cat.emoji} ${cat.title.uppercase()} (${unitsInCat.size})",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = pal.badgeText,
+                        fontWeight = FontWeight.Bold
+                    )
+                    HorizontalDivider(
+                        color = DividerIron.copy(alpha = 0.7f),
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                unitsInCat.forEach { tpl ->
+                    val isHero = tpl.isHero || tpl.archetype == UnitArchetype.CAPTAIN_TITUS || tpl.id == "captain_titus"
+                    CatalogUnitRow(
+                        template = tpl,
+                        pointColor = pal.trimBorder,
+                        canAfford = totalPoints + tpl.points <= pointLimit,
+                        heroLimitReached = isHero && hasHero,
+                        onEdit = { onEditTemplate(tpl.id) },
+                        onAdd = { onAddUnit(tpl.id) }
+                    )
+                }
             }
         }
     }
@@ -775,11 +829,13 @@ private fun DeployedUnitRow(
                     style = MaterialTheme.typography.titleSmall,
                     color = TextPrimary,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
                 )
+                TabletopCategoryBadge(category = template.category)
                 if (isHero) {
                     Text(
-                        text = "HERO • MAX 1",
+                        text = "MAX 1",
                         style = MaterialTheme.typography.labelSmall,
                         color = ImperialGold,
                         fontWeight = FontWeight.Bold,
@@ -940,11 +996,13 @@ private fun CatalogUnitRow(
                     style = MaterialTheme.typography.titleSmall,
                     color = if (canAdd) TextPrimary else TextMuted,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
                 )
+                TabletopCategoryBadge(category = template.category)
                 if (isHero) {
                     Text(
-                        text = "HERO • MAX 1",
+                        text = "MAX 1",
                         style = MaterialTheme.typography.labelSmall,
                         color = ImperialGold,
                         fontWeight = FontWeight.Bold

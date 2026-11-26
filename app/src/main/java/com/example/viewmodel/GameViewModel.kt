@@ -1037,12 +1037,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
         val prev = _battleState.value
-        if (prev.active && prev.isCoopMode && prev.map.id == syncedBattle.map.id &&
-            syncedBattle.syncRevision > 0L && prev.syncRevision > syncedBattle.syncRevision &&
-            roomStatus != "FINISHED" && syncedBattle.summary == null
-        ) {
-            return
-        }
+        val cleanUnits = syncedBattle.units.filter { it.isAlive }
         val localId = _coopState.value.localPlayerId
         val adjustedSummary = syncedBattle.summary?.let { sum ->
             if (syncedBattle.isCoopMode && sum.winnerLabel.isNotBlank()) {
@@ -1098,6 +1093,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             else -> if (adjustedSummary != null) null else prev.turnSplash
         }
         val configured = syncedBattle.copy(
+            units = cleanUnits,
             localControlledPlayerId = localId,
             summary = adjustedSummary,
             turnSplash = clientSplash,
@@ -1172,7 +1168,11 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             "ROTATE" -> if (left != null) rotateSelectedUnit(left, fromLanClient = true)
             "JOIN_SQUAD" -> if (wx != null && wy != null) {
                 val hero = state.units.getOrNull(wx.roundToInt())
+                    ?: state.units.firstOrNull { it.isHeroLeader && it.bodyguardUid == null }
                 val squad = state.units.getOrNull(wy.roundToInt())
+                    ?: hero?.let { h ->
+                        state.units.firstOrNull { u -> u.isAlive && u.uid != h.uid && u.isAllyOf(h) && TacticalRules.canLeadSquad(h, u) && TacticalRules.isWithinJoiningReach(h, u) }
+                    }
                 if (hero != null && squad != null) joinSquad(hero.uid, squad.uid, fromLanClient = true)
             }
             "FIGHT_FIRST" -> triggerFightFirst(fromLanClient = true)
@@ -1875,7 +1875,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         // 0. Check if Assault Terminator is in Teleport Strike mode
         val selected = state.selectedUnit
         if (selected != null && state.canCommandUnit(selected, fromLanClient) &&
-            selected.template.archetype == UnitArchetype.TERMINATOR &&
+            (selected.template.archetype == UnitArchetype.TERMINATOR || selected.template.archetype == UnitArchetype.CHAOS_TERMINATOR) &&
             state.weaponMode == WeaponMode.SKILL
         ) {
             if (pos in state.reachableTiles.keys) {
@@ -3159,7 +3159,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
         val attackLogs = outcome.logEntries.map { it.copy(id = nextIdCounter++, round = state.round) }
         val updated = state.copy(
-            units = postAttackUnits,
+            units = postAttackUnits.filter { it.isAlive },
             weaponMode = WeaponMode.MAIN,
             selectedDarkPact = DarkPactChoice.NONE,
             moveModeActive = false,
@@ -3248,7 +3248,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                                     in extraMap -> extraMap.getValue(u.uid)
                                     else -> u
                                 }
-                            }
+                            }.filter { it.isAlive }
                         )
 
                         val defIsSide0 = if (currentState.isCoopMode) liveDefender.effectiveTeam == 0 else liveDefender.faction == currentState.playerFaction
@@ -3299,7 +3299,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     checkVictoryOrUpdate(
                         recomputeSelectionOverlays(
                             st.copy(
-                                units = TacticalRules.applyAuras(settledUnits),
+                                units = TacticalRules.applyAuras(settledUnits.filter { it.isAlive }),
                                 isAnimating = false,
                                 playerKills = st.playerKills + endKillsPlayer,
                                 enemyKills = st.enemyKills + endKillsEnemy,
@@ -3426,6 +3426,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
         sound.play(SoundType.CLICK)
+        val now = System.currentTimeMillis()
+        var didJoin = false
         _battleState.update { st ->
             val units = st.units.toMutableList()
             val heroIdx = units.indexOfFirst { it.uid == heroUid && it.isHeroLeader }
@@ -3462,15 +3464,20 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             )
             units[heroIdx] = updatedHero
             units[squadIdx] = updatedSquad
-            spawnFloatingText(updatedHero.pos, "CAPTAIN TITUS JOINED!", 0xFF51CF66L)
+            didJoin = true
+            val fx = FloatingTextVfx(nextIdCounter++, updatedHero.pos.x.toFloat(), updatedHero.pos.y.toFloat(), "CAPTAIN TITUS JOINED!", 0xFF51CF66L, now)
             recomputeSelectionOverlays(
                 st.copy(
                     units = TacticalRules.applyAuras(units),
+                    floatingTexts = (st.floatingTexts + fx).filter { now - it.startTimeMs < 3200 },
                     movePreview = null,
                     chargePreview = null,
                     targetPreview = null
                 )
             )
+        }
+        if (didJoin) {
+            scheduleVfxCleanup()
         }
         syncCoopHostIfNeeded(_battleState.value)
     }
@@ -4030,7 +4037,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
         val inMelee = TacticalRules.isEngagedInMelee(selected, state.units)
 
-        if (selected.template.archetype == UnitArchetype.TERMINATOR && state.weaponMode == WeaponMode.SKILL) {
+        if ((selected.template.archetype == UnitArchetype.TERMINATOR || selected.template.archetype == UnitArchetype.CHAOS_TERMINATOR) && state.weaponMode == WeaponMode.SKILL) {
             val canTeleport = !inMelee && selected.skillCooldownLeft == 0 && !selected.hasAdvanced && !selected.hasCharged
             val teleportTiles = if (canTeleport) {
                 TacticalRules.computeTeleportTiles(selected, state.map.rows, state.units)

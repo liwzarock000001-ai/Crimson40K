@@ -46,6 +46,21 @@ enum class TerminatorWeaponChoice(val label: String) {
     LIGHTNING_CLAWS("Twin Lightning Claws (Melee 2cm)")
 }
 
+enum class UnitRoleCategory(
+    val id: String,
+    val title: String,
+    val shortLabel: String,
+    val badgeLabel: String,
+    val emoji: String,
+    val sortOrder: Int
+) {
+    ALL("all", "All Units", "ALL", "ALL", "✦", 0),
+    HERO_CHARACTER("character", "Characters & Heroes", "HERO", "⭐ HERO / CHAR", "⭐", 1),
+    BATTLELINE("battleline", "Battleline", "BATTLELINE", "⚔️ BATTLELINE", "⚔️", 2),
+    INFANTRY("infantry", "Infantry", "INFANTRY", "🛡️ INFANTRY", "🛡️", 3),
+    VEHICLE_MONSTER("vehicle_monster", "Vehicles & Monsters", "VEHICLE/MONST", "⚡ VEHICLE / MONST", "⚡", 4)
+}
+
 enum class UnitArchetype {
     INTERCESSOR,
     INCURSOR,
@@ -53,6 +68,7 @@ enum class UnitArchetype {
     ASSAULT_MARINE,
     BLADEGUARD,
     TERMINATOR,
+    CHAOS_TERMINATOR,
     DREADNOUGHT,
     BRUTALIS_DREADNOUGHT,
     CAPTAIN,
@@ -182,6 +198,27 @@ data class UnitTemplate(
         get() = if (isRangedMain) meleeSustainedHits.coerceAtLeast(0) else mainSustainedHits.coerceAtLeast(0)
     val effectiveMeleeTwinLinked: Boolean
         get() = if (isRangedMain) meleeTwinLinked else mainTwinLinked
+
+    val category: UnitRoleCategory
+        get() = when {
+            isHero || archetype == UnitArchetype.CAPTAIN || archetype == UnitArchetype.CAPTAIN_TITUS || archetype == UnitArchetype.HIVE_TYRANT ||
+                role.contains("Hero", ignoreCase = true) || role.contains("Character", ignoreCase = true) || role.contains("Leader", ignoreCase = true) ->
+                UnitRoleCategory.HERO_CHARACTER
+
+            role.contains("Battleline", ignoreCase = true) ||
+                archetype == UnitArchetype.INTERCESSOR || archetype == UnitArchetype.ASSAULT_MARINE ||
+                archetype == UnitArchetype.LEGIONARY || archetype == UnitArchetype.TERMAGANT ||
+                archetype == UnitArchetype.HORMAGAUNT ->
+                UnitRoleCategory.BATTLELINE
+
+            archetype == UnitArchetype.DREADNOUGHT || archetype == UnitArchetype.BRUTALIS_DREADNOUGHT ||
+                archetype == UnitArchetype.CARNIFEX || archetype == UnitArchetype.SPORE_MINE ||
+                role.contains("Walker", ignoreCase = true) || role.contains("Monster", ignoreCase = true) ||
+                role.contains("Vehicle", ignoreCase = true) ->
+                UnitRoleCategory.VEHICLE_MONSTER
+
+            else -> UnitRoleCategory.INFANTRY
+        }
 }
 
 @Immutable

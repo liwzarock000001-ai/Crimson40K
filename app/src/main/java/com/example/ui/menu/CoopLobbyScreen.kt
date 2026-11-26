@@ -85,6 +85,7 @@ import com.example.model.CoopSlotMode
 import com.example.model.CoopState
 import com.example.model.Faction
 import com.example.model.UnitArchetype
+import com.example.model.UnitRoleCategory
 import com.example.model.UnitTemplate
 import com.example.ui.setup.StatEditDialog
 import com.example.ui.theme.BorderSteel
@@ -107,6 +108,8 @@ import com.example.ui.theme.PanelCharcoal
 import com.example.ui.theme.PanelIronBottom
 import com.example.ui.theme.PanelIronTop
 import com.example.ui.theme.RowSlate
+import com.example.ui.theme.TabletopCategoryBadge
+import com.example.ui.theme.TabletopCategoryFilterTabs
 import com.example.ui.theme.TacticalCyan
 import com.example.ui.theme.TextMuted
 import com.example.ui.theme.TextPrimary
@@ -1468,6 +1471,25 @@ private fun CommanderLoadoutPane(
                     t != null && (t.isHero || t.archetype == UnitArchetype.CAPTAIN_TITUS || t.id == "captain_titus")
                 }
             }
+            var selectedCategory by remember(player.id, player.faction) { mutableStateOf(UnitRoleCategory.ALL) }
+            val sortedAvailable = remember(availableTemplates) {
+                availableTemplates.sortedWith(compareBy<UnitTemplate> { it.category.sortOrder }.thenBy { it.points })
+            }
+            val categoryCounts = remember(sortedAvailable) {
+                buildMap {
+                    put(UnitRoleCategory.ALL, sortedAvailable.size)
+                    UnitRoleCategory.entries.filter { it != UnitRoleCategory.ALL }.forEach { cat ->
+                        put(cat, sortedAvailable.count { it.category == cat })
+                    }
+                }
+            }
+            val filteredAvailable = remember(sortedAvailable, selectedCategory) {
+                if (selectedCategory == UnitRoleCategory.ALL) sortedAvailable
+                else sortedAvailable.filter { it.category == selectedCategory }
+            }
+            val groupedAvailable = remember(filteredAvailable) {
+                filteredAvailable.groupBy { it.category }.toSortedMap(compareBy { it.sortOrder })
+            }
 
             LazyColumn(
                 modifier = Modifier
@@ -1528,11 +1550,17 @@ private fun CommanderLoadoutPane(
                                         text = tpl?.name ?: entry.templateId,
                                         style = MaterialTheme.typography.labelMedium,
                                         color = TextPrimary,
-                                        fontWeight = FontWeight.Bold
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f, fill = false)
                                     )
+                                    if (tpl != null) {
+                                        TabletopCategoryBadge(category = tpl.category)
+                                    }
                                     if (isHero) {
                                         Text(
-                                            text = "HERO • MAX 1",
+                                            text = "MAX 1",
                                             style = MaterialTheme.typography.labelSmall,
                                             color = ImperialGold,
                                             fontWeight = FontWeight.Bold
@@ -1587,63 +1615,95 @@ private fun CommanderLoadoutPane(
                         HorizontalDivider(color = DividerIron)
                         Spacer(Modifier.height(4.dp))
                         Text(
-                            text = "REINFORCEMENT POOL (${player.faction.displayName.uppercase()})",
+                            text = "REINFORCEMENT POOL (${player.faction.displayName.uppercase()}) • ED11",
                             style = MaterialTheme.typography.labelSmall,
                             color = TacticalCyan,
                             fontWeight = FontWeight.Bold
                         )
+                        TabletopCategoryFilterTabs(
+                            selectedCategory = selectedCategory,
+                            onSelectCategory = { selectedCategory = it },
+                            categoryCounts = categoryCounts,
+                            accentColor = accent
+                        )
                     }
 
-                    items(availableTemplates, key = { it.id }) { tpl ->
-                        val isHero = tpl.isHero || tpl.archetype == UnitArchetype.CAPTAIN_TITUS || tpl.id == "captain_titus"
-                        val canAfford = totalPts + tpl.points <= pointLimit
-                        val heroLocked = isHero && hasHero
-                        val canAdd = canAfford && !heroLocked
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(CutCornerShape(5.dp))
-                                .background(RowSlate)
-                                .border(
-                                    1.dp,
-                                    if (isHero) ImperialGold.copy(alpha = 0.6f) else if (canAdd) BorderSteel else DividerIron,
-                                    CutCornerShape(5.dp)
+                    groupedAvailable.forEach { (cat, catTemplates) ->
+                        item(key = "cat_hdr_${cat.id}") {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 4.dp, bottom = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = "${cat.emoji} ${cat.title.uppercase()} (${catTemplates.size})",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = ImperialGold,
+                                    fontWeight = FontWeight.Bold
                                 )
-                                .padding(horizontal = 10.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    Text(
-                                        text = tpl.name,
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = if (canAdd) TextPrimary else TextMuted,
-                                        fontWeight = FontWeight.Bold
+                                HorizontalDivider(
+                                    color = DividerIron.copy(alpha = 0.7f),
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
+
+                        items(catTemplates, key = { it.id }) { tpl ->
+                            val isHero = tpl.isHero || tpl.archetype == UnitArchetype.CAPTAIN_TITUS || tpl.id == "captain_titus"
+                            val canAfford = totalPts + tpl.points <= pointLimit
+                            val heroLocked = isHero && hasHero
+                            val canAdd = canAfford && !heroLocked
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(CutCornerShape(5.dp))
+                                    .background(RowSlate)
+                                    .border(
+                                        1.dp,
+                                        if (isHero) ImperialGold.copy(alpha = 0.6f) else if (canAdd) BorderSteel else DividerIron,
+                                        CutCornerShape(5.dp)
                                     )
-                                    if (isHero) {
+                                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                                         Text(
-                                            text = "HERO • MAX 1",
+                                            text = tpl.name,
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = if (canAdd) TextPrimary else TextMuted,
+                                            fontWeight = FontWeight.Bold,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.weight(1f, fill = false)
+                                        )
+                                        TabletopCategoryBadge(category = tpl.category)
+                                        if (isHero) {
+                                            Text(
+                                                text = "MAX 1",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = ImperialGold,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                        Text(
+                                            text = "${tpl.points} PT",
                                             style = MaterialTheme.typography.labelSmall,
-                                            color = ImperialGold,
+                                            color = if (canAfford) ImperialGold else CrimsonSoft,
                                             fontWeight = FontWeight.Bold
                                         )
                                     }
                                     Text(
-                                        text = "${tpl.points} PT",
+                                        text = "${tpl.role} • ${tpl.mainWeaponName} • M${tpl.moveCm}cm • T${tpl.toughness} • ${tpl.save}+",
                                         style = MaterialTheme.typography.labelSmall,
-                                        color = if (canAfford) ImperialGold else CrimsonSoft,
-                                        fontWeight = FontWeight.Bold
+                                        color = TextMuted,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
                                     )
                                 }
-                                Text(
-                                    text = "${tpl.mainWeaponName} • M${tpl.moveCm}cm • T${tpl.toughness} • ${tpl.save}+",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = TextMuted,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
                             if (canEditStats) {
                                 OutlinedButton(
                                     onClick = { onEditTemplate(tpl.id) },
@@ -1686,6 +1746,7 @@ private fun CommanderLoadoutPane(
                                 }
                             }
                         }
+                    }
                     }
                 }
             }
@@ -1791,9 +1852,22 @@ private fun AllFactionStatsDialog(
     onDismiss: () -> Unit
 ) {
     var filterFaction by remember { mutableStateOf<Faction?>(null) }
-    val filteredUnits = remember(templates, filterFaction) {
+    var filterCategory by remember { mutableStateOf(UnitRoleCategory.ALL) }
+    val factionTemplates = remember(templates, filterFaction) {
         templates.values.filter { filterFaction == null || it.faction == filterFaction }
-            .sortedWith(compareBy({ it.faction.ordinal }, { it.points }))
+    }
+    val categoryCounts = remember(factionTemplates) {
+        buildMap {
+            put(UnitRoleCategory.ALL, factionTemplates.size)
+            UnitRoleCategory.entries.filter { it != UnitRoleCategory.ALL }.forEach { cat ->
+                put(cat, factionTemplates.count { it.category == cat })
+            }
+        }
+    }
+    val filteredUnits = remember(factionTemplates, filterCategory) {
+        factionTemplates
+            .filter { filterCategory == UnitRoleCategory.ALL || it.category == filterCategory }
+            .sortedWith(compareBy({ it.faction.ordinal }, { it.category.sortOrder }, { it.points }))
     }
 
     Dialog(
@@ -1862,6 +1936,13 @@ private fun AllFactionStatsDialog(
                     StatsFilterChip("TYRANIDS", filterFaction == Faction.XENOS, XenosViolet, { filterFaction = Faction.XENOS }, Modifier.weight(1f))
                 }
 
+                TabletopCategoryFilterTabs(
+                    selectedCategory = filterCategory,
+                    onSelectCategory = { filterCategory = it },
+                    categoryCounts = categoryCounts,
+                    accentColor = ImperialGold
+                )
+
                 if (!statusMessage.isNullOrBlank()) {
                     Text(
                         text = statusMessage,
@@ -1899,8 +1980,10 @@ private fun AllFactionStatsDialog(
                                         color = TextPrimary,
                                         fontWeight = FontWeight.Bold,
                                         maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f, fill = false)
                                     )
+                                    TabletopCategoryBadge(category = tpl.category)
                                     Text(
                                         text = "${tpl.points} PT",
                                         style = MaterialTheme.typography.labelSmall,

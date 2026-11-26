@@ -77,7 +77,7 @@ object AiController {
                 if (selfSkill != null && shouldTriggerSelf) {
                     return AiDecision.SelfSkill(unit.uid)
                 }
-                if (!isEngaged && unit.template.archetype == UnitArchetype.TERMINATOR && distToNearest > 4) {
+                if (!isEngaged && (unit.template.archetype == UnitArchetype.TERMINATOR || unit.template.archetype == UnitArchetype.CHAOS_TERMINATOR) && distToNearest > 4) {
                     val tTiles = TacticalRules.computeTeleportTiles(unit, map, units)
                     if (tTiles.isNotEmpty()) {
                         val bestTile = tTiles.minByOrNull { tPos ->

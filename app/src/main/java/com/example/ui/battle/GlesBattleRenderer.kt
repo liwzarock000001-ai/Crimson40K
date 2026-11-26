@@ -180,21 +180,21 @@ class GlesBattleRenderer(
             drawVbo(vbo, 1f, 1f, 1f, 1f, unlit = false)
         }
 
-        // 3. Pulsing Grimdark Objective Beacon Rings
+        // 3. Pulsing Objective Beacon Rings (clean radiant cyan aura)
         val ringVbo = getOrUploadVbo(MeshCatalog3D.ringTile)
         for (i in objectiveCoords.indices) {
             val obj = objectiveCoords[i]
             Matrix.setIdentityM(modelMat, 0)
             Matrix.translateM(modelMat, 0, obj.x.toFloat(), 0.075f + pulse * 0.04f, obj.y.toFloat())
             Matrix.scaleM(modelMat, 0, 0.65f + pulse * 0.14f, 1f, 0.65f + pulse * 0.14f)
-            drawVbo(ringVbo, 0.72f, 0.22f, 0.16f, 0.48f, unlit = true)
+            drawVbo(ringVbo, 0.25f, 0.82f, 0.95f, 0.52f, unlit = true)
         }
 
         // 4. Special Skill Placement Tiles (Teleport / Seed Spore Mine) + Selected/Target Rings
         val tileVbo = getOrUploadVbo(MeshCatalog3D.tileQuad)
         val rangeRingVbo = getOrUploadVbo(MeshCatalog3D.rangeRadiusRing)
         val cubeVbo = getOrUploadVbo(MeshCatalog3D.unitCube)
-        val isTeleportMode = state.selectedUnit?.template?.archetype == UnitArchetype.TERMINATOR && state.weaponMode == WeaponMode.SKILL
+        val isTeleportMode = state.selectedUnit?.template?.archetype in listOf(UnitArchetype.TERMINATOR, UnitArchetype.CHAOS_TERMINATOR) && state.weaponMode == WeaponMode.SKILL
         val isSeedSporeMineMode = state.selectedUnit?.template?.archetype == UnitArchetype.BIOVORE && state.weaponMode == WeaponMode.SKILL
         if (state.isDeploymentPhase) {
             for (gy in 0 until MapGenerator.GRID_H) {
@@ -463,7 +463,7 @@ class GlesBattleRenderer(
             val isDread = unit.template.archetype == UnitArchetype.DREADNOUGHT ||
                 unit.template.archetype == UnitArchetype.BRUTALIS_DREADNOUGHT
             val shadowScale = if (isDread) 1.85f else if (count == 1) 1.08f else 0.58f
-            val useClaws = unit.template.archetype == UnitArchetype.TERMINATOR && (
+            val useClaws = unit.template.archetype in listOf(UnitArchetype.TERMINATOR, UnitArchetype.CHAOS_TERMINATOR) && (
                 unit.template.terminatorWeapon == com.example.model.TerminatorWeaponChoice.LIGHTNING_CLAWS ||
                     (unit.template.terminatorWeapon == null &&
                         unit.template.mainWeaponName.contains("claw", ignoreCase = true) &&
@@ -564,13 +564,8 @@ class GlesBattleRenderer(
             }
         }
 
-        // 7. Drifting Warzone Embers & Ash Particles (zero heap allocations, scaled by 4 graphics levels)
-        val activeEmbers = when (state.graphicsLevel) {
-            1 -> 0
-            2 -> 16
-            3 -> 32
-            else -> emberCount
-        }
+        // 7. Clean Warzone Atmosphere (no ash or embers for a clean, clear view)
+        val activeEmbers = 0
         for (i in 0 until activeEmbers) {
             val cycle = (elapsedSec * emberSpeed[i] + emberPhase[i]) % 3.2f
             val hFrac = cycle / 3.2f
@@ -862,44 +857,37 @@ class GlesBattleRenderer(
                     return;
                 }
 
-                // Procedural industrial deck weathering, cracks & stone surface grit for terrain (L2+)
-                if (uGraphicsLevel >= 1.5) {
-                    float grain = gritNoise(floor(vWorldPos.xz * 26.0)) * 0.12 - 0.06;
+                // Clean, soft tabletop grid lines (clean, crisp, and pleasing to the eye)
+                if (uGraphicsLevel >= 1.5 && vWorldPos.y < 0.04) {
                     float seamX = abs(fract(vWorldPos.x + 0.5) - 0.5);
                     float seamZ = abs(fract(vWorldPos.z + 0.5) - 0.5);
-                    float crackLine = abs(sin(vWorldPos.x * 3.1 + sin(vWorldPos.z * 2.3) * 1.6));
-                    if (vWorldPos.y < 0.04) {
-                        float seam = smoothstep(0.47, 0.495, max(seamX, seamZ));
-                        float crack = (1.0 - smoothstep(0.0, 0.045, crackLine)) * 0.22;
-                        baseCol.rgb *= (1.0 + grain - seam * 0.35 - crack);
-                    } else {
-                        baseCol.rgb *= (1.0 + grain * 0.75);
-                    }
+                    float border = smoothstep(0.485, 0.498, max(seamX, seamZ));
+                    baseCol.rgb = mix(baseCol.rgb, baseCol.rgb * 0.90, border);
                 }
 
-                // Bright Daytime Meadow Sunlight + Sky Ambient
-                vec3 sunDir = normalize(vec3(0.55, 0.88, 0.42));
-                vec3 fillDir = normalize(vec3(-0.65, 0.52, -0.58));
+                // Bright Daylight Illumination + Sky Ambient
+                vec3 sunDir = normalize(vec3(0.55, 0.90, 0.42));
+                vec3 fillDir = normalize(vec3(-0.65, 0.55, -0.55));
                 float diffSun = max(dot(N, sunDir), 0.0);
                 float diffFill = max(dot(N, fillDir), 0.0);
 
                 float hemi = N.y * 0.5 + 0.5;
-                vec3 ambient = mix(vec3(0.38, 0.46, 0.34), vec3(0.65, 0.78, 0.92), hemi);
+                vec3 ambient = mix(vec3(0.42, 0.52, 0.38), vec3(0.68, 0.82, 0.95), hemi);
 
                 vec3 H = normalize(sunDir + V);
-                float specTerrain = uGraphicsLevel >= 2.5 ? (uGraphicsLevel >= 3.5 ? 0.40 : 0.32) : 0.0;
-                float rimTerrain = uGraphicsLevel >= 2.5 ? (uGraphicsLevel >= 3.5 ? 0.24 : 0.18) : 0.0;
+                float specTerrain = uGraphicsLevel >= 2.5 ? (uGraphicsLevel >= 3.5 ? 0.30 : 0.22) : 0.0;
+                float rimTerrain = uGraphicsLevel >= 2.5 ? (uGraphicsLevel >= 3.5 ? 0.20 : 0.14) : 0.0;
                 float spec = pow(max(dot(N, H), 0.0), 22.0) * specTerrain;
                 float rim = pow(1.0 - max(dot(N, V), 0.0), 3.2) * rimTerrain;
 
-                vec3 lit = baseCol.rgb * (ambient + diffSun * vec3(1.0, 0.96, 0.85) * 1.18 + diffFill * vec3(0.42, 0.56, 0.72) * 0.45)
-                         + vec3(1.0, 0.96, 0.88) * spec
-                         + vec3(0.45, 0.62, 0.82) * rim;
+                vec3 lit = baseCol.rgb * (ambient + diffSun * vec3(1.0, 0.98, 0.90) * 1.15 + diffFill * vec3(0.46, 0.60, 0.76) * 0.42)
+                         + vec3(1.0, 0.98, 0.92) * spec
+                         + vec3(0.48, 0.66, 0.85) * rim;
 
-                // Light sunny atmosphere haze
+                // Soft clear atmosphere haze
                 float dist = length(uEyePos - vWorldPos);
-                float distFog = uGraphicsLevel >= 1.5 ? clamp((dist - 32.0) / 48.0, 0.0, 0.42) : 0.0;
-                vec3 fogColor = vec3(0.58, 0.75, 0.90);
+                float distFog = uGraphicsLevel >= 1.5 ? clamp((dist - 36.0) / 52.0, 0.0, 0.35) : 0.0;
+                vec3 fogColor = vec3(0.62, 0.80, 0.95);
                 vec3 finalRgb = clamp(mix(lit, fogColor, distFog) * uBrightness, 0.0, 1.0);
 
                 gl_FragColor = vec4(finalRgb, baseCol.a);

@@ -32,7 +32,8 @@ object UnitMeshSculptor3D {
         when (archetype) {
             UnitArchetype.DREADNOUGHT,
             UnitArchetype.BRUTALIS_DREADNOUGHT -> buildUltramarineDreadnought(m)
-            UnitArchetype.TERMINATOR -> buildAssaultTerminator(m, useLightningClaws = variant == "CLAWS")
+            UnitArchetype.TERMINATOR,
+            UnitArchetype.CHAOS_TERMINATOR -> buildAssaultTerminator(m, useLightningClaws = variant == "CLAWS")
             UnitArchetype.INCURSOR -> buildUltramarineIncursor(m)
             UnitArchetype.BLADEGUARD -> buildBladeguardVeteran(m)
             UnitArchetype.INTERCESSOR,

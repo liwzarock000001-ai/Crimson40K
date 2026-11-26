@@ -461,6 +461,51 @@ object DefaultCatalog {
             pistolRange = 3,
             pistolCooldown = 1
         ),
+        UnitTemplate(
+            id = "chaos_terminator",
+            name = "Chaos Terminators",
+            faction = Faction.BLACK_LEGION,
+            archetype = UnitArchetype.CHAOS_TERMINATOR,
+            role = "Elite Chaos Heavy",
+            points = 190,
+            squadSize = 5,
+            woundsPerModel = 4,
+            toughness = 5,
+            save = 2,
+            invulnSave = 4,
+            armorPen = 2,
+            moveCm = 12, // 5"
+            strength = 8,
+            damage = 3,
+            attacksPerModel = 4,
+            range = 5, // 24"
+            ballisticSkill = 3,
+            weaponSkill = 3,
+            leadership = 6,
+            objectiveControl = 1,
+            baseDiameterMm = 40,
+            skillName = "Teleport Strike",
+            skillDesc = "Teleports anywhere on the battlefield (> 8 cm from enemies) via Teleport Beacon & Warp Strike.",
+            skillCooldown = 4,
+            passiveName = "Mark of Chaos • Dark Pacts",
+            passiveDesc = "40mm Base, T5, 2+, 4++ Invuln, 4W. Combi-bolter & Accursed Weapons with Dark Pacts & Teleport Strike.",
+            mainWeaponName = "Combi-bolter",
+            mainWeaponAssault = true,
+            mainRapidFire = 1,
+            meleeWeaponName = "Accursed Weapons",
+            meleeAttacks = 4,
+            meleeWeaponSkill = 3,
+            meleeStrength = 8,
+            meleeArmorPen = 2,
+            meleeDamage = 2,
+            pistolWeaponName = "Bolt Pistol",
+            pistolAttacks = 1,
+            pistolDamage = 1,
+            pistolStrength = 4,
+            pistolArmorPen = 0,
+            pistolRange = 3,
+            pistolCooldown = 1
+        ),
 
         // --- TYRANIDS (Warhammer 40,000 11th Edition) ---
         UnitTemplate(
@@ -787,7 +832,8 @@ object DefaultCatalog {
     )
 
     fun defaultBlackLegionRoster(): List<RosterSlot> = listOf(
-        RosterSlot("bl1", "legionaries")
+        RosterSlot("bl1", "legionaries"),
+        RosterSlot("bl2", "chaos_terminator")
     )
 
     private fun profileToJson(p: com.example.model.WeaponProfile): JSONObject = JSONObject().apply {

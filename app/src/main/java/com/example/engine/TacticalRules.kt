@@ -599,7 +599,7 @@ object TacticalRules {
                     (!attacker.hasAdvanced || aux.assault)
             }
             WeaponMode.SKILL -> when (attacker.template.archetype) {
-                UnitArchetype.TERMINATOR -> attacker.skillCooldownLeft == 0 && !attacker.hasAdvanced && !attacker.hasCharged && !inMelee
+                UnitArchetype.TERMINATOR, UnitArchetype.CHAOS_TERMINATOR -> attacker.skillCooldownLeft == 0 && !attacker.hasAdvanced && !attacker.hasCharged && !inMelee
                 UnitArchetype.BIOVORE -> attacker.skillCooldownLeft == 0 && !attacker.hasAdvanced && !attacker.hasCharged && !inMelee
                 UnitArchetype.SPORE_MINE -> attacker.isAlive
                 UnitArchetype.HORMAGAUNT -> attacker.skillCooldownLeft == 0 && !attacker.hasCharged
@@ -985,6 +985,7 @@ object TacticalRules {
         if (!attacker.isAlive || !defender.isAlive || defender.isCloaked || attacker.isAllyOf(defender)) return null
         if (mode == WeaponMode.SKILL && (
                 attacker.template.archetype == UnitArchetype.TERMINATOR ||
+                attacker.template.archetype == UnitArchetype.CHAOS_TERMINATOR ||
                 attacker.template.archetype == UnitArchetype.BIOVORE ||
                 attacker.template.archetype == UnitArchetype.BLADEGUARD ||
                 attacker.template.archetype == UnitArchetype.LEGIONARY ||

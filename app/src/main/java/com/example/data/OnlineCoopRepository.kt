@@ -1160,7 +1160,7 @@ class OnlineCoopRepository(
             val sectorMap = if (current.map.id == mapId) current.map else SectorMap(mapId, MapGenerator.generateSectorMap(mapId))
 
             val unitRows = (battleMap["units"] as? List<*>)?.mapNotNull { it as? Map<*, *> } ?: emptyList()
-            val units = unitRows.mapNotNull { parseBattleUnit(it, baseTemplates) }
+            val units = unitRows.mapNotNull { parseBattleUnit(it, baseTemplates) }.filter { it.isAlive }
 
             val resRows = (battleMap["reserveUnits"] as? List<*>)?.mapNotNull { it as? Map<*, *> } ?: emptyList()
             val reserveUnits = resRows.mapNotNull { parseBattleUnit(it, baseTemplates) }

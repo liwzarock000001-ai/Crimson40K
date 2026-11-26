@@ -741,6 +741,17 @@ object MeshCatalog3D {
                             rotationYDeg = 0f
                         )
                     } ?: UnitMeshSculptor3D.build(archetype, variant)
+                } else if (archetype == UnitArchetype.CHAOS_TERMINATOR) {
+                    val stream = openAssetStream("chaos_terminator.glb")
+                        ?: openAssetStream("Chaos_Terminator.glb")
+                    stream?.use {
+                        GlbLoader3D.loadMesh(
+                            stream = it,
+                            targetHeight = 0.98f,
+                            rotateYPlus90 = false,
+                            rotationYDeg = 0f
+                        )
+                    } ?: UnitMeshSculptor3D.build(UnitArchetype.TERMINATOR, variant)
                 } else {
                     UnitMeshSculptor3D.build(archetype, variant)
                 }
@@ -774,16 +785,15 @@ object MeshCatalog3D {
             for (gx in 0 until w) {
                 val terrain = rows[gy][gx]
                 val checker = (gx + gy) % 2 == 0
-                val grassHash = ((gx * 37 + gy * 73) % 11) * 0.004f
                 val r: Float
                 val g: Float
                 val b: Float
                 if (terrain == TerrainType.OBJECTIVE) {
-                    r = 0.22f; g = 0.50f; b = 0.24f
+                    r = 0.20f; g = 0.52f; b = 0.56f
                 } else {
-                    r = if (checker) 0.28f + grassHash else 0.23f + grassHash
-                    g = if (checker) 0.65f + grassHash else 0.57f + grassHash
-                    b = if (checker) 0.24f else 0.20f
+                    r = if (checker) 0.26f else 0.24f
+                    g = if (checker) 0.56f else 0.52f
+                    b = if (checker) 0.30f else 0.27f
                 }
                 floor.addMeshTranslated(tileQuad, gx.toFloat(), 0f, gy.toFloat(), tintR = r, tintG = g, tintB = b)
 

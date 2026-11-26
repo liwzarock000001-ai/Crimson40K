@@ -1218,7 +1218,7 @@ class TacticalEngineTest {
     @Test
     fun allTwelveUnitsMatchWarhammer40k11thEditionStatsPointsAndMigrateOldConfigs() {
         val byId = DefaultCatalog.defaultTemplates.associateBy { it.id }
-        assertEquals(18, byId.size)
+        assertEquals(19, byId.size)
 
         // --- Ultramarines (11e) ---
         val titus = byId.getValue("captain_titus")
@@ -2656,4 +2656,42 @@ class TacticalEngineTest {
         assertFalse(stuckAnimState.canAcceptInput(isRemoteClientAction = false))
         assertFalse(stuckAnimState.canAcceptInput(isRemoteClientAction = true))
     }
+
+    @Test
+    fun tabletopCategoriesCoverAllDefaultUnitsAppropriately() {
+        val byId = DefaultCatalog.defaultTemplates.associateBy { it.id }
+
+        // Heroes / Characters
+        assertEquals(com.example.model.UnitRoleCategory.HERO_CHARACTER, byId["captain_titus"]!!.category)
+
+        // Battleline
+        assertEquals(com.example.model.UnitRoleCategory.BATTLELINE, byId["intercessors"]!!.category)
+        assertEquals(com.example.model.UnitRoleCategory.BATTLELINE, byId["assault_intercessors"]!!.category)
+        assertEquals(com.example.model.UnitRoleCategory.BATTLELINE, byId["legionaries"]!!.category)
+        assertEquals(com.example.model.UnitRoleCategory.BATTLELINE, byId["termagants"]!!.category)
+        assertEquals(com.example.model.UnitRoleCategory.BATTLELINE, byId["hormagaunts"]!!.category)
+
+        // Infantry
+        assertEquals(com.example.model.UnitRoleCategory.INFANTRY, byId["incursors"]!!.category)
+        assertEquals(com.example.model.UnitRoleCategory.INFANTRY, byId["hellblasters"]!!.category)
+        assertEquals(com.example.model.UnitRoleCategory.INFANTRY, byId["bladeguard_veterans"]!!.category)
+        assertEquals(com.example.model.UnitRoleCategory.INFANTRY, byId["terminators"]!!.category)
+        assertEquals(com.example.model.UnitRoleCategory.INFANTRY, byId["chaos_terminator"]!!.category)
+        assertEquals(com.example.model.UnitRoleCategory.INFANTRY, byId["warriors"]!!.category)
+        assertEquals(com.example.model.UnitRoleCategory.INFANTRY, byId["genestealers"]!!.category)
+        assertEquals(com.example.model.UnitRoleCategory.INFANTRY, byId["von_ryans_leaper"]!!.category)
+        assertEquals(com.example.model.UnitRoleCategory.INFANTRY, byId["biovores"]!!.category)
+
+        // Vehicles & Monsters
+        assertEquals(com.example.model.UnitRoleCategory.VEHICLE_MONSTER, byId["dreadnought"]!!.category)
+        assertEquals(com.example.model.UnitRoleCategory.VEHICLE_MONSTER, byId["brutalis_dreadnought"]!!.category)
+        assertEquals(com.example.model.UnitRoleCategory.VEHICLE_MONSTER, byId["carnifex"]!!.category)
+        assertEquals(com.example.model.UnitRoleCategory.VEHICLE_MONSTER, byId["spore_mine"]!!.category)
+
+        // Every template resolves to a specific non-ALL category
+        DefaultCatalog.defaultTemplates.forEach { tpl ->
+            assertTrue(tpl.category != com.example.model.UnitRoleCategory.ALL)
+        }
+    }
 }
+

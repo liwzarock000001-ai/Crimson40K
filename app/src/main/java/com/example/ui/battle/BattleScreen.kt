@@ -2290,7 +2290,7 @@ private fun ActionDock(
             }
 
             if (selected != null && selected.template.archetype != UnitArchetype.BRUTALIS_DREADNOUGHT) {
-                val isTerminator = selected.template.archetype == UnitArchetype.TERMINATOR
+                val isTerminator = selected.template.archetype == UnitArchetype.TERMINATOR || selected.template.archetype == UnitArchetype.CHAOS_TERMINATOR
                 val isBiovore = selected.template.archetype == UnitArchetype.BIOVORE
                 val isSporeMine = selected.template.archetype == UnitArchetype.SPORE_MINE
                 val isLeaper = selected.template.archetype == UnitArchetype.VON_RYANS_LEAPER

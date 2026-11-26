@@ -61,6 +61,7 @@ import com.example.ui.theme.EmeraldSurface
 import com.example.ui.theme.GrimdarkBevelPanel
 import com.example.ui.theme.ImperialGold
 import com.example.ui.theme.InputDark
+import com.example.ui.theme.TabletopCategoryBadge
 import com.example.ui.theme.TacticalCyan
 import com.example.ui.theme.TextMuted
 import com.example.ui.theme.TextPrimary
@@ -77,7 +78,7 @@ fun StatEditDialog(
 ) {
     val pal = factionPalette(template.faction)
     val isWarrior = template.archetype == UnitArchetype.WARRIOR
-    val isTerminator = template.archetype == UnitArchetype.TERMINATOR
+    val isTerminator = template.archetype == UnitArchetype.TERMINATOR || template.archetype == UnitArchetype.CHAOS_TERMINATOR
 
     // Core unit profile
     var points by remember(template.id) { mutableStateOf(template.points.toString()) }
@@ -249,11 +250,19 @@ fun StatEditDialog(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = "DATASHEET: ${template.name.uppercase()}",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = pal.headerText
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(
+                                text = "DATASHEET: ${template.name.uppercase()}",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = pal.headerText,
+                                modifier = Modifier.weight(1f, fill = false)
+                            )
+                            TabletopCategoryBadge(category = template.category)
+                        }
                         OutlinedButton(
                             onClick = onDismiss,
                             shape = grimdarkBevelShape(4.dp),

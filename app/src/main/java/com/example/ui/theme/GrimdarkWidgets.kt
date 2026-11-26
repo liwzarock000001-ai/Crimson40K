@@ -1,13 +1,32 @@
 package com.example.ui.theme
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CutCornerShape
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
+import com.example.model.UnitRoleCategory
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -149,3 +168,96 @@ fun DriftingEmbersBackdrop(modifier: Modifier = Modifier) {
         }
     }
 }
+
+/**
+ * Visual badge for Tabletop 10th/11th Edition unit categories:
+ * - HERO / CHARACTER (Gold)
+ * - BATTLELINE (Cyan)
+ * - INFANTRY (Emerald/Slate)
+ * - VEHICLE / MONSTER (Amber)
+ */
+@Composable
+fun TabletopCategoryBadge(
+    category: UnitRoleCategory,
+    modifier: Modifier = Modifier
+) {
+    if (category == UnitRoleCategory.ALL) return
+    val (textColor, bgColor, borderColor) = when (category) {
+        UnitRoleCategory.HERO_CHARACTER -> Triple(ImperialGold, Color(0x33E5B338), ImperialGold.copy(alpha = 0.85f))
+        UnitRoleCategory.BATTLELINE -> Triple(TacticalCyan, Color(0x2838BDF8), TacticalCyan.copy(alpha = 0.8f))
+        UnitRoleCategory.INFANTRY -> Triple(EmeraldBuff, Color(0x2434D399), EmeraldBuff.copy(alpha = 0.7f))
+        UnitRoleCategory.VEHICLE_MONSTER -> Triple(WarmAmber, Color(0x2ECA8A04), WarmAmber.copy(alpha = 0.8f))
+        UnitRoleCategory.ALL -> Triple(TextMuted, InputDark, DividerIron)
+    }
+
+    Surface(
+        shape = CutCornerShape(3.dp),
+        color = bgColor,
+        border = BorderStroke(0.8.dp, borderColor),
+        modifier = modifier
+    ) {
+        Text(
+            text = category.badgeLabel,
+            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, fontSize = 9.sp),
+            color = textColor,
+            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+        )
+    }
+}
+
+/**
+ * Tabletop 10th/11th Edition battlefield category filter tabs:
+ * [ALL (9)] [⭐ HERO (1)] [⚔️ BATTLELINE (2)] [🛡️ INFANTRY (4)] [⚡ VEHICLE / MONST (2)]
+ */
+@Composable
+fun TabletopCategoryFilterTabs(
+    selectedCategory: UnitRoleCategory,
+    onSelectCategory: (UnitRoleCategory) -> Unit,
+    categoryCounts: Map<UnitRoleCategory, Int>,
+    accentColor: Color,
+    modifier: Modifier = Modifier
+) {
+    val scrollState = rememberScrollState()
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .horizontalScroll(scrollState)
+            .padding(vertical = 3.dp),
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        UnitRoleCategory.entries.forEach { cat ->
+            val count = categoryCounts[cat] ?: 0
+            if (count > 0 || cat == UnitRoleCategory.ALL || cat == selectedCategory) {
+                val isSelected = selectedCategory == cat
+                val tabBorderColor = if (isSelected) accentColor else DividerIron
+                val tabBgColor = if (isSelected) accentColor.copy(alpha = 0.22f) else InputDark.copy(alpha = 0.75f)
+                val tabTextColor = if (isSelected) accentColor else if (count > 0) TextPrimary else TextMuted
+
+                OutlinedButton(
+                    onClick = { onSelectCategory(cat) },
+                    shape = CutCornerShape(4.dp),
+                    border = BorderStroke(if (isSelected) 1.2.dp else 0.8.dp, tabBorderColor),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        containerColor = tabBgColor,
+                        contentColor = tabTextColor
+                    ),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                    modifier = Modifier
+                        .height(30.dp)
+                        .testTag("tab_cat_${cat.id}")
+                ) {
+                    val label = if (cat == UnitRoleCategory.ALL) "ALL ($count)" else "${cat.emoji} ${cat.shortLabel} ($count)"
+                    Text(
+                        text = label,
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                            fontSize = 10.sp
+                        )
+                    )
+                }
+            }
+        }
+    }
+}
+
