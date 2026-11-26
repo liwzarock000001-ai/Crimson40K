@@ -35,6 +35,8 @@ import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.AddCircleOutline
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudQueue
+import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Key
@@ -51,6 +53,11 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -68,6 +75,7 @@ import com.example.ui.theme.BorderSteel
 import com.example.ui.theme.CardSlate
 import com.example.ui.theme.CrimsonDeep
 import com.example.ui.theme.CrimsonSoft
+import com.example.ui.theme.CrimsonSurface
 import com.example.ui.theme.DividerIron
 import com.example.ui.theme.EmeraldBorder
 import com.example.ui.theme.EmeraldBuff
@@ -85,6 +93,7 @@ import com.example.ui.theme.VoidObsidian
 import com.example.ui.theme.WarmAmber
 import com.example.ui.theme.grimdarkBevelShape
 import com.example.viewmodel.UiState
+import kotlinx.coroutines.delay
 
 @Composable
 fun CoopRoomGateway(
@@ -92,6 +101,7 @@ fun CoopRoomGateway(
     myRoomsState: UiState<List<OnlineRoomSummary>>,
     isBusy: Boolean,
     signedInName: String,
+    currentUserId: String = "",
     errorMessage: String? = null,
     createErrorMessage: String? = null,
     joinErrorMessage: String? = null,
@@ -104,8 +114,20 @@ fun CoopRoomGateway(
     onSelectClientSlot: (String) -> Unit,
     onCreateOnlineRoom: () -> Unit,
     onJoinByRoomCode: () -> Unit,
-    onRejoinRoom: (OnlineRoomSummary) -> Unit
+    onRejoinRoom: (OnlineRoomSummary) -> Unit,
+    onDeleteRoom: (OnlineRoomSummary) -> Unit = {},
+    onCleanupUnusedRooms: () -> Unit = {},
+    onAutoSweepRooms: () -> Unit = {}
 ) {
+    var nowSeconds by remember { mutableLongStateOf(System.currentTimeMillis() / 1000L) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            nowSeconds = System.currentTimeMillis() / 1000L
+            onAutoSweepRooms()
+            delay(30_000L)
+        }
+    }
+
     val activeCreateError = createErrorMessage?.takeIf { it.isNotBlank() }
     val activeJoinError = joinErrorMessage?.takeIf { it.isNotBlank() }
         ?: errorMessage?.takeIf { it.isNotBlank() && it != createErrorMessage }
@@ -241,6 +263,8 @@ fun CoopRoomGateway(
                         state = state,
                         myRoomsState = myRoomsState,
                         isBusy = isBusy,
+                        currentUserId = currentUserId,
+                        nowSeconds = nowSeconds,
                         joinError = activeJoinError,
                         onDismissError = onDismissError,
                         onUpdateJoinName = onUpdateJoinName,
@@ -248,6 +272,8 @@ fun CoopRoomGateway(
                         onSelectClientSlot = onSelectClientSlot,
                         onJoinByRoomCode = onJoinByRoomCode,
                         onRejoinRoom = onRejoinRoom,
+                        onDeleteRoom = onDeleteRoom,
+                        onCleanupUnusedRooms = onCleanupUnusedRooms,
                         modifier = Modifier
                             .weight(0.56f)
                             .fillMaxHeight()
@@ -273,6 +299,8 @@ fun CoopRoomGateway(
                         state = state,
                         myRoomsState = myRoomsState,
                         isBusy = isBusy,
+                        currentUserId = currentUserId,
+                        nowSeconds = nowSeconds,
                         joinError = activeJoinError,
                         onDismissError = onDismissError,
                         onUpdateJoinName = onUpdateJoinName,
@@ -280,6 +308,8 @@ fun CoopRoomGateway(
                         onSelectClientSlot = onSelectClientSlot,
                         onJoinByRoomCode = onJoinByRoomCode,
                         onRejoinRoom = onRejoinRoom,
+                        onDeleteRoom = onDeleteRoom,
+                        onCleanupUnusedRooms = onCleanupUnusedRooms,
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(380.dp)
@@ -457,6 +487,8 @@ private fun JoinOnlineRoomPanel(
     state: CoopState,
     myRoomsState: UiState<List<OnlineRoomSummary>>,
     isBusy: Boolean,
+    currentUserId: String,
+    nowSeconds: Long,
     joinError: String?,
     onDismissError: () -> Unit,
     onUpdateJoinName: (String) -> Unit,
@@ -464,6 +496,8 @@ private fun JoinOnlineRoomPanel(
     onSelectClientSlot: (String) -> Unit,
     onJoinByRoomCode: () -> Unit,
     onRejoinRoom: (OnlineRoomSummary) -> Unit,
+    onDeleteRoom: (OnlineRoomSummary) -> Unit,
+    onCleanupUnusedRooms: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     GrimdarkBevelPanel(
@@ -653,14 +687,48 @@ private fun JoinOnlineRoomPanel(
                 }
             }
 
+            val visibleRooms = (myRoomsState as? UiState.Success)?.data
+                ?.filter { it.status != "FINISHED" }
+                .orEmpty()
+            val cleanableCount = (myRoomsState as? UiState.Success)?.data?.count { room ->
+                room.status == "FINISHED" ||
+                    (room.hostUid == currentUserId && room.otherAliveMembersCount(currentUserId, nowSeconds) == 0) ||
+                    (room.hostUid != currentUserId && room.aliveMembersCount(nowSeconds) == 0)
+            } ?: 0
+
             item {
-                val roomCount = (myRoomsState as? UiState.Success)?.data?.size ?: 0
-                Text(
-                    text = "YOUR ONLINE ROOMS ($roomCount)",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = ImperialGold,
-                    fontWeight = FontWeight.Bold
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "YOUR ONLINE ROOMS (${visibleRooms.size})",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = ImperialGold,
+                        fontWeight = FontWeight.Bold
+                    )
+                    if (cleanableCount > 0) {
+                        OutlinedButton(
+                            onClick = onCleanupUnusedRooms,
+                            enabled = !isBusy,
+                            shape = grimdarkBevelShape(4.dp),
+                            border = BorderStroke(1.dp, CrimsonSoft.copy(alpha = 0.7f)),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                containerColor = CrimsonDeep.copy(alpha = 0.6f),
+                                contentColor = CrimsonSoft
+                            ),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                            modifier = Modifier
+                                .height(26.dp)
+                                .testTag("coop_cleanup_empty_rooms")
+                        ) {
+                            Icon(Icons.Default.DeleteSweep, contentDescription = null, modifier = Modifier.size(13.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("CLEANUP ($cleanableCount)", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
             }
 
             when (myRoomsState) {
@@ -696,8 +764,7 @@ private fun JoinOnlineRoomPanel(
                     }
                 }
                 is UiState.Success -> {
-                    val rooms = myRoomsState.data.filter { it.status != "FINISHED" }
-                    if (rooms.isEmpty()) {
+                    if (visibleRooms.isEmpty()) {
                         item {
                             Box(
                                 modifier = Modifier
@@ -715,7 +782,13 @@ private fun JoinOnlineRoomPanel(
                             }
                         }
                     } else {
-                        items(rooms, key = { it.roomCode }) { room ->
+                        items(visibleRooms, key = { it.roomCode }) { room ->
+                            val aliveCount = room.aliveMembersCount(nowSeconds)
+                            val statusText = if (aliveCount <= 0) {
+                                "EMPTY • ${room.status}"
+                            } else {
+                                "$aliveCount/4 LIVE • ${room.status}"
+                            }
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -724,7 +797,7 @@ private fun JoinOnlineRoomPanel(
                                     .border(1.dp, TacticalCyan.copy(alpha = 0.55f), CutCornerShape(4.dp))
                                     .padding(horizontal = 8.dp, vertical = 6.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
                                 Icon(Icons.Default.Groups, contentDescription = null, tint = ImperialGold, modifier = Modifier.size(16.dp))
                                 Column(modifier = Modifier.weight(1f)) {
@@ -736,9 +809,9 @@ private fun JoinOnlineRoomPanel(
                                             fontWeight = FontWeight.Bold
                                         )
                                         Text(
-                                            text = "${room.memberCount}/4 • ${room.status}",
+                                            text = statusText,
                                             style = MaterialTheme.typography.labelSmall,
-                                            color = EmeraldBuff
+                                            color = if (aliveCount <= 0) WarmAmber else EmeraldBuff
                                         )
                                     }
                                     Text(
@@ -762,6 +835,23 @@ private fun JoinOnlineRoomPanel(
                                     modifier = Modifier.height(30.dp)
                                 ) {
                                     Text("OPEN", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                                }
+                                IconButton(
+                                    onClick = { onDeleteRoom(room) },
+                                    enabled = !isBusy,
+                                    modifier = Modifier
+                                        .size(34.dp)
+                                        .clip(CutCornerShape(4.dp))
+                                        .background(CrimsonSurface.copy(alpha = 0.45f))
+                                        .border(1.dp, CrimsonSoft.copy(alpha = 0.55f), CutCornerShape(4.dp))
+                                        .testTag("delete_room_${room.roomCode}")
+                                ) {
+                                    Icon(
+                                        Icons.Default.DeleteOutline,
+                                        contentDescription = "Delete room ${room.roomCode}",
+                                        tint = CrimsonSoft,
+                                        modifier = Modifier.size(16.dp)
+                                    )
                                 }
                             }
                         }

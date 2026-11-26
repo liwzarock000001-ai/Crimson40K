@@ -90,6 +90,7 @@ import com.example.model.UnitTemplate
 import com.example.ui.setup.StatEditDialog
 import com.example.ui.theme.BorderSteel
 import com.example.ui.theme.CardSlate
+import com.example.ui.theme.CrimsonBright
 import com.example.ui.theme.CrimsonDeep
 import com.example.ui.theme.CrimsonSoft
 import com.example.ui.theme.CrimsonSurface
@@ -133,6 +134,7 @@ fun CoopLobbyScreen(
     myRoomsState: UiState<List<OnlineRoomSummary>>,
     isBusy: Boolean,
     signedInName: String,
+    currentUserId: String = "",
     onlineErrorMessage: String? = null,
     createErrorMessage: String? = null,
     joinErrorMessage: String? = null,
@@ -146,6 +148,9 @@ fun CoopLobbyScreen(
     onCreateOnlineRoom: () -> Unit,
     onJoinByRoomCode: () -> Unit,
     onRejoinRoom: (OnlineRoomSummary) -> Unit,
+    onDeleteRoom: (OnlineRoomSummary) -> Unit = {},
+    onCleanupUnusedRooms: () -> Unit = {},
+    onAutoSweepRooms: () -> Unit = {},
     onUpdatePlayerFaction: (String, Faction) -> Unit,
     onCycleSlotMode: (String) -> Unit,
     onSelectConfigPlayer: (String) -> Unit,
@@ -187,6 +192,7 @@ fun CoopLobbyScreen(
                 myRoomsState = myRoomsState,
                 isBusy = isBusy,
                 signedInName = signedInName,
+                currentUserId = currentUserId,
                 errorMessage = onlineErrorMessage,
                 createErrorMessage = createErrorMessage,
                 joinErrorMessage = joinErrorMessage,
@@ -199,7 +205,10 @@ fun CoopLobbyScreen(
                 onSelectClientSlot = onSelectLocalClientSlot,
                 onCreateOnlineRoom = onCreateOnlineRoom,
                 onJoinByRoomCode = onJoinByRoomCode,
-                onRejoinRoom = onRejoinRoom
+                onRejoinRoom = onRejoinRoom,
+                onDeleteRoom = onDeleteRoom,
+                onCleanupUnusedRooms = onCleanupUnusedRooms,
+                onAutoSweepRooms = onAutoSweepRooms
             )
             return
         }
@@ -995,12 +1004,13 @@ private fun PlayerSlotsPane(
                 item {
                     val team1Primary = team1Players.firstOrNull { it.isActive }?.faction ?: Faction.MARINES
                     val aiFaction = when (team1Primary) {
-                        Faction.MARINES -> Faction.XENOS
+                        Faction.MARINES, Faction.ALLIANCE_IMPERIUM -> Faction.XENOS
                         Faction.BLACK_LEGION, Faction.XENOS -> Faction.MARINES
                     }
                     if (!team2HasUnits) {
                         val aiCrestRes = when (aiFaction) {
                             Faction.MARINES -> R.drawable.img_marine_crest
+                            Faction.ALLIANCE_IMPERIUM -> R.drawable.ic_imperium_crest
                             Faction.BLACK_LEGION -> R.drawable.img_black_legion_crest
                             Faction.XENOS -> R.drawable.img_xenos_crest
                         }
@@ -1128,6 +1138,7 @@ private fun Dow3PlayerSlotCard(
     val factionText = pal.badgeText
     val crestRes = when (player.faction) {
         Faction.MARINES -> R.drawable.img_marine_crest
+        Faction.ALLIANCE_IMPERIUM -> R.drawable.ic_imperium_crest
         Faction.BLACK_LEGION -> R.drawable.img_black_legion_crest
         Faction.XENOS -> R.drawable.img_xenos_crest
     }
@@ -1277,6 +1288,7 @@ private fun Dow3PlayerSlotCard(
                 Text(
                     text = when (player.faction) {
                         Faction.MARINES -> "MARINES"
+                        Faction.ALLIANCE_IMPERIUM -> "IMPERIUM"
                         Faction.BLACK_LEGION -> "BLACK LEGION"
                         Faction.XENOS -> "TYRANIDS"
                     },
@@ -1353,6 +1365,7 @@ private fun CommanderLoadoutPane(
     val accent = factionPalette(player.faction).primaryAccent
     val crestRes = when (player.faction) {
         Faction.MARINES -> R.drawable.img_marine_crest
+        Faction.ALLIANCE_IMPERIUM -> R.drawable.ic_imperium_crest
         Faction.BLACK_LEGION -> R.drawable.img_black_legion_crest
         Faction.XENOS -> R.drawable.img_xenos_crest
     }
@@ -1927,13 +1940,16 @@ private fun AllFactionStatsDialog(
 
                 // Faction Filter Bar
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    StatsFilterChip("ALL", filterFaction == null, ImperialGold, { filterFaction = null }, Modifier.weight(0.8f))
-                    StatsFilterChip("MARINES", filterFaction == Faction.MARINES, MarineBright, { filterFaction = Faction.MARINES }, Modifier.weight(1f))
-                    StatsFilterChip("BLACK LEGION", filterFaction == Faction.BLACK_LEGION, ImperialGold, { filterFaction = Faction.BLACK_LEGION }, Modifier.weight(1.2f))
-                    StatsFilterChip("TYRANIDS", filterFaction == Faction.XENOS, XenosViolet, { filterFaction = Faction.XENOS }, Modifier.weight(1f))
+                    StatsFilterChip("ALL", filterFaction == null, ImperialGold, { filterFaction = null }, Modifier.widthIn(min = 52.dp))
+                    StatsFilterChip("MARINES", filterFaction == Faction.MARINES, MarineBright, { filterFaction = Faction.MARINES }, Modifier.widthIn(min = 72.dp))
+                    StatsFilterChip("IMPERIUM", filterFaction == Faction.ALLIANCE_IMPERIUM, CrimsonBright, { filterFaction = Faction.ALLIANCE_IMPERIUM }, Modifier.widthIn(min = 76.dp))
+                    StatsFilterChip("BLACK LEGION", filterFaction == Faction.BLACK_LEGION, ImperialGold, { filterFaction = Faction.BLACK_LEGION }, Modifier.widthIn(min = 96.dp))
+                    StatsFilterChip("TYRANIDS", filterFaction == Faction.XENOS, XenosViolet, { filterFaction = Faction.XENOS }, Modifier.widthIn(min = 76.dp))
                 }
 
                 TabletopCategoryFilterTabs(

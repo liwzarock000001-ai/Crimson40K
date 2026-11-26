@@ -11,7 +11,7 @@ import org.json.JSONObject
 
 object DefaultCatalog {
 
-    const val CATALOG_EDITION = 14
+    const val CATALOG_EDITION = 15
 
     val defaultTemplates: List<UnitTemplate> = listOf(
         // --- ULTRAMARINES (Warhammer 40,000 11th Edition) ---
@@ -243,6 +243,7 @@ object DefaultCatalog {
             leadership = 5,
             objectiveControl = 2,
             isHero = true,
+            feelNoPainTarget = 5,
             skillName = "Honour of Ultramar (Auto)",
             skillDesc = "Auto Passive — Timing: Fight phase, this model dies. Condition: Its unit was not yet selected to fight in the phase. Result: Roll 1D6; on 2+, model stays on the battlefield and leaves as soon as its unit finishes fighting (or when the phase closes).",
             skillCooldown = 0,
@@ -415,6 +416,48 @@ object DefaultCatalog {
                 rapidFire = 3,
                 antiFly = 3
             )
+        ),
+
+        // --- ALLIANCE IMPERIUM ---
+        UnitTemplate(
+            id = "death_company_assault_intercessor",
+            name = "Death Company Assault Intercessor",
+            faction = Faction.ALLIANCE_IMPERIUM,
+            archetype = UnitArchetype.DEATH_COMPANY_ASSAULT_INTERCESSOR,
+            role = "Death Company Infantry",
+            points = 125,
+            squadSize = 5,
+            woundsPerModel = 2,
+            toughness = 4,
+            save = 3,
+            invulnSave = null,
+            armorPen = 1,
+            moveCm = 15, // 6"
+            strength = 5,
+            damage = 1,
+            attacksPerModel = 4,
+            range = 1, // Melee
+            ballisticSkill = 3,
+            weaponSkill = 3,
+            leadership = 6,
+            objectiveControl = 1,
+            baseDiameterMm = 32,
+            feelNoPainTarget = 6,
+            skillName = "An Honourable Death in Combat (Auto)",
+            skillDesc = "Always-active ability: Each attack gains [SUSTAINED HITS 1] while under Starting Strength, or [SUSTAINED HITS 2] instead (not both) while Below Half-strength.",
+            skillCooldown = 0,
+            passiveName = "An Honourable Death • Feel No Pain 6+",
+            passiveDesc = "32mm Base • Chainsword (4A WS3+ S5 AP-1 D1) & Close-quarters Bolt Pistol (12\" 1A BS3+ S5 AP-1 D1) • An Honourable Death in Combat: [SUSTAINED HITS 1] under Starting Strength, [SUSTAINED HITS 2] Below Half-strength • Auto Passive: Feel No Pain 6+.",
+            mainWeaponName = "Chainsword",
+            mainWeaponAssault = false,
+            pistolWeaponName = "Bolt Pistol",
+            pistolAttacks = 1,
+            pistolDamage = 1,
+            pistolStrength = 5,
+            pistolArmorPen = 1,
+            pistolRange = 3, // 12"
+            pistolCooldown = 1,
+            pistolIsPistol = true
         ),
 
         // --- BLACK LEGION (Chaos Space Marines) ---
@@ -836,6 +879,10 @@ object DefaultCatalog {
         RosterSlot("bl2", "chaos_terminator")
     )
 
+    fun defaultAllianceImperiumRoster(): List<RosterSlot> = listOf(
+        RosterSlot("ai1", "death_company_assault_intercessor")
+    )
+
     private fun profileToJson(p: com.example.model.WeaponProfile): JSONObject = JSONObject().apply {
         put("name", p.name)
         put("range", p.range)
@@ -903,6 +950,7 @@ object DefaultCatalog {
                 put("baseDiameterMm", t.baseDiameterMm)
                 put("isFly", t.isFly)
                 put("isHero", t.isHero)
+                put("feelNoPainTarget", t.feelNoPainTarget ?: 0)
                 put("skillCooldown", t.skillCooldown)
                 put("weaponChoice", t.weaponChoice?.name ?: "")
                 put("terminatorWeapon", t.terminatorWeapon?.name ?: "")
@@ -1033,7 +1081,10 @@ object DefaultCatalog {
                     baseDiameterMm = obj.optInt("baseDiameterMm", existing.baseDiameterMm).coerceIn(25, 130),
                     isFly = obj.optBoolean("isFly", existing.isFly),
                     isHero = obj.optBoolean("isHero", existing.isHero),
-                    skillCooldown = if (id == "terminators" || id == "captain_titus") existing.skillCooldown else obj.optInt("skillCooldown", existing.skillCooldown).coerceIn(0, 8),
+                    feelNoPainTarget = if (obj.has("feelNoPainTarget")) {
+                        obj.optInt("feelNoPainTarget", 0).takeIf { it in 2..6 }
+                    } else existing.feelNoPainTarget,
+                    skillCooldown = if (id == "terminators" || id == "captain_titus" || id == "death_company_assault_intercessor") existing.skillCooldown else obj.optInt("skillCooldown", existing.skillCooldown).coerceIn(0, 8),
                     weaponChoice = wc,
                     terminatorWeapon = tw,
                     mainWeaponName = if (isLegacyTerminator) existing.mainWeaponName else obj.optString("mainWeaponName", existing.mainWeaponName).ifBlank { existing.mainWeaponName },

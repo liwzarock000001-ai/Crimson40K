@@ -662,6 +662,7 @@ object MeshCatalog3D {
                 archetypeMeshes.remove(UnitArchetype.INCURSOR to "")
                 archetypeMeshes.remove(UnitArchetype.BRUTALIS_DREADNOUGHT to "")
                 archetypeMeshes.remove(UnitArchetype.CAPTAIN_TITUS to "")
+                archetypeMeshes.remove(UnitArchetype.DEATH_COMPANY_ASSAULT_INTERCESSOR to "")
             }
         }
     }
@@ -752,6 +753,19 @@ object MeshCatalog3D {
                             rotationYDeg = 0f
                         )
                     } ?: UnitMeshSculptor3D.build(UnitArchetype.TERMINATOR, variant)
+                } else if (archetype == UnitArchetype.DEATH_COMPANY_ASSAULT_INTERCESSOR) {
+                    val stream = openAssetStream("death_companyassault_Intercessor.glb")
+                        ?: openAssetStream("death_company_assault_intercessor.glb")
+                        ?: openAssetStream("Death_Company_Assault_Intercessor.glb")
+                        ?: openAssetStream("Death_Company_Assault_intercessor.glb")
+                    stream?.use {
+                        GlbLoader3D.loadMesh(
+                            stream = it,
+                            targetHeight = 0.85f,
+                            rotateYPlus90 = false,
+                            rotationYDeg = 0f
+                        )
+                    } ?: UnitMeshSculptor3D.build(archetype, variant)
                 } else {
                     UnitMeshSculptor3D.build(archetype, variant)
                 }

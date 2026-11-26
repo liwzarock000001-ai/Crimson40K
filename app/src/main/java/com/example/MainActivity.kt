@@ -289,6 +289,14 @@ private fun CoopFlowHost(
                 }
             }
 
+            LaunchedEffect(onlineVm) {
+                onlineVm.roomClosedEvents.collect { notice ->
+                    if (vm.coopState.value.inRoom) {
+                        vm.resetOnlineCoopState(notice)
+                    }
+                }
+            }
+
             val activeCoopTemplates = if (coopState.networkRole == com.example.model.CoopNetworkRole.CLIENT) {
                 coopState.remoteTemplates ?: setupState.templates
             } else {
@@ -349,6 +357,7 @@ private fun CoopFlowHost(
                         myRoomsState = myRoomsState,
                         isBusy = isOnlineBusy,
                         signedInName = onlineDisplayName,
+                        currentUserId = user.uid,
                         onlineErrorMessage = onlineError,
                         createErrorMessage = onlineCreateError,
                         joinErrorMessage = onlineJoinError,
@@ -450,6 +459,9 @@ private fun CoopFlowHost(
                                 vm.enterOnlineRoom(roomCode, slot, isHost)
                             }
                         },
+                        onDeleteRoom = onlineVm::deleteRoom,
+                        onCleanupUnusedRooms = onlineVm::cleanupUnusedRooms,
+                        onAutoSweepRooms = onlineVm::sweepAbandonedRoomsIfNeeded,
                         onUpdatePlayerFaction = vm::updateCoopPlayerFaction,
                         onCycleSlotMode = vm::cycleCoopPlayerSlotMode,
                         onSelectConfigPlayer = vm::selectCoopConfigPlayer,

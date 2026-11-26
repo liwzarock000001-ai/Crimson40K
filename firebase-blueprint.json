@@ -54,6 +54,10 @@
           "type": "object",
           "description": "Optional live tactical battle snapshot map written by Host while ACTIVE/FINISHED."
         },
+        "heartbeats": {
+          "type": "object",
+          "description": "Optional map of authenticated member UID -> server timestamp tracking live player presence inside the room."
+        },
         "createdAt": {
           "type": "string",
           "format": "date-time",

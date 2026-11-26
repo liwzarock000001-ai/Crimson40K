@@ -88,8 +88,23 @@ object TacticalRules {
         return false
     }
 
+    fun feelNoPainTarget(unit: BattleUnit, allUnits: List<BattleUnit>? = null): Int? {
+        var best: Int? = null
+        if (unit.isHeroLeader || hasEffectivePassive(unit, "captain_titus", allUnits)) {
+            best = 5
+        }
+        val tplFnp = unit.template.feelNoPainTarget?.takeIf { it in 2..6 }
+        if (tplFnp != null) {
+            best = if (best == null) tplFnp else minOf(best, tplFnp)
+        }
+        if (best == null && unit.hasFeelNoPain) {
+            best = 5
+        }
+        return best
+    }
+
     fun unitHasFeelNoPain(unit: BattleUnit, allUnits: List<BattleUnit>? = null): Boolean =
-        unit.hasFeelNoPain || unit.isHeroLeader || hasEffectivePassive(unit, "captain_titus", allUnits)
+        feelNoPainTarget(unit, allUnits) != null
 
     fun unitHasBladeguardReroll(unit: BattleUnit, allUnits: List<BattleUnit>? = null): Boolean =
         unit.bladeguardRerollBuffActive || (partnerOf(unit, allUnits)?.bladeguardRerollBuffActive == true)
@@ -615,7 +630,8 @@ object TacticalRules {
                     attacker.skillCooldownLeft == 0 && !attacker.bladeguardRerollBuffActive
                 UnitArchetype.LEGIONARY ->
                     attacker.skillCooldownLeft == 0 && !attacker.legionaryWoundRerollBuffActive
-                UnitArchetype.BRUTALIS_DREADNOUGHT -> false
+                UnitArchetype.BRUTALIS_DREADNOUGHT,
+                UnitArchetype.DEATH_COMPANY_ASSAULT_INTERCESSOR -> false
                 else -> {
                     val isMeleeSkill = weaponRange(attacker, mode) <= 1
                     if (isMeleeSkill) {
@@ -880,6 +896,26 @@ object TacticalRules {
             if (!isClaws && targetIsMV) return maxOf(result, 1)
             if (isClaws && !targetIsMV) return maxOf(result, 1)
         }
+        // An Honourable Death in Combat (Death Company Assault Intercessor — always active on all attacks)
+        if (attacker.template.archetype == UnitArchetype.DEATH_COMPANY_ASSAULT_INTERCESSOR) {
+            val startingModels = attacker.template.squadSize.coerceAtLeast(1)
+            val isBelowHalfStrength = if (startingModels > 1) {
+                attacker.aliveModels * 2 < startingModels
+            } else {
+                attacker.totalWounds * 2 < attacker.maxTotalWounds.coerceAtLeast(1)
+            }
+            val isUnderStartingStrength = if (startingModels > 1) {
+                attacker.aliveModels < startingModels
+            } else {
+                attacker.totalWounds < attacker.maxTotalWounds.coerceAtLeast(1)
+            }
+            val dcSustained = when {
+                isBelowHalfStrength -> 2
+                isUnderStartingStrength -> 1
+                else -> 0
+            }
+            result = maxOf(result, dcSustained)
+        }
         return result
     }
 
@@ -990,6 +1026,7 @@ object TacticalRules {
                 attacker.template.archetype == UnitArchetype.BLADEGUARD ||
                 attacker.template.archetype == UnitArchetype.LEGIONARY ||
                 attacker.template.archetype == UnitArchetype.BRUTALIS_DREADNOUGHT ||
+                attacker.template.archetype == UnitArchetype.DEATH_COMPANY_ASSAULT_INTERCESSOR ||
                 attacker.template.archetype == UnitArchetype.CAPTAIN_TITUS
             )
         ) return null
@@ -1229,14 +1266,17 @@ object TacticalRules {
         unit: BattleUnit,
         incomingDamage: Int,
         rng: Random = Random,
-        hasFnpOverride: Boolean? = null
+        hasFnpOverride: Boolean? = null,
+        allUnits: List<BattleUnit>? = null
     ): Int {
-        val activeFnp = hasFnpOverride ?: (unit.hasFeelNoPain || unit.isHeroLeader || ("captain_titus" in unit.inheritedPassiveIds))
+        val fnpTarget = feelNoPainTarget(unit, allUnits)
+        val activeFnp = hasFnpOverride ?: (fnpTarget != null)
         if (!activeFnp || incomingDamage <= 0) return incomingDamage
+        val rollNeeded = fnpTarget ?: 5
         var ignored = 0
         repeat(incomingDamage) {
             val roll = rng.nextInt(1, 7)
-            if (roll >= 5) {
+            if (roll >= rollNeeded) {
                 ignored++
             }
         }
@@ -1631,7 +1671,7 @@ object TacticalRules {
                                     } else {
                                         // Step 4: Model-by-Model Wound Allocation (no excess damage spillover)
                                         val applied = allocateWoundDamage(runningWounds, tgt.template.woundsPerModel, perUnsavedDmg)
-                                        val finalApplied = if (tgtHasFnp) applyFeelNoPain(tgt, applied, rng, hasFnpOverride = true) else applied
+                                        val finalApplied = if (tgtHasFnp) applyFeelNoPain(tgt, applied, rng, hasFnpOverride = true, allUnits = allUnits) else applied
                                         runningWounds -= finalApplied
                                         tgtDmg += finalApplied
                                     }
@@ -1725,7 +1765,7 @@ object TacticalRules {
                                                 pSaved++
                                             } else {
                                                 val pApp = allocateWoundDamage(runningWounds, tgt.template.woundsPerModel, pD)
-                                                val pFinalApp = if (tgtHasFnp) applyFeelNoPain(tgt, pApp, rng, hasFnpOverride = true) else pApp
+                                                val pFinalApp = if (tgtHasFnp) applyFeelNoPain(tgt, pApp, rng, hasFnpOverride = true, allUnits = allUnits) else pApp
                                                 runningWounds -= pFinalApp
                                                 pDmg += pFinalApp
                                             }
@@ -2096,7 +2136,7 @@ object TacticalRules {
                                     tgtSaved++
                                 } else {
                                     val applied = allocateWoundDamage(runningWounds, actualTarget.template.woundsPerModel, d)
-                                    val finalApplied = if (targetHasFnp) applyFeelNoPain(actualTarget, applied, rng, hasFnpOverride = true) else applied
+                                    val finalApplied = if (targetHasFnp) applyFeelNoPain(actualTarget, applied, rng, hasFnpOverride = true, allUnits = allCtx) else applied
                                     runningWounds -= finalApplied
                                     tgtDmg += finalApplied
                                 }

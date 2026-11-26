@@ -398,70 +398,78 @@ private fun SetupHeader(
                 }
             }
 
-            // Live Army Points Summary Display with Progress Bars at Top
-            Row(
+            // Live Army Points Summary Display with Progress Bars at Top (2x2 grid for 4 factions)
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(CutCornerShape(4.dp))
                     .background(InputDark.copy(alpha = 0.92f))
                     .border(1.dp, pal.trimMuted, CutCornerShape(4.dp))
                     .padding(horizontal = 10.dp, vertical = 5.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically
+                verticalArrangement = Arrangement.spacedBy(5.dp)
             ) {
-                Faction.entries.forEach { faction ->
-                    val fPal = factionPalette(faction)
-                    val pts = state.pointsFor(faction)
-                    val over = pts > state.pointLimit
-                    val ratio = (pts.toFloat() / state.pointLimit.coerceAtLeast(1).toFloat()).coerceIn(0f, 1f)
-                    val roleTag = when (faction) {
-                        state.playerFaction -> "YOU"
-                        state.enemyFaction -> "FOE"
-                        else -> ""
-                    }
-                    val shortName = when (faction) {
-                        Faction.MARINES -> "MARINES"
-                        Faction.BLACK_LEGION -> "BLACK LEGION"
-                        Faction.XENOS -> "TYRANIDS"
-                    }
-                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = if (roleTag.isNotEmpty()) "$shortName ($roleTag)" else shortName,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = fPal.headerText,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f, fill = false)
-                            )
-                            Spacer(Modifier.width(4.dp))
-                            Text(
-                                text = if (over) "OVER!" else "$pts/${state.pointLimit}",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = if (over) CrimsonSoft else fPal.primaryAccent,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                softWrap = false
-                            )
-                        }
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(5.dp)
-                                .clip(CutCornerShape(2.dp))
-                                .background(PanelIronBottom)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxHeight()
-                                    .fillMaxWidth(ratio)
-                                    .background(if (over) CrimsonSoft else fPal.primaryAccent)
-                            )
+                Faction.entries.chunked(2).forEach { rowFactions ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        rowFactions.forEach { faction ->
+                            val fPal = factionPalette(faction)
+                            val pts = state.pointsFor(faction)
+                            val over = pts > state.pointLimit
+                            val ratio = (pts.toFloat() / state.pointLimit.coerceAtLeast(1).toFloat()).coerceIn(0f, 1f)
+                            val roleTag = when (faction) {
+                                state.playerFaction -> "YOU"
+                                state.enemyFaction -> "FOE"
+                                else -> ""
+                            }
+                            val shortName = when (faction) {
+                                Faction.MARINES -> "MARINES"
+                                Faction.ALLIANCE_IMPERIUM -> "IMPERIUM"
+                                Faction.BLACK_LEGION -> "BLACK LEGION"
+                                Faction.XENOS -> "TYRANIDS"
+                            }
+                            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = if (roleTag.isNotEmpty()) "$shortName ($roleTag)" else shortName,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = fPal.headerText,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f, fill = false)
+                                    )
+                                    Spacer(Modifier.width(4.dp))
+                                    Text(
+                                        text = if (over) "OVER!" else "$pts/${state.pointLimit}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = if (over) CrimsonSoft else fPal.primaryAccent,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1,
+                                        softWrap = false
+                                    )
+                                }
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(4.dp)
+                                        .clip(CutCornerShape(2.dp))
+                                        .background(PanelIronBottom)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxHeight()
+                                            .fillMaxWidth(ratio)
+                                            .background(if (over) CrimsonSoft else fPal.primaryAccent)
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -558,6 +566,7 @@ private fun FactionSetupCard(
     }
     val crestRes = when (faction) {
         Faction.MARINES -> R.drawable.img_marine_crest
+        Faction.ALLIANCE_IMPERIUM -> R.drawable.ic_imperium_crest
         Faction.BLACK_LEGION -> R.drawable.img_black_legion_crest
         Faction.XENOS -> R.drawable.img_xenos_crest
     }
@@ -708,6 +717,7 @@ private fun FactionSetupCard(
             Text(
                 text = when (faction) {
                     Faction.MARINES -> "DEPLOYED STRIKE FORCE (${roster.size})"
+                    Faction.ALLIANCE_IMPERIUM -> "DEPLOYED ALLIANCE IMPERIUM (${roster.size})"
                     Faction.BLACK_LEGION -> "DEPLOYED WARBAND (${roster.size})"
                     Faction.XENOS -> "DEPLOYED TYRANIDS (${roster.size})"
                 },
@@ -750,6 +760,7 @@ private fun FactionSetupCard(
             Text(
                 text = when (faction) {
                     Faction.MARINES -> "ARMORY REINFORCEMENTS • ED11 DATASHEETS"
+                    Faction.ALLIANCE_IMPERIUM -> "IMPERIAL ALLIANCE • ED11 DATASHEETS"
                     Faction.BLACK_LEGION -> "WARP-FORGED REINFORCEMENTS • ED11 DATASHEETS"
                     Faction.XENOS -> "TYRANID BIO-STRAINS • ED11 DATASHEETS"
                 },
@@ -853,10 +864,11 @@ private fun DeployedUnitRow(
                 )
             }
             val invSuffix = template.invulnSave?.let { "/${it}++" } ?: ""
-            val baseSuffix = if (template.baseDiameterMm > 32) " • BASE ${template.baseDiameterMm}mm" else ""
+            val fnpSuffix = template.feelNoPainTarget?.let { " • FNP ${it}+" } ?: ""
+            val baseSuffix = if (template.baseDiameterMm > 32) " • BASE ${template.baseDiameterMm}mm" else " • ${template.baseDiameterMm}mm"
             val flySuffix = if (template.isFly) " • [FLY]" else ""
             Text(
-                text = "UNIT: ${template.squadSize}x ${template.woundsPerModel}W • M ${template.moveCm}cm • T${template.toughness} • SV ${template.save}+$invSuffix • LD ${template.leadership}+ • OC ${template.objectiveControl}$baseSuffix$flySuffix",
+                text = "UNIT: ${template.squadSize}x ${template.woundsPerModel}W • M ${template.moveCm}cm • T${template.toughness} • SV ${template.save}+$invSuffix • LD ${template.leadership}+ • OC ${template.objectiveControl}$fnpSuffix$baseSuffix$flySuffix",
                 style = MaterialTheme.typography.bodySmall,
                 color = TextMuted,
                 maxLines = 1,
@@ -1024,8 +1036,9 @@ private fun CatalogUnitRow(
                 if (template.mainTwinLinked) append(" [TWIN-LINKED]")
             }
             val baseBadge = if (template.baseDiameterMm > 32) " • ${template.baseDiameterMm}mm" else ""
+            val fnpBadge = template.feelNoPainTarget?.let { " • FNP ${it}+" } ?: ""
             Text(
-                text = "${template.role}$baseBadge • ${template.mainWeaponName}$wpnTag • Skill: ${template.skillName}",
+                text = "${template.role}$baseBadge$fnpBadge • ${template.mainWeaponName}$wpnTag • Skill: ${template.skillName}",
                 style = MaterialTheme.typography.bodySmall,
                 color = TextMuted,
                 maxLines = 1,
@@ -1119,6 +1132,7 @@ private fun SetupFooter(
                 Text(
                     text = when (state.playerFaction) {
                         Faction.MARINES -> "ULTRAMARINES COGITATOR READY • DEPLOY STRIKE FORCE"
+                        Faction.ALLIANCE_IMPERIUM -> "ALLIANCE IMPERIUM DEPLOYED • FOR SANGUINIUS & THE EMPEROR"
                         Faction.BLACK_LEGION -> "BLACK LEGION WARBAND ARMED • LET THE GALAXY BURN"
                         Faction.XENOS -> "HIVE SYNAPSE LINK ARMED • UNLEASH THE TYRANIDS"
                     },

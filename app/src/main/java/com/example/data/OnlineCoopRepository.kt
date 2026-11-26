@@ -33,6 +33,7 @@ import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.auth
 import com.google.firebase.firestore.DocumentSnapshot
+import com.google.firebase.firestore.FieldPath
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
@@ -44,6 +45,14 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.tasks.await
 import kotlin.random.Random
 
+object RoomPresencePolicy {
+    const val HEARTBEAT_INTERVAL_MS = 25_000L
+    const val MEMBER_ALIVE_WINDOW_SEC = 120L
+    const val STALE_GUEST_EVICT_SEC = 150L
+    const val SOLO_IDLE_ABANDON_SEC = 90L
+    const val ALL_OFFLINE_ABANDON_SEC = 195L
+}
+
 data class OnlineRoomSummary(
     val roomCode: String = "",
     val hostUid: String = "",
@@ -51,8 +60,55 @@ data class OnlineRoomSummary(
     val status: String = "LOBBY",
     val memberCount: Int = 1,
     val openForJoin: Boolean = true,
-    val updatedAt: Timestamp? = null
-)
+    val updatedAt: Timestamp? = null,
+    val memberUids: List<String> = emptyList(),
+    val heartbeatsSeconds: Map<String, Long> = emptyMap()
+) {
+    fun aliveMemberUids(nowSeconds: Long = System.currentTimeMillis() / 1000L): List<String> {
+        val candidates = if (memberUids.isNotEmpty()) memberUids else listOfNotNull(hostUid.takeIf { it.isNotBlank() })
+        return candidates.filter { uid ->
+            val hb = heartbeatsSeconds[uid]
+            if (hb != null) {
+                (nowSeconds - hb) <= RoomPresencePolicy.MEMBER_ALIVE_WINDOW_SEC
+            } else {
+                val upd = updatedAt?.seconds ?: 0L
+                uid == hostUid && upd > 0L && (nowSeconds - upd) <= RoomPresencePolicy.MEMBER_ALIVE_WINDOW_SEC
+            }
+        }
+    }
+
+    fun aliveMembersCount(nowSeconds: Long = System.currentTimeMillis() / 1000L): Int =
+        aliveMemberUids(nowSeconds).size
+
+    fun otherAliveMembersCount(currentUid: String, nowSeconds: Long = System.currentTimeMillis() / 1000L): Int =
+        aliveMemberUids(nowSeconds).count { it != currentUid }
+}
+
+fun isAbandonedEmptyRoom(
+    summary: OnlineRoomSummary,
+    currentUid: String,
+    activeRoomCode: String?,
+    nowSeconds: Long = System.currentTimeMillis() / 1000L
+): Boolean {
+    if (summary.roomCode.isBlank()) return false
+    if (activeRoomCode == summary.roomCode) return false
+    if (summary.status == "FINISHED") return true
+
+    val lastActivitySec = maxOf(
+        summary.updatedAt?.seconds ?: 0L,
+        summary.heartbeatsSeconds.values.maxOrNull() ?: 0L
+    )
+    val ageSec = if (lastActivitySec > 0L) (nowSeconds - lastActivitySec).coerceAtLeast(0L) else 0L
+    val isHost = summary.hostUid == currentUid
+    val aliveCount = summary.aliveMembersCount(nowSeconds)
+    val otherAlive = summary.otherAliveMembersCount(currentUid, nowSeconds)
+
+    return if (isHost) {
+        otherAlive == 0 && ageSec >= RoomPresencePolicy.SOLO_IDLE_ABANDON_SEC
+    } else {
+        aliveCount == 0 && ageSec >= RoomPresencePolicy.ALL_OFFLINE_ABANDON_SEC
+    }
+}
 
 data class OnlineClientAction(
     val actionId: String = "",
@@ -74,6 +130,7 @@ data class OnlineRoomSnapshot(
     val status: String = "LOBBY",
     val openForJoin: Boolean = true,
     val memberUids: List<String> = emptyList(),
+    val heartbeatsSeconds: Map<String, Long> = emptyMap(),
     val spawnAiEnemyIfSameFaction: Boolean = true,
     val pointLimit: Int = 1000,
     val players: List<CoopPlayer> = emptyList(),
@@ -183,6 +240,9 @@ class OnlineCoopRepository(
         var docPath = "coop_rooms"
         return try {
             val uid = requireUserId()
+            // Clean up older empty/finished rooms hosted by this user before creating a fresh room
+            sweepHostedEmptyRooms(uid)
+
             val cleanHostName = hostName.trim().ifBlank { "Commander 1" }.take(24)
             val roomCode = Random.nextInt(100000, 999999).toString()
             val docRef = db.collection("coop_rooms").document(roomCode)
@@ -206,6 +266,7 @@ class OnlineCoopRepository(
                 put("pointLimit", pointLimit.coerceIn(500, 5000))
                 put("players", playersList)
                 put("assignedUnits", unitsList)
+                put("heartbeats", mapOf(uid to FieldValue.serverTimestamp()))
                 if (templates.isNotEmpty()) {
                     put("customTemplates", templatesToMapList(templates))
                 }
@@ -219,6 +280,28 @@ class OnlineCoopRepository(
         } catch (e: Exception) {
             handleFirestoreError(e, OperationType.CREATE, docPath)
             Result.failure(e)
+        }
+    }
+
+    private suspend fun sweepHostedEmptyRooms(uid: String) {
+        try {
+            val nowSec = System.currentTimeMillis() / 1000L
+            val existing = db.collection("coop_rooms")
+                .whereArrayContains("memberUids", uid)
+                .get()
+                .await()
+            for (doc in existing.documents) {
+                val summary = parseRoomSummary(doc) ?: continue
+                if (summary.hostUid == uid &&
+                    (summary.status == "FINISHED" || summary.otherAliveMembersCount(uid, nowSec) == 0)
+                ) {
+                    deleteOnlineRoomInternal(summary.roomCode, isHostOwned = true, uid = uid)
+                }
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.d("OnlineCoopRepo", "Pre-create empty room sweep skipped: ${e.message}")
         }
     }
 
@@ -249,6 +332,9 @@ class OnlineCoopRepository(
                 val rawPlayers = (data["players"] as? List<*>)?.mapNotNull { it as? Map<*, *> } ?: emptyList()
 
                 if (uid in members) {
+                    if (status == "FINISHED") {
+                        throw IllegalStateException("Room #$cleanCode has already finished.")
+                    }
                     val existingSlot = rawPlayers.firstOrNull { (it["uid"] as? String) == uid }
                     return@runTransaction (existingSlot?.get("id") as? String) ?: "p1"
                 }
@@ -287,6 +373,7 @@ class OnlineCoopRepository(
                     mapOf(
                         "memberUids" to (members + uid),
                         "players" to parsedMaps,
+                        "heartbeats.$uid" to FieldValue.serverTimestamp(),
                         "updatedAt" to FieldValue.serverTimestamp()
                     )
                 )
@@ -302,24 +389,174 @@ class OnlineCoopRepository(
         }
     }
 
+    suspend fun sendRoomHeartbeat(roomCode: String): Result<Unit> {
+        val docPath = "coop_rooms/$roomCode"
+        return try {
+            val uid = requireUserId()
+            if (roomCode.isBlank()) return Result.success(Unit)
+            db.collection("coop_rooms").document(roomCode)
+                .update(
+                    mapOf(
+                        "heartbeats.$uid" to FieldValue.serverTimestamp(),
+                        "updatedAt" to FieldValue.serverTimestamp()
+                    )
+                )
+                .await()
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            val fsErr = extractFirestoreRootError(e)
+            if (fsErr?.code != FirebaseFirestoreException.Code.NOT_FOUND) {
+                Log.d("OnlineCoopRepo", "Heartbeat skipped for #$roomCode: ${e.message}")
+            }
+            Result.failure(e)
+        }
+    }
+
+    suspend fun evictStaleGuestsInLobby(roomCode: String): Result<Boolean> {
+        val docPath = "coop_rooms/$roomCode"
+        return try {
+            val uid = requireUserId()
+            if (roomCode.isBlank()) return Result.success(false)
+            val docRef = db.collection("coop_rooms").document(roomCode)
+            val nowSec = System.currentTimeMillis() / 1000L
+
+            val evicted = db.runTransaction { tx ->
+                val snap = tx.get(docRef)
+                if (!snap.exists()) return@runTransaction false
+                val data = snap.data ?: return@runTransaction false
+                val hostUid = (data["hostUid"] as? String) ?: ""
+                val status = (data["status"] as? String) ?: "LOBBY"
+                if (hostUid != uid || status != "LOBBY") return@runTransaction false
+
+                val members = (data["memberUids"] as? List<*>)?.mapNotNull { it as? String } ?: emptyList()
+                val heartbeats = parseHeartbeats(snap, data["heartbeats"])
+                val roomUpdatedSec = snap.getTimestamp("updatedAt", DocumentSnapshot.ServerTimestampBehavior.ESTIMATE)?.seconds ?: 0L
+                val staleGuests = members.filter { memberUid ->
+                    if (memberUid == hostUid) return@filter false
+                    val hb = heartbeats[memberUid]
+                    if (hb != null) {
+                        (nowSec - hb) > RoomPresencePolicy.STALE_GUEST_EVICT_SEC
+                    } else {
+                        roomUpdatedSec > 0L && (nowSec - roomUpdatedSec) > RoomPresencePolicy.STALE_GUEST_EVICT_SEC
+                    }
+                }.toSet()
+                if (staleGuests.isEmpty()) return@runTransaction false
+
+                val rawPlayers = (data["players"] as? List<*>)?.mapNotNull { it as? Map<*, *> } ?: emptyList()
+                val updatedPlayers = rawPlayers.map { row ->
+                    val m = row.entries.associate { (k, v) -> k.toString() to v }.toMutableMap()
+                    val rowUid = (m["uid"] as? String).orEmpty()
+                    if (rowUid in staleGuests) {
+                        m["uid"] = ""
+                        m["connectedClient"] = false
+                    }
+                    m
+                }
+                val updates = mutableMapOf<String, Any>(
+                    "memberUids" to members.filterNot { it in staleGuests },
+                    "players" to updatedPlayers,
+                    "updatedAt" to FieldValue.serverTimestamp()
+                )
+                val rawHeartbeats = data["heartbeats"] as? Map<*, *>
+                staleGuests.forEach { ghostUid ->
+                    if (rawHeartbeats?.containsKey(ghostUid) == true) {
+                        updates["heartbeats.$ghostUid"] = FieldValue.delete()
+                    }
+                }
+                tx.update(docRef, updates)
+                true
+            }.await()
+
+            Result.success(evicted)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.UPDATE, docPath)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun deleteOnlineRoom(roomCode: String, isHostOwned: Boolean): Result<Unit> {
+        return try {
+            val uid = requireUserId()
+            if (roomCode.isBlank()) return Result.success(Unit)
+            deleteOnlineRoomInternal(roomCode, isHostOwned = isHostOwned, uid = uid)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.DELETE, "coop_rooms/$roomCode")
+            Result.failure(e)
+        }
+    }
+
+    private suspend fun deleteRoomActions(roomCode: String, hostUid: String) {
+        val actionsSnap = runCatching {
+            db.collection("coop_rooms").document(roomCode)
+                .collection("actions")
+                .whereEqualTo("hostUid", hostUid)
+                .limit(50)
+                .get()
+                .await()
+        }.getOrNull()
+        if (actionsSnap != null && !actionsSnap.isEmpty) {
+            val batch = db.batch()
+            actionsSnap.documents.forEach { batch.delete(it.reference) }
+            runCatching { batch.commit().await() }
+        }
+    }
+
+    private suspend fun deleteOnlineRoomInternal(
+        roomCode: String,
+        isHostOwned: Boolean,
+        uid: String
+    ): Result<Unit> {
+        val docPath = "coop_rooms/$roomCode"
+        return try {
+            if (isHostOwned) {
+                deleteRoomActions(roomCode, uid)
+            }
+            db.collection("coop_rooms").document(roomCode).delete().await()
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            val fsErr = extractFirestoreRootError(e)
+            if (!isHostOwned && fsErr?.code == FirebaseFirestoreException.Code.PERMISSION_DENIED) {
+                // If room is not yet past 3-minute rule for non-host delete, cleanly detach from it
+                return leaveOnlineRoom(roomCode)
+            }
+            handleFirestoreError(e, OperationType.DELETE, docPath)
+            Result.failure(e)
+        }
+    }
+
     suspend fun leaveOnlineRoom(roomCode: String): Result<Unit> {
         val docPath = "coop_rooms/$roomCode"
         return try {
             val uid = requireUserId()
             if (roomCode.isBlank()) return Result.success(Unit)
             val docRef = db.collection("coop_rooms").document(roomCode)
+            val nowSec = System.currentTimeMillis() / 1000L
 
-            db.runTransaction { tx ->
+            val deletedByHost = db.runTransaction { tx ->
                 val snap = tx.get(docRef)
-                if (!snap.exists()) return@runTransaction null
-                val data = snap.data ?: return@runTransaction null
+                if (!snap.exists()) return@runTransaction false
+                val data = snap.data ?: return@runTransaction false
                 val hostUid = (data["hostUid"] as? String) ?: ""
                 val status = (data["status"] as? String) ?: "LOBBY"
+                val members = (data["memberUids"] as? List<*>)?.mapNotNull { it as? String } ?: emptyList()
 
                 if (hostUid == uid) {
-                    if (status == "LOBBY") {
+                    val heartbeats = parseHeartbeats(snap, data["heartbeats"])
+                    val otherAlive = members.count { memberUid ->
+                        memberUid != uid && (heartbeats[memberUid]?.let { (nowSec - it) <= RoomPresencePolicy.MEMBER_ALIVE_WINDOW_SEC } == true)
+                    }
+                    if (status == "LOBBY" || status == "FINISHED" || otherAlive == 0) {
                         tx.delete(docRef)
-                    } else if (status != "FINISHED") {
+                        return@runTransaction true
+                    } else {
                         tx.update(
                             docRef,
                             mapOf(
@@ -329,30 +566,33 @@ class OnlineCoopRepository(
                             )
                         )
                     }
-                } else if (status != "FINISHED") {
-                    val members = (data["memberUids"] as? List<*>)?.mapNotNull { it as? String } ?: emptyList()
-                    if (uid in members) {
-                        val rawPlayers = (data["players"] as? List<*>)?.mapNotNull { it as? Map<*, *> } ?: emptyList()
-                        val updatedPlayers = rawPlayers.map { row ->
-                            val m = row.entries.associate { (k, v) -> k.toString() to v }.toMutableMap()
-                            if ((m["uid"] as? String) == uid) {
-                                m["uid"] = ""
-                                m["connectedClient"] = false
-                            }
-                            m
+                } else if (uid in members) {
+                    val rawPlayers = (data["players"] as? List<*>)?.mapNotNull { it as? Map<*, *> } ?: emptyList()
+                    val updatedPlayers = rawPlayers.map { row ->
+                        val m = row.entries.associate { (k, v) -> k.toString() to v }.toMutableMap()
+                        if ((m["uid"] as? String) == uid) {
+                            m["uid"] = ""
+                            m["connectedClient"] = false
                         }
-                        tx.update(
-                            docRef,
-                            mapOf(
-                                "memberUids" to members.filterNot { it == uid },
-                                "players" to updatedPlayers,
-                                "updatedAt" to FieldValue.serverTimestamp()
-                            )
-                        )
+                        m
                     }
+                    val rawHeartbeats = data["heartbeats"] as? Map<*, *>
+                    val updates = mutableMapOf<String, Any>(
+                        "memberUids" to members.filterNot { it == uid },
+                        "players" to updatedPlayers,
+                        "updatedAt" to FieldValue.serverTimestamp()
+                    )
+                    if (rawHeartbeats != null && rawHeartbeats.containsKey(uid)) {
+                        updates["heartbeats.$uid"] = FieldValue.delete()
+                    }
+                    tx.update(docRef, updates)
                 }
-                null
+                false
             }.await()
+
+            if (deletedByHost) {
+                deleteRoomActions(roomCode, uid)
+            }
             Result.success(Unit)
         } catch (e: CancellationException) {
             throw e
@@ -542,6 +782,20 @@ class OnlineCoopRepository(
         }
     }
 
+    private fun parseHeartbeats(doc: DocumentSnapshot, raw: Any?): Map<String, Long> {
+        val rawMap = raw as? Map<*, *> ?: return emptyMap()
+        val result = mutableMapOf<String, Long>()
+        for ((k, v) in rawMap) {
+            val uid = k as? String ?: continue
+            val ts = (doc.get(FieldPath.of("heartbeats", uid), DocumentSnapshot.ServerTimestampBehavior.ESTIMATE) as? Timestamp)
+                ?: (v as? Timestamp)
+            if (ts != null) {
+                result[uid] = ts.seconds
+            }
+        }
+        return result
+    }
+
     private fun parseRoomSummary(doc: DocumentSnapshot): OnlineRoomSummary? {
         val data = doc.data ?: return null
         val members = (data["memberUids"] as? List<*>)?.mapNotNull { it as? String } ?: emptyList()
@@ -552,7 +806,9 @@ class OnlineCoopRepository(
             status = (data["status"] as? String) ?: "LOBBY",
             memberCount = members.size,
             openForJoin = (data["openForJoin"] as? Boolean) ?: true,
-            updatedAt = doc.getTimestamp("updatedAt", DocumentSnapshot.ServerTimestampBehavior.ESTIMATE)
+            updatedAt = doc.getTimestamp("updatedAt", DocumentSnapshot.ServerTimestampBehavior.ESTIMATE),
+            memberUids = members,
+            heartbeatsSeconds = parseHeartbeats(doc, data["heartbeats"])
         )
     }
 
@@ -594,6 +850,7 @@ class OnlineCoopRepository(
             status = (data["status"] as? String) ?: "LOBBY",
             openForJoin = (data["openForJoin"] as? Boolean) ?: true,
             memberUids = members,
+            heartbeatsSeconds = parseHeartbeats(doc, data["heartbeats"]),
             spawnAiEnemyIfSameFaction = (data["spawnAiEnemyIfSameFaction"] as? Boolean) ?: true,
             pointLimit = ((data["pointLimit"] as? Number)?.toInt() ?: 1000).coerceIn(500, 5000),
             players = parsedPlayers,
@@ -900,6 +1157,7 @@ class OnlineCoopRepository(
                 "baseDiameterMm" to t.baseDiameterMm,
                 "isFly" to t.isFly,
                 "isHero" to t.isHero,
+                "feelNoPainTarget" to (t.feelNoPainTarget ?: 0),
                 "mainWeaponName" to t.mainWeaponName,
                 "mainWeaponAssault" to t.mainWeaponAssault,
                 "mainWeaponHeavy" to t.mainWeaponHeavy,
@@ -1037,6 +1295,9 @@ class OnlineCoopRepository(
                 baseDiameterMm = ((row["baseDiameterMm"] as? Number)?.toInt() ?: base.baseDiameterMm).coerceIn(25, 130),
                 isFly = (row["isFly"] as? Boolean) ?: base.isFly,
                 isHero = (row["isHero"] as? Boolean) ?: base.isHero,
+                feelNoPainTarget = if (row.containsKey("feelNoPainTarget")) {
+                    ((row["feelNoPainTarget"] as? Number)?.toInt() ?: 0).takeIf { it in 2..6 }
+                } else base.feelNoPainTarget,
                 mainWeaponName = (row["mainWeaponName"] as? String) ?: base.mainWeaponName,
                 mainWeaponAssault = (row["mainWeaponAssault"] as? Boolean) ?: base.mainWeaponAssault,
                 mainWeaponHeavy = (row["mainWeaponHeavy"] as? Boolean) ?: base.mainWeaponHeavy,
@@ -1137,7 +1398,7 @@ class OnlineCoopRepository(
             attachedLeaderUid = (row["attachedLeaderUid"] as? String)?.ifBlank { null },
             bodyguardUid = (row["bodyguardUid"] as? String)?.ifBlank { null },
             isHero = (row["isHero"] as? Boolean) ?: tpl.isHero,
-            hasFeelNoPain = (row["hasFeelNoPain"] as? Boolean) ?: (tpl.isHero || tpl.archetype == UnitArchetype.CAPTAIN_TITUS),
+            hasFeelNoPain = (row["hasFeelNoPain"] as? Boolean) ?: (tpl.isHero || tpl.archetype == UnitArchetype.CAPTAIN_TITUS || tpl.feelNoPainTarget != null),
             inheritedPassiveIds = (row["inheritedPassiveIds"] as? List<*>)?.mapNotNull { (it as? String)?.takeIf { s -> s.isNotBlank() } } ?: emptyList(),
             honourOfUltramarPendingRemoval = (row["honourOfUltramarPendingRemoval"] as? Boolean) ?: false
         )

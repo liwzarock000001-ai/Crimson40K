@@ -7,7 +7,9 @@ import com.example.data.OnlineClientAction
 import com.example.data.OnlineCoopRepository
 import com.example.data.OnlineRoomSnapshot
 import com.example.data.OnlineRoomSummary
+import com.example.data.RoomPresencePolicy
 import com.example.data.extractFirestoreRootError
+import com.example.data.isAbandonedEmptyRoom
 import com.example.model.CoopPlayer
 import com.example.model.CoopRosterUnit
 import com.example.model.CoopState
@@ -25,6 +27,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onCompletion
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.retryWhen
 import kotlinx.coroutines.flow.stateIn
@@ -47,7 +50,15 @@ class OnlineCoopViewModel(
         const val STOP_TIMEOUT_MILLIS = 5000L
     }
 
+    private var currentRoomCode: String? = null
+    private val deletingRoomCodes = HashSet<String>()
+
     val myRoomsState: StateFlow<UiState<List<OnlineRoomSummary>>> = repository.observeMyRooms(currentUserId)
+        .onEach { rooms ->
+            if (currentRoomCode == null) {
+                sweepAbandonedRooms(rooms)
+            }
+        }
         .map<List<OnlineRoomSummary>, UiState<List<OnlineRoomSummary>>> { UiState.Success(it) }
         .catch { error ->
             val firestoreError = extractFirestoreRootError(error)
@@ -80,6 +91,9 @@ class OnlineCoopViewModel(
     private val incomingActionsChannel = Channel<OnlineClientAction>(Channel.UNLIMITED)
     val incomingActions = incomingActionsChannel.receiveAsFlow()
 
+    private val roomClosedChannel = Channel<String>(Channel.CONFLATED)
+    val roomClosedEvents = roomClosedChannel.receiveAsFlow()
+
     private data class BattlePublishRequest(
         val roomCode: String,
         val state: BattleUiState,
@@ -89,7 +103,7 @@ class OnlineCoopViewModel(
 
     private var roomObserverJob: Job? = null
     private var actionsObserverJob: Job? = null
-    private var currentRoomCode: String? = null
+    private var heartbeatJob: Job? = null
     private var currentPlayerSlotId: String = "p1"
     private val processedActionIds = HashSet<String>()
     private val battlePublishChannel = Channel<BattlePublishRequest>(Channel.CONFLATED)
@@ -249,12 +263,110 @@ class OnlineCoopViewModel(
         )
     }
 
+    fun sweepAbandonedRoomsIfNeeded() {
+        val rooms = (myRoomsState.value as? UiState.Success)?.data ?: return
+        sweepAbandonedRooms(rooms)
+    }
+
+    private fun sweepAbandonedRooms(rooms: List<OnlineRoomSummary>) {
+        if (currentRoomCode != null) return
+        val nowSec = System.currentTimeMillis() / 1000L
+        val targets = rooms.filter { summary ->
+            summary.roomCode !in deletingRoomCodes &&
+                isAbandonedEmptyRoom(
+                    summary = summary,
+                    currentUid = currentUserId,
+                    activeRoomCode = currentRoomCode,
+                    nowSeconds = nowSec
+                )
+        }
+        if (targets.isEmpty()) return
+        deleteRoomSummaries(targets)
+    }
+
+    fun cleanupUnusedRooms() {
+        if (_isBusy.value || currentRoomCode != null) return
+        val rooms = (myRoomsState.value as? UiState.Success)?.data ?: return
+        val nowSec = System.currentTimeMillis() / 1000L
+        val targets = rooms.filter { room ->
+            room.roomCode !in deletingRoomCodes && (
+                room.status == "FINISHED" ||
+                    (room.hostUid == currentUserId && room.otherAliveMembersCount(currentUserId, nowSec) == 0) ||
+                    (room.hostUid != currentUserId && room.aliveMembersCount(nowSec) == 0)
+                )
+        }
+        if (targets.isEmpty()) return
+        viewModelScope.launch {
+            _isBusy.value = true
+            try {
+                for (room in targets) {
+                    if (!deletingRoomCodes.add(room.roomCode)) continue
+                    try {
+                        repository.deleteOnlineRoom(
+                            roomCode = room.roomCode,
+                            isHostOwned = room.hostUid == currentUserId
+                        )
+                    } finally {
+                        deletingRoomCodes.remove(room.roomCode)
+                    }
+                }
+            } finally {
+                _isBusy.value = false
+            }
+        }
+    }
+
+    fun deleteRoom(summary: OnlineRoomSummary) {
+        if (_isBusy.value || summary.roomCode.isBlank()) return
+        if (currentRoomCode == summary.roomCode) return
+        viewModelScope.launch {
+            _isBusy.value = true
+            _joinError.value = null
+            _errorMessage.value = null
+            val res = if (deletingRoomCodes.add(summary.roomCode)) {
+                try {
+                    repository.deleteOnlineRoom(
+                        roomCode = summary.roomCode,
+                        isHostOwned = summary.hostUid == currentUserId
+                    )
+                } finally {
+                    deletingRoomCodes.remove(summary.roomCode)
+                }
+            } else {
+                Result.success(Unit)
+            }
+            _isBusy.value = false
+            res.onFailure { err ->
+                val msg = err.message ?: "Could not delete Room #${summary.roomCode}."
+                _joinError.value = msg
+                _errorMessage.value = msg
+            }
+        }
+    }
+
+    private fun deleteRoomSummaries(targets: List<OnlineRoomSummary>) {
+        viewModelScope.launch {
+            for (room in targets) {
+                if (!deletingRoomCodes.add(room.roomCode)) continue
+                try {
+                    repository.deleteOnlineRoom(
+                        roomCode = room.roomCode,
+                        isHostOwned = room.hostUid == currentUserId
+                    )
+                } finally {
+                    deletingRoomCodes.remove(room.roomCode)
+                }
+            }
+        }
+    }
+
     private fun startObservingRoom(roomCode: String, asHost: Boolean) {
         stopRoomListeners()
         currentRoomCode = roomCode
         processedActionIds.clear()
 
         roomObserverJob = viewModelScope.launch {
+            var sawNonNullSnapshot = false
             repository.observeRoom(roomCode)
                 .retryWhen { cause, attempt ->
                     if (cause is CancellationException) return@retryWhen false
@@ -272,6 +384,7 @@ class OnlineCoopViewModel(
                 .collect { snap ->
                     _activeRoom.value = snap
                     if (snap != null) {
+                        sawNonNullSnapshot = true
                         val resolvedSlot = snap.playerUids.entries.firstOrNull { it.value == currentUserId }?.key
                         if (resolvedSlot != null) {
                             currentPlayerSlotId = resolvedSlot
@@ -279,11 +392,42 @@ class OnlineCoopViewModel(
                         if (snap.hostUid == currentUserId && actionsObserverJob?.isActive != true) {
                             startObservingHostActions(roomCode)
                         }
+                    } else if (sawNonNullSnapshot && currentRoomCode == roomCode) {
+                        stopRoomListeners()
+                        roomClosedChannel.trySend("Room #$roomCode was closed.")
                     }
                 }
         }
         if (asHost) {
             startObservingHostActions(roomCode)
+        }
+        startRoomHeartbeat(roomCode, asHost)
+    }
+
+    private fun startRoomHeartbeat(roomCode: String, asHost: Boolean) {
+        heartbeatJob?.cancel()
+        heartbeatJob = viewModelScope.launch {
+            while (currentRoomCode == roomCode) {
+                val snap = _activeRoom.value
+                if (snap?.status == "FINISHED") break
+                repository.sendRoomHeartbeat(roomCode)
+                val currentSnap = _activeRoom.value
+                if ((asHost || currentSnap?.hostUid == currentUserId) &&
+                    currentSnap != null &&
+                    currentSnap.status == "LOBBY" &&
+                    currentSnap.hostUid == currentUserId
+                ) {
+                    val nowSec = System.currentTimeMillis() / 1000L
+                    val hasStaleGuest = currentSnap.memberUids.any { memberUid ->
+                        memberUid != currentUserId &&
+                            (currentSnap.heartbeatsSeconds[memberUid]?.let { (nowSec - it) > RoomPresencePolicy.STALE_GUEST_EVICT_SEC } == true)
+                    }
+                    if (hasStaleGuest) {
+                        repository.evictStaleGuestsInLobby(roomCode)
+                    }
+                }
+                delay(RoomPresencePolicy.HEARTBEAT_INTERVAL_MS)
+            }
         }
     }
 
@@ -400,13 +544,27 @@ class OnlineCoopViewModel(
         val snap = _activeRoom.value
         val isHost = snap != null && snap.hostUid == currentUserId
         val alreadyFinished = snap?.status == "FINISHED"
+        val nowSec = System.currentTimeMillis() / 1000L
+        val otherAlivePeers = if (snap != null) {
+            snap.memberUids.count { memberUid ->
+                memberUid != currentUserId &&
+                    (snap.heartbeatsSeconds[memberUid]?.let { (nowSec - it) <= RoomPresencePolicy.MEMBER_ALIVE_WINDOW_SEC } == true)
+            }
+        } else 0
+
         stopRoomListeners()
-        if (!code.isNullOrBlank() && !alreadyFinished) {
+        if (!code.isNullOrBlank()) {
             viewModelScope.launch {
-                if (isHost && finalInactiveBattle != null) {
-                    repository.publishBattleSnapshot(code, finalInactiveBattle, templates, "FINISHED")
-                } else {
-                    repository.leaveOnlineRoom(code)
+                when {
+                    isHost && (alreadyFinished || finalInactiveBattle == null || otherAlivePeers == 0) -> {
+                        repository.deleteOnlineRoom(code, isHostOwned = true)
+                    }
+                    isHost && finalInactiveBattle != null && otherAlivePeers > 0 -> {
+                        repository.publishBattleSnapshot(code, finalInactiveBattle, templates, "FINISHED")
+                    }
+                    else -> {
+                        repository.leaveOnlineRoom(code)
+                    }
                 }
             }
         }
@@ -419,6 +577,8 @@ class OnlineCoopViewModel(
     ): BattleUiState? = repository.applyBattleMapToState(battleMap, current, fallbackTemplates)
 
     fun stopRoomListeners() {
+        heartbeatJob?.cancel()
+        heartbeatJob = null
         roomObserverJob?.cancel()
         roomObserverJob = null
         actionsObserverJob?.cancel()

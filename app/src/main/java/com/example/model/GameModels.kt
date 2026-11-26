@@ -4,6 +4,7 @@ import androidx.compose.runtime.Immutable
 
 enum class Faction(val displayName: String, val badgeTag: String) {
     MARINES("Ultramarines", "XIII: ULTRAMARINES"),
+    ALLIANCE_IMPERIUM("Alliance Imperium", "IMPERIUM: ALLIANCE"),
     BLACK_LEGION("Black Legion", "LEGION: BLACK LEGION"),
     XENOS("Tyranids", "HIVE FLEET: TYRANIDS")
 }
@@ -73,6 +74,7 @@ enum class UnitArchetype {
     BRUTALIS_DREADNOUGHT,
     CAPTAIN,
     CAPTAIN_TITUS,
+    DEATH_COMPANY_ASSAULT_INTERCESSOR,
     LEGIONARY,
     TERMAGANT,
     HORMAGAUNT,
@@ -131,6 +133,7 @@ data class UnitTemplate(
     val baseDiameterMm: Int = 32,
     val isFly: Boolean = false,
     val isHero: Boolean = false,
+    val feelNoPainTarget: Int? = null,
     val skillName: String,
     val skillDesc: String,
     val skillCooldown: Int,
@@ -315,7 +318,7 @@ data class BattleUnit(
         get() = when (ownerPlayerId) {
             "p1", "p2", "player" -> 0
             "p3", "p4", "AI", "ai" -> 1
-            else -> if (faction == Faction.MARINES) 0 else 1
+            else -> if (faction == Faction.MARINES || faction == Faction.ALLIANCE_IMPERIUM) 0 else 1
         }
     fun isEnemyOf(other: BattleUnit): Boolean = effectiveTeam != other.effectiveTeam
     fun isAllyOf(other: BattleUnit): Boolean = effectiveTeam == other.effectiveTeam

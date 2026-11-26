@@ -1,0 +1,52 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="128dp"
+    android:height="128dp"
+    android:viewportWidth="128"
+    android:viewportHeight="128">
+    <!-- Obsidian-crimson heraldic shield field -->
+    <path
+        android:fillColor="#160B0E"
+        android:pathData="M0,0 L128,0 L128,128 L0,128 Z" />
+    <!-- Subtle dark crimson diagonal vignette -->
+    <path
+        android:fillColor="#2A0F14"
+        android:pathData="M16,12 L112,12 L112,78 C112,102 64,118 64,118 C64,118 16,102 16,78 Z" />
+    <!-- Outer gold/brass heraldic shield border -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#C29A49"
+        android:strokeWidth="4"
+        android:pathData="M16,12 L112,12 L112,78 C112,102 64,118 64,118 C64,118 16,102 16,78 Z" />
+    <!-- Death Company Crimson Saltire (X) -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#B8212B"
+        android:strokeWidth="12"
+        android:strokeLineCap="square"
+        android:pathData="M30,28 L98,92 M98,28 L30,92" />
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#DF3A44"
+        android:strokeWidth="4"
+        android:strokeLineCap="square"
+        android:pathData="M30,28 L98,92 M98,28 L30,92" />
+    <!-- Central Imperial Halo Ring -->
+    <path
+        android:fillColor="#14090B"
+        android:strokeColor="#D4AF5A"
+        android:strokeWidth="3.5"
+        android:pathData="M64,34 A26,26 0 1,0 63.9,34 Z" />
+    <!-- Winged Blood Drop Emblem -->
+    <path
+        android:fillColor="#D4AF5A"
+        android:pathData="M28,54 L46,48 L50,56 L32,62 Z M100,54 L82,48 L78,56 L96,62 Z" />
+    <path
+        android:fillColor="#C8202B"
+        android:strokeColor="#E8C778"
+        android:strokeWidth="2"
+        android:pathData="M64,42 C64,42 75,58 75,66 C75,72 70,77 64,77 C58,77 53,72 53,66 C53,58 64,42 64,42 Z" />
+    <!-- Inner highlight on Blood Drop -->
+    <path
+        android:fillColor="#F06B74"
+        android:pathData="M61,53 C61,53 65,60 65,65 C65,68 63,70 61,70 C59,70 58,68 58,65 C58,60 61,53 61,53 Z" />
+</vector>

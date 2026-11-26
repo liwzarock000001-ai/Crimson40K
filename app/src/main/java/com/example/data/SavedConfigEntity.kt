@@ -10,6 +10,7 @@ data class SavedConfigEntity(
     val enemyFaction: String = "",
     val pointLimit: Int,
     val marineRosterJson: String,
+    val allianceImperiumRosterJson: String = "",
     val blackLegionRosterJson: String = "",
     val xenosRosterJson: String,
     val customTemplatesJson: String,

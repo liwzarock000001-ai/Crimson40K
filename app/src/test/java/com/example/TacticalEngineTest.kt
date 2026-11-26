@@ -1218,7 +1218,7 @@ class TacticalEngineTest {
     @Test
     fun allTwelveUnitsMatchWarhammer40k11thEditionStatsPointsAndMigrateOldConfigs() {
         val byId = DefaultCatalog.defaultTemplates.associateBy { it.id }
-        assertEquals(19, byId.size)
+        assertEquals(20, byId.size)
 
         // --- Ultramarines (11e) ---
         val titus = byId.getValue("captain_titus")
@@ -2693,5 +2693,237 @@ class TacticalEngineTest {
             assertTrue(tpl.category != com.example.model.UnitRoleCategory.ALL)
         }
     }
+
+    @Test
+    fun onlineRoomPresenceAndAbandonedEmptyRoomDetection() {
+        val now = 10_000L
+        val hostUid = "host_1"
+        val peerUid = "peer_2"
+
+        // 1. FINISHED room is always marked abandoned when not currently active in it
+        val finishedRoom = com.example.data.OnlineRoomSummary(
+            roomCode = "100001",
+            hostUid = hostUid,
+            status = "FINISHED",
+            memberUids = listOf(hostUid),
+            heartbeatsSeconds = mapOf(hostUid to now - 5L),
+            updatedAt = com.google.firebase.Timestamp(now - 5L, 0)
+        )
+        assertTrue(com.example.data.isAbandonedEmptyRoom(finishedRoom, hostUid, activeRoomCode = null, nowSeconds = now))
+        assertFalse(com.example.data.isAbandonedEmptyRoom(finishedRoom, hostUid, activeRoomCode = "100001", nowSeconds = now))
+
+        // 2. Host's room WITH another real active player inside must be preserved
+        val activeWithPeer = com.example.data.OnlineRoomSummary(
+            roomCode = "100002",
+            hostUid = hostUid,
+            status = "LOBBY",
+            memberUids = listOf(hostUid, peerUid),
+            heartbeatsSeconds = mapOf(hostUid to now - 200L, peerUid to now - 30L),
+            updatedAt = com.google.firebase.Timestamp(now - 30L, 0)
+        )
+        assertEquals(1, activeWithPeer.aliveMembersCount(now))
+        assertEquals(1, activeWithPeer.otherAliveMembersCount(hostUid, now))
+        assertFalse(com.example.data.isAbandonedEmptyRoom(activeWithPeer, hostUid, activeRoomCode = null, nowSeconds = now))
+
+        // 3. Host's solo idle room with no other live players and >= 90s idle is marked abandoned
+        val abandonedSolo = com.example.data.OnlineRoomSummary(
+            roomCode = "100003",
+            hostUid = hostUid,
+            status = "LOBBY",
+            memberUids = listOf(hostUid, peerUid),
+            heartbeatsSeconds = mapOf(hostUid to now - 95L, peerUid to now - 160L),
+            updatedAt = com.google.firebase.Timestamp(now - 95L, 0)
+        )
+        assertEquals(1, abandonedSolo.aliveMembersCount(now))
+        assertEquals(0, abandonedSolo.otherAliveMembersCount(hostUid, now))
+        assertTrue(com.example.data.isAbandonedEmptyRoom(abandonedSolo, hostUid, activeRoomCode = null, nowSeconds = now))
+
+        // 4. Fresh solo room < 90s idle is kept briefly unless manually swept/replaced
+        val freshSolo = abandonedSolo.copy(
+            heartbeatsSeconds = mapOf(hostUid to now - 20L),
+            memberUids = listOf(hostUid),
+            updatedAt = com.google.firebase.Timestamp(now - 20L, 0)
+        )
+        assertFalse(com.example.data.isAbandonedEmptyRoom(freshSolo, hostUid, activeRoomCode = null, nowSeconds = now))
+
+        // 5. Non-host peer sees room with all players offline >= 195s -> abandoned
+        val deadRoomForPeer = com.example.data.OnlineRoomSummary(
+            roomCode = "100004",
+            hostUid = hostUid,
+            status = "ACTIVE",
+            memberUids = listOf(hostUid, peerUid),
+            heartbeatsSeconds = mapOf(hostUid to now - 210L, peerUid to now - 210L),
+            updatedAt = com.google.firebase.Timestamp(now - 210L, 0)
+        )
+        assertEquals(0, deadRoomForPeer.aliveMembersCount(now))
+        assertTrue(com.example.data.isAbandonedEmptyRoom(deadRoomForPeer, peerUid, activeRoomCode = null, nowSeconds = now))
+        assertFalse(com.example.data.isAbandonedEmptyRoom(activeWithPeer, peerUid, activeRoomCode = null, nowSeconds = now))
+    }
+
+    @Test
+    fun deathCompanyAssaultIntercessorCatalogAndDatasheetStats() {
+        val dc = DefaultCatalog.defaultTemplates.firstOrNull { it.id == "death_company_assault_intercessor" }
+        assertNotNull(dc)
+        dc!!
+        assertEquals(Faction.ALLIANCE_IMPERIUM, dc.faction)
+        assertEquals(UnitArchetype.DEATH_COMPANY_ASSAULT_INTERCESSOR, dc.archetype)
+        assertEquals(125, dc.points)
+        assertEquals(5, dc.squadSize)
+        assertEquals(2, dc.woundsPerModel)
+        assertEquals(4, dc.toughness)
+        assertEquals(3, dc.save)
+        assertNull(dc.invulnSave)
+        assertEquals(15, dc.moveCm)
+        assertEquals(6, dc.leadership)
+        assertEquals(1, dc.objectiveControl)
+        assertEquals(32, dc.baseDiameterMm)
+        assertEquals(6, dc.feelNoPainTarget)
+        assertEquals(0, dc.skillCooldown)
+        assertEquals(com.example.model.UnitRoleCategory.INFANTRY, dc.category)
+
+        // Chainsword melee profile
+        assertEquals("Chainsword", dc.mainWeaponName)
+        assertEquals(1, dc.range)
+        assertEquals(4, dc.attacksPerModel)
+        assertEquals(3, dc.weaponSkill)
+        assertEquals(5, dc.strength)
+        assertEquals(1, dc.armorPen)
+        assertEquals(1, dc.damage)
+
+        // Bolt Pistol ranged/close-quarters profile
+        assertEquals("Bolt Pistol", dc.pistolWeaponName)
+        assertEquals(3, dc.pistolRange)
+        assertEquals(1, dc.pistolAttacks)
+        assertEquals(3, dc.ballisticSkill)
+        assertEquals(5, dc.pistolStrength)
+        assertEquals(1, dc.pistolArmorPen)
+        assertEquals(1, dc.pistolDamage)
+        assertTrue(dc.pistolIsPistol)
+
+        // Default Alliance Imperium starter roster exists
+        val roster = DefaultCatalog.defaultAllianceImperiumRoster()
+        assertTrue(roster.any { it.templateId == "death_company_assault_intercessor" })
+    }
+
+    @Test
+    fun anHonourableDeathInCombatSustainedHitsAndAlwaysActive() {
+        val map = MapGenerator.generateSectorMap(1L)
+        val dcTpl = DefaultCatalog.defaultTemplates.first { it.id == "death_company_assault_intercessor" }
+        val targetTpl = DefaultCatalog.defaultTemplates.first { it.id == "termagants" }
+        val target = BattleUnit("x1", targetTpl, Faction.XENOS, 5, 6, Facing.WEST, targetTpl.maxTotalWounds, targetTpl.maxTotalWounds, 15f)
+
+        // 10W / 5 models (Starting Strength) -> 0 sustained hits
+        val fullSquad = BattleUnit("dc_full", dcTpl, Faction.ALLIANCE_IMPERIUM, 4, 6, Facing.EAST, 10, 10, 15f)
+        assertEquals(0, TacticalRules.weaponSustainedHits(fullSquad, WeaponMode.MAIN, isMelee = true, defender = target))
+        assertEquals(0, TacticalRules.weaponSustainedHits(fullSquad, WeaponMode.PISTOL, isMelee = false, defender = target))
+        // Always-active passive ability -> no manual SKILL mode needed/allowed
+        assertFalse(TacticalRules.canUseMode(fullSquad, WeaponMode.SKILL, listOf(fullSquad, target)))
+        assertNull(TacticalRules.canTargetFromWorld(fullSquad, fullSquad.worldX, fullSquad.worldY, target, WeaponMode.SKILL, map, listOf(fullSquad, target)))
+
+        // 9W / 5 models (all 5 models alive -> still at Starting Strength of 5 models) -> 0 sustained hits
+        val woundedFrontModel = fullSquad.copy(totalWounds = 9)
+        assertEquals(5, woundedFrontModel.aliveModels)
+        assertEquals(0, TacticalRules.weaponSustainedHits(woundedFrontModel, WeaponMode.MAIN, isMelee = true, defender = target))
+
+        // 8W / 4 models (Under Starting Strength, not Below Half) -> [SUSTAINED HITS 1]
+        val fourModels = fullSquad.copy(totalWounds = 8)
+        assertEquals(4, fourModels.aliveModels)
+        assertEquals(1, TacticalRules.weaponSustainedHits(fourModels, WeaponMode.MAIN, isMelee = true, defender = target))
+        assertEquals(1, TacticalRules.weaponSustainedHits(fourModels, WeaponMode.PISTOL, isMelee = false, defender = target))
+
+        // 5W / 3 models (3 >= 2.5 half-strength) -> [SUSTAINED HITS 1]
+        val threeModels = fullSquad.copy(totalWounds = 5)
+        assertEquals(3, threeModels.aliveModels)
+        assertEquals(1, TacticalRules.weaponSustainedHits(threeModels, WeaponMode.MAIN, isMelee = true, defender = target))
+
+        // 4W / 2 models (Below Half-strength: 2 < 2.5) -> [SUSTAINED HITS 2] instead (not both)
+        val twoModels = fullSquad.copy(totalWounds = 4)
+        assertEquals(2, twoModels.aliveModels)
+        assertEquals(2, TacticalRules.weaponSustainedHits(twoModels, WeaponMode.MAIN, isMelee = true, defender = target))
+        assertEquals(2, TacticalRules.weaponSustainedHits(twoModels, WeaponMode.PISTOL, isMelee = false, defender = target))
+
+        // 2W / 1 model -> [SUSTAINED HITS 2]
+        val oneModel = fullSquad.copy(totalWounds = 2)
+        assertEquals(1, oneModel.aliveModels)
+        assertEquals(2, TacticalRules.weaponSustainedHits(oneModel, WeaponMode.MAIN, isMelee = true, defender = target))
+    }
+
+    @Test
+    fun deathCompanyFeelNoPainSixPlusVsFivePlus() {
+        val dcTpl = DefaultCatalog.defaultTemplates.first { it.id == "death_company_assault_intercessor" }
+        val titusTpl = DefaultCatalog.defaultTemplates.first { it.id == "captain_titus" }
+
+        val dc = BattleUnit("dc1", dcTpl, Faction.ALLIANCE_IMPERIUM, 2, 6, Facing.EAST, dcTpl.maxTotalWounds, dcTpl.maxTotalWounds, 15f, hasFeelNoPain = true)
+        val titus = BattleUnit("t1", titusTpl, Faction.MARINES, 2, 7, Facing.EAST, titusTpl.maxTotalWounds, titusTpl.maxTotalWounds, 15f, hasFeelNoPain = true)
+
+        assertEquals(6, TacticalRules.feelNoPainTarget(dc))
+        assertEquals(5, TacticalRules.feelNoPainTarget(titus))
+        assertTrue(TacticalRules.unitHasFeelNoPain(dc))
+
+        val always5Rng = object : Random() {
+            override fun nextBits(bitCount: Int): Int = 0
+            override fun nextInt(from: Int, until: Int): Int = 5
+        }
+        val always6Rng = object : Random() {
+            override fun nextBits(bitCount: Int): Int = 0
+            override fun nextInt(from: Int, until: Int): Int = 6
+        }
+
+        // Roll of 5 fails Death Company 6+ FNP, but passes Titus 5+ FNP
+        assertEquals(2, TacticalRules.applyFeelNoPain(dc, 2, rng = always5Rng))
+        assertEquals(0, TacticalRules.applyFeelNoPain(titus, 2, rng = always5Rng))
+
+        // Roll of 6 ignores wounds on Death Company 6+ FNP
+        assertEquals(0, TacticalRules.applyFeelNoPain(dc, 2, rng = always6Rng))
+    }
+
+    @Test
+    fun inspectGlbFootprints() {
+        val files = listOf(
+            "assault_terminatorH_S.glb" to 0.923f,
+            "blade_guard.glb" to 1.015f,
+            "incursor_squad.glb" to 0.818f,
+            "brutalis_dreadnought.glb" to 1.05f,
+            "captain_titus.glb" to 1.02f
+        )
+        for ((name, h) in files) {
+            val f = java.io.File("src/main/assets/$name")
+            if (!f.isFile) {
+                println("GLB $name NOT FOUND")
+                continue
+            }
+            val mesh = f.inputStream().use {
+                com.example.ui.battle.GlbLoader3D.loadMesh(it, targetHeight = h, rotateYPlus90 = (name == "assault_terminatorH_S.glb"))
+            }!!
+            var minX = Float.POSITIVE_INFINITY; var maxX = Float.NEGATIVE_INFINITY
+            var minY = Float.POSITIVE_INFINITY; var maxY = Float.NEGATIVE_INFINITY
+            var minZ = Float.POSITIVE_INFINITY; var maxZ = Float.NEGATIVE_INFINITY
+            var bMinX = Float.POSITIVE_INFINITY; var bMaxX = Float.NEGATIVE_INFINITY
+            var bMinZ = Float.POSITIVE_INFINITY; var bMaxZ = Float.NEGATIVE_INFINITY
+            var bottomVerts = 0
+            var ringVerts = 0
+            var rMin = Float.POSITIVE_INFINITY; var rMax = Float.NEGATIVE_INFINITY
+            for (i in 0 until mesh.vertexCount) {
+                val x = mesh.data[i * 10]
+                val y = mesh.data[i * 10 + 1]
+                val z = mesh.data[i * 10 + 2]
+                if (x < minX) minX = x; if (x > maxX) maxX = x
+                if (y < minY) minY = y; if (y > maxY) maxY = y
+                if (z < minZ) minZ = z; if (z > maxZ) maxZ = z
+                if (y <= 0.02f) {
+                    bottomVerts++
+                    if (x < bMinX) bMinX = x; if (x > bMaxX) bMaxX = x
+                    if (z < bMinZ) bMinZ = z; if (z > bMaxZ) bMaxZ = z
+                    val rad = kotlin.math.hypot(x, z)
+                    if (rad > 0.1f) {
+                        ringVerts++
+                        if (rad < rMin) rMin = rad; if (rad > rMax) rMax = rad
+                    }
+                }
+            }
+            println("GLB $name H=[$minY..$maxY] X=[$minX..$maxX] Z=[$minZ..$maxZ] y<=0.02: verts=$bottomVerts bX=[$bMinX..$bMaxX] bZ=[$bMinZ..$bMaxZ] r=[$rMin..$rMax]")
+        }
+    }
 }
+
 

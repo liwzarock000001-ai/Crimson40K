@@ -1339,8 +1339,21 @@ private fun UnitStatusCard(
                     if (unit.attachedLeaderUid != null && attachedPartner != null) {
                         StatPill("LEADER", attachedPartner.template.name.take(14).uppercase(), ImperialGold)
                     }
-                    if (TacticalRules.unitHasFeelNoPain(unit, allUnits)) {
-                        StatPill("FNP", "5+", EmeraldBuff)
+                    TacticalRules.feelNoPainTarget(unit, allUnits)?.let { fnpTarget ->
+                        StatPill("FNP", "${fnpTarget}+", EmeraldBuff)
+                    }
+                    if (unit.template.archetype == UnitArchetype.DEATH_COMPANY_ASSAULT_INTERCESSOR) {
+                        val sustainedTier = TacticalRules.weaponSustainedHits(unit, WeaponMode.MAIN, isMelee = true, allUnits = allUnits)
+                        val honourLabel = when (sustainedTier) {
+                            2 -> "SUSTAINED 2"
+                            1 -> "SUSTAINED 1"
+                            else -> "FULL"
+                        }
+                        StatPill(
+                            "HONOURABLE",
+                            honourLabel,
+                            if (sustainedTier > 0) WarmAmber else TextPrimary
+                        )
                     }
                     if (unit.honourOfUltramarPendingRemoval) {
                         StatPill("HONOUR", "LAST STAND", WarmAmber)
@@ -2289,7 +2302,10 @@ private fun ActionDock(
                 )
             }
 
-            if (selected != null && selected.template.archetype != UnitArchetype.BRUTALIS_DREADNOUGHT) {
+            if (selected != null &&
+                selected.template.archetype != UnitArchetype.BRUTALIS_DREADNOUGHT &&
+                selected.template.archetype != UnitArchetype.DEATH_COMPANY_ASSAULT_INTERCESSOR
+            ) {
                 val isTerminator = selected.template.archetype == UnitArchetype.TERMINATOR || selected.template.archetype == UnitArchetype.CHAOS_TERMINATOR
                 val isBiovore = selected.template.archetype == UnitArchetype.BIOVORE
                 val isSporeMine = selected.template.archetype == UnitArchetype.SPORE_MINE
@@ -2368,7 +2384,9 @@ private fun ActionDock(
                         onLongClick = { onInspectSkill(attachedPartner.template) },
                         testTag = "leader_skill_button"
                     )
-                } else if (attachedPartner.template.archetype != UnitArchetype.BRUTALIS_DREADNOUGHT) {
+                } else if (attachedPartner.template.archetype != UnitArchetype.BRUTALIS_DREADNOUGHT &&
+                    attachedPartner.template.archetype != UnitArchetype.DEATH_COMPANY_ASSAULT_INTERCESSOR
+                ) {
                     ActionDockButton(
                         title = attachedPartner.template.skillName.take(8),
                         subtitle = "SQUAD SKILL",
@@ -2506,11 +2524,13 @@ private fun TurnSplashCard(splash: TurnSplashData, onClick: () -> Unit) {
             HorizontalDivider(color = DividerIron, modifier = Modifier.padding(vertical = 6.dp))
             val pShort = when (splash.playerFaction) {
                 Faction.MARINES -> "MARINES"
+                Faction.ALLIANCE_IMPERIUM -> "IMPERIUM"
                 Faction.BLACK_LEGION -> "LEGION"
                 Faction.XENOS -> "TYRANIDS"
             }
             val eShort = when (splash.enemyFaction) {
                 Faction.MARINES -> "MARINES"
+                Faction.ALLIANCE_IMPERIUM -> "IMPERIUM"
                 Faction.BLACK_LEGION -> "LEGION"
                 Faction.XENOS -> "TYRANIDS"
             }

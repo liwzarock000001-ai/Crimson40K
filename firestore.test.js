@@ -328,4 +328,124 @@ test("Host can set and update pointLimit within 500..5000 while invalid bounds a
   );
 });
 
+test("Members can send their own heartbeat, cannot spoof another member heartbeat, and can clean up FINISHED or stale rooms", async () => {
+  const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
+  const bobDb = testEnv.authenticatedContext(BOB_UID).firestore();
+  const eveDb = testEnv.authenticatedContext(EVE_UID).firestore();
+
+  const freshTs = new Date(Date.now() - 5000);
+  await assertSucceeds(
+    aliceDb.collection("coop_rooms").doc(ROOM_CODE).set({
+      ...validRoomPayload(ALICE_UID, "Commander 1", freshTs),
+      heartbeats: {
+        [ALICE_UID]: freshTs,
+      },
+    })
+  );
+
+  // Bob joins with his initial heartbeat
+  await assertSucceeds(
+    bobDb.collection("coop_rooms").doc(ROOM_CODE).update({
+      memberUids: [ALICE_UID, BOB_UID],
+      players: [
+        { id: "p1", name: "Commander 1", faction: "MARINES", slotMode: "HOST", ready: true, connectedClient: true, uid: ALICE_UID },
+        { id: "p2", name: "Bob", faction: "MARINES", slotMode: "LAN_CLIENT", ready: true, connectedClient: true, uid: BOB_UID },
+      ],
+      [`heartbeats.${BOB_UID}`]: freshTs,
+      updatedAt: freshTs,
+    })
+  );
+
+  // Bob updates ONLY his own heartbeat
+  const hbTs = new Date(Date.now() - 1000);
+  await assertSucceeds(
+    bobDb.collection("coop_rooms").doc(ROOM_CODE).update({
+      [`heartbeats.${BOB_UID}`]: hbTs,
+      updatedAt: hbTs,
+    })
+  );
+
+  // Bob cannot spoof Alice's heartbeat
+  await assertFails(
+    bobDb.collection("coop_rooms").doc(ROOM_CODE).update({
+      [`heartbeats.${ALICE_UID}`]: hbTs,
+      updatedAt: hbTs,
+    })
+  );
+
+  // Bob cannot delete a fresh active LOBBY room owned by Alice
+  await assertFails(bobDb.collection("coop_rooms").doc(ROOM_CODE).delete());
+
+  // Eve (outsider) cannot delete even if stale
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    const staleTs = new Date(Date.now() - 10 * 60 * 1000); // 10 minutes ago
+    await ctx.firestore().collection("coop_rooms").doc(ROOM_CODE).update({
+      updatedAt: staleTs,
+    });
+  });
+  await assertFails(eveDb.collection("coop_rooms").doc(ROOM_CODE).delete());
+
+  // Joined member Bob CAN remove his own memberUid and his own heartbeat on leave, even after another room is FINISHED
+  await assertSucceeds(
+    aliceDb.collection("coop_rooms").doc("888222").set({
+      ...validRoomPayload(ALICE_UID, "Commander 1", freshTs),
+      roomCode: "888222",
+      heartbeats: {
+        [ALICE_UID]: freshTs,
+      },
+    })
+  );
+  await assertSucceeds(
+    bobDb.collection("coop_rooms").doc("888222").update({
+      memberUids: [ALICE_UID, BOB_UID],
+      players: [
+        { id: "p1", name: "Commander 1", faction: "MARINES", slotMode: "HOST", ready: true, connectedClient: true, uid: ALICE_UID },
+        { id: "p2", name: "Bob", faction: "MARINES", slotMode: "LAN_CLIENT", ready: true, connectedClient: true, uid: BOB_UID },
+      ],
+      [`heartbeats.${BOB_UID}`]: freshTs,
+      updatedAt: freshTs,
+    })
+  );
+  // Bob cannot remove Alice's heartbeat while leaving
+  await assertFails(
+    bobDb.collection("coop_rooms").doc("888222").update({
+      memberUids: [ALICE_UID],
+      players: [
+        { id: "p1", name: "Commander 1", faction: "MARINES", slotMode: "HOST", ready: true, connectedClient: true, uid: ALICE_UID },
+        { id: "p2", name: "Bob", faction: "MARINES", slotMode: "LAN_CLIENT", ready: true, connectedClient: false, uid: "" },
+      ],
+      heartbeats: {},
+      updatedAt: hbTs,
+    })
+  );
+  // Bob CAN remove his own heartbeat while leaving
+  await assertSucceeds(
+    bobDb.collection("coop_rooms").doc("888222").update({
+      memberUids: [ALICE_UID],
+      players: [
+        { id: "p1", name: "Commander 1", faction: "MARINES", slotMode: "HOST", ready: true, connectedClient: true, uid: ALICE_UID },
+        { id: "p2", name: "Bob", faction: "MARINES", slotMode: "LAN_CLIENT", ready: true, connectedClient: false, uid: "" },
+      ],
+      heartbeats: {
+        [ALICE_UID]: freshTs,
+      },
+      updatedAt: hbTs,
+    })
+  );
+  await assertSucceeds(aliceDb.collection("coop_rooms").doc("888222").delete());
+
+  // Joined member Bob CAN delete an abandoned room older than 3 minutes
+  await assertSucceeds(bobDb.collection("coop_rooms").doc(ROOM_CODE).delete());
+
+  // Host Alice can always delete her own fresh LOBBY room
+  await assertSucceeds(
+    aliceDb.collection("coop_rooms").doc("777111").set({
+      ...validRoomPayload(ALICE_UID, "Commander 1", freshTs),
+      roomCode: "777111",
+    })
+  );
+  await assertSucceeds(aliceDb.collection("coop_rooms").doc("777111").delete());
+});
+
+
 

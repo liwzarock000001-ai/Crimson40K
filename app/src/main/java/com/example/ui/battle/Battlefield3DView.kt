@@ -292,6 +292,7 @@ fun Battlefield3DView(
                     st.isCoopMode && isTeam0 -> Color(0xFF3A8FD6)
                     st.isCoopMode -> Color(0xFFC9444C)
                     unit.faction == Faction.MARINES -> Color(0xFF345B91)
+                    unit.faction == Faction.ALLIANCE_IMPERIUM -> Color(0xFFB33942)
                     unit.faction == Faction.BLACK_LEGION -> Color(0xFFB38E46)
                     else -> Color(0xFF6B3680)
                 }
@@ -299,6 +300,7 @@ fun Battlefield3DView(
                     st.isCoopMode && isTeam0 -> Color(0xFF3A8FD6)
                     st.isCoopMode -> Color(0xFFC9444C)
                     unit.faction == Faction.MARINES -> Color(0xFF3B669E)
+                    unit.faction == Faction.ALLIANCE_IMPERIUM -> Color(0xFFC93D47)
                     unit.faction == Faction.BLACK_LEGION -> Color(0xFFC99E44)
                     else -> Color(0xFF7D4394)
                 }

@@ -41,6 +41,7 @@ object UnitMeshSculptor3D {
             UnitArchetype.ASSAULT_MARINE,
             UnitArchetype.CAPTAIN,
             UnitArchetype.CAPTAIN_TITUS -> buildPrimarisUltramarine(m, archetype)
+            UnitArchetype.DEATH_COMPANY_ASSAULT_INTERCESSOR -> buildDeathCompanyAssaultIntercessor(m)
             UnitArchetype.LEGIONARY -> buildBlackLegionLegionary(m)
 
             UnitArchetype.TERMAGANT -> buildTermagant(m)
@@ -809,6 +810,104 @@ object UnitMeshSculptor3D {
             }
             else -> Unit
         }
+    }
+
+    private fun buildDeathCompanyAssaultIntercessor(m: MeshAccumulator) {
+        val s = 1.0f
+        val dcBlackR = 0.08f; val dcBlackG = 0.08f; val dcBlackB = 0.10f
+        val dcHiR = 0.14f; val dcHiG = 0.14f; val dcHiB = 0.17f
+        val dcRedR = 0.78f; val dcRedG = 0.11f; val dcRedB = 0.14f
+
+        // 1. 32mm Tactical Plinth Base
+        m.addCylinder(0f, 0.002f, 0f, 0.172f, 0.162f, 0.028f, 14, 0.13f, 0.11f, 0.11f)
+        m.addOrientedEllipsoid(0.04f, 0.025f, -0.04f, 0.075f, 0.022f, 0.065f, latSegs = 3, lonSegs = 6, phiEndDeg = 90f, r = 0.22f, g = 0.16f, b = 0.15f)
+        val by = 0.030f
+
+        // 2. Charging Black Mk X Power Armor Legs with Crimson Saltire Knees
+        for (side in floatArrayOf(-1f, 1f)) {
+            val isLeft = side < 0f
+            val footX = if (isLeft) 0.052f * s else -0.035f * s
+            val footZ = side * 0.090f * s
+            val yawDeg = if (isLeft) -12f else 15f
+
+            m.addOrientedBox(footX, by + 0.015f, footZ, 0.125f, 0.030f, 0.080f, rotYDeg = yawDeg, r = IRON_R, g = IRON_G, b = IRON_B)
+            m.addOrientedEllipsoid(footX + 0.018f, by + 0.027f, footZ, 0.066f, 0.040f, 0.045f, rotYDeg = yawDeg, phiEndDeg = 90f, latSegs = 4, lonSegs = 8, r = dcBlackR, g = dcBlackG, b = dcBlackB)
+
+            val kneeX = footX * 0.55f + 0.012f
+            val kneeY = by + 0.195f
+            val kneeZ = footZ * 0.92f
+            m.addOrientedCylinder(footX, by + 0.040f, footZ, kneeX, kneeY, kneeZ, 0.058f, 0.045f, 10, r = dcBlackR, g = dcBlackG, b = dcBlackB)
+            m.addOrientedEllipsoid(kneeX + 0.034f, kneeY, kneeZ, 0.030f, 0.038f, 0.036f, rotYDeg = yawDeg, latSegs = 4, lonSegs = 8, r = dcHiR, g = dcHiG, b = dcHiB)
+            // Crimson Saltire X on Kneepad
+            m.addOrientedBox(kneeX + 0.056f, kneeY, kneeZ, 0.010f, 0.042f, 0.010f, rotXDeg = 42f, rotYDeg = yawDeg, r = dcRedR, g = dcRedG, b = dcRedB)
+            m.addOrientedBox(kneeX + 0.056f, kneeY, kneeZ, 0.010f, 0.042f, 0.010f, rotXDeg = -42f, rotYDeg = yawDeg, r = dcRedR, g = dcRedG, b = dcRedB)
+
+            val hipY = by + 0.305f
+            val hipZ = side * 0.068f
+            m.addOrientedCylinder(kneeX, kneeY + 0.01f, kneeZ, 0f, hipY, hipZ, 0.044f, 0.050f, 10, r = dcBlackR, g = dcBlackG, b = dcBlackB)
+        }
+
+        // 3. Waist, Belt, Gold Buckle, Purity Seal & Blood Drop Reliquary
+        m.addOrientedEllipsoid(0f, by + 0.305f, 0f, 0.075f, 0.056f, 0.096f, latSegs = 4, lonSegs = 8, r = IRON_R, g = IRON_G, b = IRON_B)
+        m.addOrientedCylinder(0f, by + 0.310f, 0f, 0f, by + 0.400f, 0f, 0.072f, 0.084f, 10, r = IRON_R, g = IRON_G, b = IRON_B)
+        m.addCylinder(0f, by + 0.335f, 0f, 0.081f, 0.083f, 0.032f, 10, 0.16f, 0.12f, 0.11f)
+        m.addOrientedBox(0.083f, by + 0.351f, 0f, 0.024f, 0.034f, 0.042f, r = GOLD_R, g = GOLD_G, b = GOLD_B)
+        // Crimson Loincloth Tabard / Purity Seal
+        m.addOrientedBox(0.080f, by + 0.258f, 0f, 0.012f, 0.120f, 0.054f, rotZDeg = -6f, r = dcRedR, g = dcRedG, b = dcRedB)
+
+        // 4. Black Mk X Cuirass + Bone/Gold Winged Blood-Drop Aquila
+        m.addOrientedEllipsoid(0.012f, by + 0.455f, 0f, 0.102f, 0.104f, 0.130f, latSegs = 6, lonSegs = 10, r = dcBlackR, g = dcBlackG, b = dcBlackB)
+        m.addArcTube(0.012f, by + 0.542f, 0f, 0.078f, 0.088f, 0.020f, startDeg = -75f, endDeg = 75f, arcSegs = 8, tubeSegs = 5, r = dcHiR, g = dcHiG, b = dcHiB)
+        m.addOrientedEllipsoid(0.114f, by + 0.472f, 0f, 0.020f, 0.022f, 0.018f, latSegs = 3, lonSegs = 6, r = dcRedR, g = dcRedG, b = dcRedB)
+        m.addOrientedBox(0.104f, by + 0.484f, -0.048f, 0.022f, 0.030f, 0.070f, rotXDeg = 20f, rotYDeg = 18f, r = GOLD_R, g = GOLD_G, b = GOLD_B)
+        m.addOrientedBox(0.104f, by + 0.484f, 0.048f, 0.022f, 0.030f, 0.070f, rotXDeg = -20f, rotYDeg = -18f, r = GOLD_R, g = GOLD_G, b = GOLD_B)
+
+        // 5. Black Pauldrons with Bold Crimson Saltire (X) Markings
+        for (side in floatArrayOf(-1f, 1f)) {
+            val cz = side * 0.150f
+            val cy = by + 0.500f
+            m.addOrientedEllipsoid(0f, cy, cz, 0.106f, 0.096f, 0.094f, rotXDeg = side * 14f, phiEndDeg = 108f, latSegs = 5, lonSegs = 12, r = dcHiR, g = dcHiG, b = dcHiB)
+            m.addArcTube(0f, cy - 0.028f, cz, 0.104f, 0.092f, 0.014f, rotXDeg = side * 14f, startDeg = 0f, endDeg = 360f, arcSegs = 14, tubeSegs = 5, r = dcRedR, g = dcRedG, b = dcRedB)
+            val oz = cz + side * 0.084f
+            m.addOrientedBox(0f, cy + 0.012f, oz, 0.016f, 0.088f, 0.014f, rotZDeg = 42f, r = dcRedR, g = dcRedG, b = dcRedB)
+            m.addOrientedBox(0f, cy + 0.012f, oz, 0.016f, 0.088f, 0.014f, rotZDeg = -42f, r = dcRedR, g = dcRedG, b = dcRedB)
+        }
+
+        // 6. Black Mk X Helmet with Glowing Crimson Eye Lenses & Gold Skull Stud
+        val helmY = by + 0.602f
+        val helmX = 0.012f
+        m.addCylinder(helmX, helmY - 0.052f, 0f, 0.042f, 0.040f, 0.045f, 8, IRON_R, IRON_G, IRON_B)
+        m.addOrientedEllipsoid(helmX, helmY, 0f, 0.076f, 0.078f, 0.068f, latSegs = 5, lonSegs = 10, r = dcHiR, g = dcHiG, b = dcHiB)
+        m.addOrientedBox(helmX - 0.005f, helmY + 0.072f, 0f, 0.096f, 0.022f, 0.024f, r = dcBlackR, g = dcBlackG, b = dcBlackB)
+        m.addOrientedEllipsoid(helmX + 0.070f, helmY + 0.036f, 0f, 0.014f, 0.016f, 0.014f, latSegs = 3, lonSegs = 6, r = GOLD_R, g = GOLD_G, b = GOLD_B)
+        m.addOrientedBox(helmX + 0.066f, helmY + 0.008f, -0.024f, 0.022f, 0.016f, 0.026f, rotXDeg = -14f, rotYDeg = 18f, r = 0.98f, g = 0.18f, b = 0.14f, a = E)
+        m.addOrientedBox(helmX + 0.066f, helmY + 0.008f, 0.024f, 0.022f, 0.016f, 0.026f, rotXDeg = 14f, rotYDeg = -18f, r = 0.98f, g = 0.18f, b = 0.14f, a = E)
+        m.addOrientedBox(helmX + 0.056f, helmY - 0.026f, 0f, 0.048f, 0.044f, 0.056f, rotZDeg = -14f, r = IRON_R, g = IRON_G, b = IRON_B)
+
+        // 7. Black Mk X Reactor Backpack
+        m.addOrientedBox(-0.105f, by + 0.46f, 0f, 0.095f, 0.165f, 0.145f, r = dcBlackR, g = dcBlackG, b = dcBlackB)
+        m.addOrientedEllipsoid(-0.115f, by + 0.555f, 0f, 0.045f, 0.045f, 0.045f, latSegs = 4, lonSegs = 8, r = dcHiR, g = dcHiG, b = dcHiB)
+        for (side in floatArrayOf(-1f, 1f)) {
+            m.addOrientedCylinder(-0.112f, by + 0.51f, side * 0.048f, -0.124f, by + 0.585f, side * 0.118f, 0.026f, 0.032f, 8, r = dcBlackR, g = dcBlackG, b = dcBlackB)
+            m.addOrientedEllipsoid(-0.126f, by + 0.595f, side * 0.126f, 0.044f, 0.044f, 0.044f, latSegs = 4, lonSegs = 8, r = dcHiR, g = dcHiG, b = dcHiB)
+            m.addOrientedCylinder(-0.126f, by + 0.595f, side * 0.126f, -0.142f, by + 0.625f, side * 0.156f, 0.024f, 0.028f, 8, r = IRON_R, g = IRON_G, b = IRON_B)
+        }
+
+        // 8. Left Arm (-Z): Bolt Pistol aimed forward (Black Vambraces + Gauntlet)
+        m.addOrientedEllipsoid(0.035f, by + 0.405f, -0.165f, 0.035f, 0.035f, 0.035f, latSegs = 3, lonSegs = 6, r = IRON_R, g = IRON_G, b = IRON_B)
+        m.addOrientedCylinder(0f, by + 0.485f, -0.152f, 0.035f, by + 0.405f, -0.165f, 0.044f, 0.038f, 8, r = dcBlackR, g = dcBlackG, b = dcBlackB)
+        m.addOrientedCylinder(0.035f, by + 0.405f, -0.165f, 0.145f, by + 0.395f, -0.145f, 0.036f, 0.044f, 8, r = dcHiR, g = dcHiG, b = dcHiB)
+        m.addOrientedEllipsoid(0.145f, by + 0.395f, -0.145f, 0.034f, 0.034f, 0.032f, latSegs = 3, lonSegs = 6, r = dcBlackR, g = dcBlackG, b = dcBlackB)
+        m.addOrientedBox(0.215f, by + 0.405f, -0.145f, 0.14f, 0.056f, 0.036f, r = dcRedR, g = dcRedG, b = dcRedB)
+        m.addOrientedCylinder(0.27f, by + 0.420f, -0.145f, 0.31f, by + 0.420f, -0.145f, 0.014f, 0.014f, 6, r = STEEL_R, g = STEEL_G, b = STEEL_B)
+
+        // 9. Right Arm (+Z): Crimson-Cased Astartes Chainsword raised to cleave
+        m.addOrientedEllipsoid(0.04f, by + 0.410f, 0.185f, 0.035f, 0.035f, 0.035f, latSegs = 3, lonSegs = 6, r = IRON_R, g = IRON_G, b = IRON_B)
+        m.addOrientedCylinder(0f, by + 0.485f, 0.152f, 0.04f, by + 0.410f, 0.185f, 0.044f, 0.038f, 8, r = dcBlackR, g = dcBlackG, b = dcBlackB)
+        m.addOrientedCylinder(0.04f, by + 0.410f, 0.185f, 0.145f, by + 0.430f, 0.175f, 0.036f, 0.044f, 8, r = dcHiR, g = dcHiG, b = dcHiB)
+        m.addOrientedEllipsoid(0.145f, by + 0.430f, 0.175f, 0.034f, 0.034f, 0.032f, latSegs = 3, lonSegs = 6, r = dcBlackR, g = dcBlackG, b = dcBlackB)
+        m.addOrientedBox(0.238f, by + 0.530f, 0.175f, 0.058f, 0.30f, 0.028f, rotZDeg = -34f, r = dcRedR, g = dcRedG, b = dcRedB)
+        m.addOrientedBox(0.262f, by + 0.520f, 0.175f, 0.024f, 0.28f, 0.018f, rotZDeg = -34f, r = STEEL_R, g = STEEL_G, b = STEEL_B)
     }
 
     private fun buildUltramarineIncursor(m: MeshAccumulator) {

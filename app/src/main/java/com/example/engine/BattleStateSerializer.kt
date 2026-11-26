@@ -128,7 +128,7 @@ object BattleStateSerializer {
                         attachedLeaderUid = o.optString("attachedLeaderUid").ifBlank { null },
                         bodyguardUid = o.optString("bodyguardUid").ifBlank { null },
                         isHero = o.optBoolean("isHero", tpl.isHero),
-                        hasFeelNoPain = o.optBoolean("hasFeelNoPain", tpl.isHero || tpl.archetype == com.example.model.UnitArchetype.CAPTAIN_TITUS),
+                        hasFeelNoPain = o.optBoolean("hasFeelNoPain", tpl.isHero || tpl.archetype == com.example.model.UnitArchetype.CAPTAIN_TITUS || tpl.feelNoPainTarget != null),
                         inheritedPassiveIds = o.optJSONArray("inheritedPassiveIds")?.let { pArr ->
                             (0 until pArr.length()).mapNotNull { idx -> pArr.optString(idx).takeIf { it.isNotBlank() } }
                         } ?: emptyList(),

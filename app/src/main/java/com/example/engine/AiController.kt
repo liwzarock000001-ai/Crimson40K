@@ -72,6 +72,7 @@ object AiController {
                     UnitArchetype.BLADEGUARD -> !unit.bladeguardRerollBuffActive && (isEngaged || distToNearest <= 5)
                     UnitArchetype.LEGIONARY -> false // Auto-activates when starting shooting/fighting
                     UnitArchetype.BRUTALIS_DREADNOUGHT -> false // Auto passive on charge/kill
+                    UnitArchetype.DEATH_COMPANY_ASSAULT_INTERCESSOR -> false // Always-active passive
                     else -> distToNearest > 2
                 }
                 if (selfSkill != null && shouldTriggerSelf) {

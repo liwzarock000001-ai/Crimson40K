@@ -39,10 +39,11 @@ service cloud.firestore {
              data.players[0] is map &&
              data.assignedUnits is list && data.assignedUnits.size() <= 40 &&
              (data.assignedUnits.size() == 0 || data.assignedUnits[0] is map) &&
-             (!('customTemplates' in data) || (data.customTemplates is list && data.customTemplates.size() <= 30 && (data.customTemplates.size() == 0 || data.customTemplates[0] is map))) &&
-             (!('battleState' in data) || data.battleState is map) &&
-             data.createdAt is timestamp &&
-             data.updatedAt is timestamp;
+              (!('customTemplates' in data) || (data.customTemplates is list && data.customTemplates.size() <= 30 && (data.customTemplates.size() == 0 || data.customTemplates[0] is map))) &&
+              (!('battleState' in data) || data.battleState is map) &&
+              (!('heartbeats' in data) || (data.heartbeats is map && data.heartbeats.size() <= 4)) &&
+              data.createdAt is timestamp &&
+              data.updatedAt is timestamp;
     }
 
     function isValidCoopAction(data) {
@@ -90,24 +91,25 @@ service cloud.firestore {
                        incoming().keys().hasOnly([
                          'roomCode', 'hostUid', 'hostName', 'status', 'openForJoin',
                          'memberUids', 'spawnAiEnemyIfSameFaction', 'pointLimit', 'players',
-                         'assignedUnits', 'customTemplates', 'battleState', 'createdAt', 'updatedAt'
+                         'assignedUnits', 'customTemplates', 'battleState', 'heartbeats',
+                         'createdAt', 'updatedAt'
                        ]);
 
       allow update: if isSignedIn() &&
                        isValidId(roomCode) &&
                        isValidCoopRoom(incoming()) &&
-                       existing().status != 'FINISHED' &&
                        incoming().roomCode == existing().roomCode &&
                        incoming().hostUid == existing().hostUid &&
                        incoming().createdAt == existing().createdAt &&
                        (
                          // Tier 1: Room Host updates lobby settings, launches battle, syncs state, or finishes match
                          (
+                           existing().status != 'FINISHED' &&
                            existing().hostUid == request.auth.uid &&
                            incoming().diff(existing()).affectedKeys().hasOnly([
                              'hostName', 'status', 'openForJoin', 'memberUids',
                              'spawnAiEnemyIfSameFaction', 'pointLimit', 'players', 'assignedUnits',
-                             'customTemplates', 'battleState', 'updatedAt'
+                             'customTemplates', 'battleState', 'heartbeats', 'updatedAt'
                            ])
                          ) ||
                          // Tier 2: Remote friend joins open LOBBY room by Room Code
@@ -120,17 +122,35 @@ service cloud.firestore {
                            incoming().memberUids.size() == existing().memberUids.size() + 1 &&
                            (request.auth.uid in incoming().memberUids) &&
                            incoming().diff(existing()).affectedKeys().hasOnly([
-                             'memberUids', 'players', 'updatedAt'
-                           ])
+                             'memberUids', 'players', 'heartbeats', 'updatedAt'
+                           ]) &&
+                           (
+                             !('heartbeats' in incoming().diff(existing()).affectedKeys()) ||
+                             (
+                               incoming().heartbeats is map &&
+                               incoming().heartbeats.diff(existing().get('heartbeats', {})).affectedKeys().hasOnly([request.auth.uid]) &&
+                               (request.auth.uid in incoming().heartbeats) &&
+                               incoming().heartbeats[request.auth.uid] is timestamp &&
+                               incoming().heartbeats[request.auth.uid] <= request.time
+                             )
+                           )
                          ) ||
-                         // Tier 3: Joined peer leaves the room
+                         // Tier 3: Joined peer leaves the room (permitted even if room already FINISHED)
                          (
                            (request.auth.uid in existing().memberUids) &&
                            existing().hostUid != request.auth.uid &&
                            !(request.auth.uid in incoming().memberUids) &&
+                           incoming().status == existing().status &&
                            incoming().diff(existing()).affectedKeys().hasOnly([
-                             'memberUids', 'players', 'updatedAt'
-                           ])
+                             'memberUids', 'players', 'heartbeats', 'updatedAt'
+                           ]) &&
+                           (
+                             !('heartbeats' in incoming().diff(existing()).affectedKeys()) ||
+                             (
+                               incoming().heartbeats is map &&
+                               incoming().heartbeats.diff(existing().get('heartbeats', {})).affectedKeys().hasOnly([request.auth.uid])
+                             )
+                           )
                          ) ||
                          // Tier 4: Joined member customizes their own player slot and assigned units in LOBBY
                          (
@@ -142,10 +162,35 @@ service cloud.firestore {
                            incoming().diff(existing()).affectedKeys().hasOnly([
                              'players', 'assignedUnits', 'updatedAt'
                            ])
+                         ) ||
+                         // Tier 5: Active room member updates only their own presence heartbeat timestamp
+                         (
+                           existing().status != 'FINISHED' &&
+                           (request.auth.uid in existing().memberUids) &&
+                           incoming().memberUids == existing().memberUids &&
+                           incoming().hostUid == existing().hostUid &&
+                           incoming().status == existing().status &&
+                           incoming().diff(existing()).affectedKeys().hasOnly([
+                             'heartbeats', 'updatedAt'
+                           ]) &&
+                           incoming().heartbeats is map &&
+                           incoming().heartbeats.diff(existing().get('heartbeats', {})).affectedKeys().hasOnly([request.auth.uid]) &&
+                           (request.auth.uid in incoming().heartbeats) &&
+                           incoming().heartbeats[request.auth.uid] is timestamp &&
+                           incoming().heartbeats[request.auth.uid] <= request.time
                          )
                        );
 
-      allow delete: if isSignedIn() && isValidId(roomCode) && existing().hostUid == request.auth.uid;
+      allow delete: if isSignedIn() && isValidId(roomCode) && (
+        existing().hostUid == request.auth.uid ||
+        (
+          (request.auth.uid in existing().memberUids) &&
+          (
+            existing().status == 'FINISHED' ||
+            existing().updatedAt < request.time - duration.value(3, 'm')
+          )
+        )
+      );
 
       match /actions/{actionId} {
         allow get: if isSignedIn() && isValidId(roomCode) && isValidId(actionId) && (

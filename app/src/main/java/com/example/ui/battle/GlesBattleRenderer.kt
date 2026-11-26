@@ -246,6 +246,10 @@ class GlesBattleRenderer(
                     drawVbo(tileVbo, 0.72f, 0.78f, 0.86f, 0.20f, unlit = true)
                     drawVbo(ringVbo, 0.84f, 0.89f, 0.96f, 0.92f, unlit = true)
                 }
+                Faction.ALLIANCE_IMPERIUM -> {
+                    drawVbo(tileVbo, 0.76f, 0.22f, 0.26f, 0.22f, unlit = true)
+                    drawVbo(ringVbo, 0.92f, 0.30f, 0.34f, 0.94f, unlit = true)
+                }
                 Faction.BLACK_LEGION -> {
                     drawVbo(tileVbo, 0.78f, 0.58f, 0.22f, 0.22f, unlit = true)
                     drawVbo(ringVbo, 0.94f, 0.74f, 0.30f, 0.92f, unlit = true)
@@ -398,10 +402,10 @@ class GlesBattleRenderer(
             val rb: Float
             when {
                 isSelected && (!state.isCoopMode && unit.faction == state.playerFaction || state.isCoopMode && unit.effectiveTeam == 0) -> {
-                    if (unit.faction == Faction.BLACK_LEGION) {
-                        rr = 0.92f; rg = 0.72f; rb = 0.28f
-                    } else {
-                        rr = 0.76f; rg = 0.82f; rb = 0.90f
+                    when (unit.faction) {
+                        Faction.BLACK_LEGION -> { rr = 0.92f; rg = 0.72f; rb = 0.28f }
+                        Faction.ALLIANCE_IMPERIUM -> { rr = 0.94f; rg = 0.34f; rb = 0.38f }
+                        else -> { rr = 0.76f; rg = 0.82f; rb = 0.90f }
                     }
                 }
                 isSelected -> { rr = 0.76f; rg = 0.56f; rb = 0.86f }
@@ -411,6 +415,7 @@ class GlesBattleRenderer(
                 state.isCoopMode && unit.effectiveTeam == 0 -> { rr = 0.18f; rg = 0.62f; rb = 0.88f }
                 state.isCoopMode && unit.effectiveTeam == 1 -> { rr = 0.82f; rg = 0.24f; rb = 0.32f }
                 unit.faction == Faction.MARINES -> { rr = 0.22f; rg = 0.38f; rb = 0.60f }
+                unit.faction == Faction.ALLIANCE_IMPERIUM -> { rr = 0.78f; rg = 0.18f; rb = 0.24f }
                 unit.faction == Faction.BLACK_LEGION -> { rr = 0.78f; rg = 0.58f; rb = 0.20f }
                 else -> { rr = 0.44f; rg = 0.21f; rb = 0.52f }
             }
@@ -441,18 +446,21 @@ class GlesBattleRenderer(
             }
             val arrowR = when {
                 isSelected && unit.faction == Faction.MARINES -> 0.86f
+                isSelected && unit.faction == Faction.ALLIANCE_IMPERIUM -> 0.96f
                 isSelected && unit.faction == Faction.BLACK_LEGION -> 0.94f
                 isSelected -> 0.80f
                 else -> rr
             }
             val arrowG = when {
                 isSelected && unit.faction == Faction.MARINES -> 0.90f
+                isSelected && unit.faction == Faction.ALLIANCE_IMPERIUM -> 0.38f
                 isSelected && unit.faction == Faction.BLACK_LEGION -> 0.76f
                 isSelected -> 0.68f
                 else -> rg
             }
             val arrowB = when {
                 isSelected && unit.faction == Faction.MARINES -> 0.96f
+                isSelected && unit.faction == Faction.ALLIANCE_IMPERIUM -> 0.42f
                 isSelected && unit.faction == Faction.BLACK_LEGION -> 0.34f
                 isSelected -> 0.86f
                 else -> rb
