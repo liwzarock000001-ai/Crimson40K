@@ -241,20 +241,20 @@ class GlesBattleRenderer(
             if (selRingScale != 1f) {
                 Matrix.scaleM(modelMat, 0, selRingScale, 1f, selRingScale)
             }
-            when (selectedUnit.faction) {
-                Faction.MARINES -> {
-                    drawVbo(tileVbo, 0.72f, 0.78f, 0.86f, 0.20f, unlit = true)
-                    drawVbo(ringVbo, 0.84f, 0.89f, 0.96f, 0.92f, unlit = true)
-                }
-                Faction.ALLIANCE_IMPERIUM -> {
+            when {
+                selectedUnit.template.archetype == UnitArchetype.DEATH_COMPANY_ASSAULT_INTERCESSOR -> {
                     drawVbo(tileVbo, 0.76f, 0.22f, 0.26f, 0.22f, unlit = true)
                     drawVbo(ringVbo, 0.92f, 0.30f, 0.34f, 0.94f, unlit = true)
                 }
-                Faction.BLACK_LEGION -> {
+                selectedUnit.faction == Faction.MARINES -> {
+                    drawVbo(tileVbo, 0.72f, 0.78f, 0.86f, 0.20f, unlit = true)
+                    drawVbo(ringVbo, 0.84f, 0.89f, 0.96f, 0.92f, unlit = true)
+                }
+                selectedUnit.faction == Faction.BLACK_LEGION -> {
                     drawVbo(tileVbo, 0.78f, 0.58f, 0.22f, 0.22f, unlit = true)
                     drawVbo(ringVbo, 0.94f, 0.74f, 0.30f, 0.92f, unlit = true)
                 }
-                Faction.XENOS -> {
+                else -> {
                     drawVbo(tileVbo, 0.65f, 0.36f, 0.78f, 0.20f, unlit = true)
                     drawVbo(ringVbo, 0.78f, 0.56f, 0.86f, 0.92f, unlit = true)
                 }
@@ -402,9 +402,9 @@ class GlesBattleRenderer(
             val rb: Float
             when {
                 isSelected && (!state.isCoopMode && unit.faction == state.playerFaction || state.isCoopMode && unit.effectiveTeam == 0) -> {
-                    when (unit.faction) {
-                        Faction.BLACK_LEGION -> { rr = 0.92f; rg = 0.72f; rb = 0.28f }
-                        Faction.ALLIANCE_IMPERIUM -> { rr = 0.94f; rg = 0.34f; rb = 0.38f }
+                    when {
+                        unit.template.archetype == UnitArchetype.DEATH_COMPANY_ASSAULT_INTERCESSOR -> { rr = 0.94f; rg = 0.34f; rb = 0.38f }
+                        unit.faction == Faction.BLACK_LEGION -> { rr = 0.92f; rg = 0.72f; rb = 0.28f }
                         else -> { rr = 0.76f; rg = 0.82f; rb = 0.90f }
                     }
                 }
@@ -414,8 +414,8 @@ class GlesBattleRenderer(
                 unit.isCloaked -> { rr = 0.35f; rg = 0.92f; rb = 0.98f }
                 state.isCoopMode && unit.effectiveTeam == 0 -> { rr = 0.18f; rg = 0.62f; rb = 0.88f }
                 state.isCoopMode && unit.effectiveTeam == 1 -> { rr = 0.82f; rg = 0.24f; rb = 0.32f }
+                unit.template.archetype == UnitArchetype.DEATH_COMPANY_ASSAULT_INTERCESSOR -> { rr = 0.78f; rg = 0.18f; rb = 0.24f }
                 unit.faction == Faction.MARINES -> { rr = 0.22f; rg = 0.38f; rb = 0.60f }
-                unit.faction == Faction.ALLIANCE_IMPERIUM -> { rr = 0.78f; rg = 0.18f; rb = 0.24f }
                 unit.faction == Faction.BLACK_LEGION -> { rr = 0.78f; rg = 0.58f; rb = 0.20f }
                 else -> { rr = 0.44f; rg = 0.21f; rb = 0.52f }
             }
@@ -444,23 +444,24 @@ class GlesBattleRenderer(
             if (baseRingScale != 1f) {
                 Matrix.scaleM(modelMat, 0, baseRingScale, 1f, baseRingScale)
             }
+            val isDeathCompany = unit.template.archetype == UnitArchetype.DEATH_COMPANY_ASSAULT_INTERCESSOR
             val arrowR = when {
+                isSelected && isDeathCompany -> 0.96f
                 isSelected && unit.faction == Faction.MARINES -> 0.86f
-                isSelected && unit.faction == Faction.ALLIANCE_IMPERIUM -> 0.96f
                 isSelected && unit.faction == Faction.BLACK_LEGION -> 0.94f
                 isSelected -> 0.80f
                 else -> rr
             }
             val arrowG = when {
+                isSelected && isDeathCompany -> 0.38f
                 isSelected && unit.faction == Faction.MARINES -> 0.90f
-                isSelected && unit.faction == Faction.ALLIANCE_IMPERIUM -> 0.38f
                 isSelected && unit.faction == Faction.BLACK_LEGION -> 0.76f
                 isSelected -> 0.68f
                 else -> rg
             }
             val arrowB = when {
+                isSelected && isDeathCompany -> 0.42f
                 isSelected && unit.faction == Faction.MARINES -> 0.96f
-                isSelected && unit.faction == Faction.ALLIANCE_IMPERIUM -> 0.42f
                 isSelected && unit.faction == Faction.BLACK_LEGION -> 0.34f
                 isSelected -> 0.86f
                 else -> rb
@@ -486,7 +487,7 @@ class GlesBattleRenderer(
                 val oz: Float
                 if (hasAttachedLeader) {
                     val angle = (2.0 * Math.PI * mIdx / count.toDouble()).toFloat()
-                    val radius = 0.46f
+                    val radius = 0.78f
                     ox = cos(angle) * radius
                     oz = sin(angle) * radius
                 } else {
@@ -598,8 +599,21 @@ class GlesBattleRenderer(
         GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, 0)
     }
 
-    private fun baseRingScaleFor(unit: com.example.model.BattleUnit): Float =
-        if (unit.template.baseDiameterMm > 32) (unit.template.baseDiameterMm / 45f).coerceIn(1f, 2.25f) else 1f
+    private fun baseRingScaleFor(unit: com.example.model.BattleUnit): Float {
+        val mm = unit.template.baseDiameterMm
+        val baseMult = when {
+            mm <= 25 -> 0.78f
+            mm <= 28 -> 0.88f
+            mm <= 32 -> 1.0f
+            mm <= 40 -> 1.22f
+            mm <= 50 -> 1.38f
+            mm <= 60 -> 1.55f
+            mm <= 80 -> 1.92f
+            mm <= 90 -> 2.08f
+            else -> 2.30f
+        }
+        return if (unit.attachedLeaderUid != null) maxOf(baseMult, 1.48f) else baseMult
+    }
 
     private fun subOffsetX(count: Int, idx: Int): Float = when (count) {
         1 -> 0f

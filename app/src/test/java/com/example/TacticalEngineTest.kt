@@ -1303,7 +1303,7 @@ class TacticalEngineTest {
         assertEquals(5, bladeguard.strength)
         assertEquals(2, bladeguard.armorPen)
         assertEquals(2, bladeguard.damage)
-        assertEquals(1, bladeguard.skillCooldown)
+        assertEquals(0, bladeguard.skillCooldown)
         assertEquals(4, bladeguard.pistolRange) // Heavy Bolt Pistol 18"
 
         val termis = byId.getValue("terminators")
@@ -1665,29 +1665,44 @@ class TacticalEngineTest {
         assertEquals(4, carniVsBg.saveRollNeeded)
         assertTrue(carniVsBg.usingInvuln)
 
-        // 3. Activate Bladeguard Skill -> cooldown 1, buff active, cannot double activate same turn
-        assertTrue(TacticalRules.canUseMode(bladeguard, WeaponMode.SKILL, listOf(bladeguard, carnifex)))
-        val buffedBg = TacticalRules.activateSelfSkillIfApplicable(bladeguard, listOf(bladeguard, carnifex))!!
-        assertTrue(buffedBg.bladeguardRerollBuffActive)
-        assertEquals(1, buffedBg.skillCooldownLeft)
-        assertFalse(TacticalRules.canUseMode(buffedBg, WeaponMode.SKILL, listOf(buffedBg, carnifex)))
+        // 3. Bladeguard Skill ("Swords & Shields") is an always-active Auto Passive (no manual SKILL mode needed, works with or without Leader)
+        assertFalse(TacticalRules.canUseMode(bladeguard, WeaponMode.SKILL, listOf(bladeguard, carnifex)))
+        assertNull(TacticalRules.activateSelfSkillIfApplicable(bladeguard, listOf(bladeguard, carnifex)))
+        assertTrue(TacticalRules.unitHasBladeguardReroll(bladeguard, listOf(bladeguard, carnifex)))
 
-        // 4. Deterministic seed check: Hit rolls of 1 are re-rolled on Bladeguard attack
+        val titusTpl = DefaultCatalog.defaultTemplates.first { it.id == "captain_titus" }
+        val titusLeader = BattleUnit(
+            uid = "u_titus_bg",
+            template = titusTpl,
+            faction = Faction.MARINES,
+            x = 5,
+            y = 11,
+            facing = Facing.EAST,
+            totalWounds = titusTpl.maxTotalWounds,
+            maxTotalWounds = titusTpl.maxTotalWounds,
+            moveCmLeft = titusTpl.moveCm.toFloat(),
+            bodyguardUid = bladeguard.uid
+        )
+        val attachedBg = bladeguard.copy(attachedLeaderUid = titusLeader.uid)
+        assertTrue(TacticalRules.unitHasBladeguardReroll(attachedBg, listOf(attachedBg, titusLeader, carnifex)))
+        assertTrue(TacticalRules.unitHasBladeguardReroll(titusLeader, listOf(attachedBg, titusLeader, carnifex)))
+
+        // 4. Deterministic seed check: Hit rolls of 1 are automatically re-rolled on Bladeguard attack
         var foundHitReroll = false
         for (seed in 1..200) {
-            val out = TacticalRules.resolveAttack(buffedBg, carnifex, listOf(buffedBg, carnifex), WeaponMode.MAIN, openMap, Random(seed))
+            val out = TacticalRules.resolveAttack(bladeguard, carnifex, listOf(bladeguard, carnifex), WeaponMode.MAIN, openMap, Random(seed))
             val hitNote = out.logEntries.firstOrNull()?.steps?.firstOrNull { it.phaseName == "HIT" }?.note.orEmpty()
             if (hitNote.contains("RE-ROLL 1s")) {
                 foundHitReroll = true
                 break
             }
         }
-        assertTrue("Expected Bladeguard attack to re-roll Hit rolls of 1", foundHitReroll)
+        assertTrue("Expected Bladeguard attack to auto re-roll Hit rolls of 1", foundHitReroll)
 
-        // 5. Deterministic seed check: Save rolls of 1 are re-rolled on Enemy Counter-Attack vs buffed Bladeguard
+        // 5. Deterministic seed check: Save rolls of 1 are automatically re-rolled on Enemy Counter-Attack vs Bladeguard
         var foundSaveReroll = false
         for (seed in 1..400) {
-            val counter = TacticalRules.resolveMeleeCounterAttack(carnifex, buffedBg, openMap, Random(seed)) ?: continue
+            val counter = TacticalRules.resolveMeleeCounterAttack(carnifex, bladeguard, openMap, Random(seed)) ?: continue
             val svStep = counter.logEntry?.steps?.firstOrNull { it.phaseName == "SAVE" } ?: continue
             if (svStep.note.contains("RE-ROLL 1s")) {
                 assertTrue(svStep.stepLabel.contains("INV 4++"))
@@ -1695,7 +1710,7 @@ class TacticalEngineTest {
                 break
             }
         }
-        assertTrue("Expected Enemy Counter-Attack against buffed Bladeguard to re-roll Save rolls of 1", foundSaveReroll)
+        assertTrue("Expected Enemy Counter-Attack against Bladeguard to auto re-roll Save rolls of 1", foundSaveReroll)
     }
 
     @Test
@@ -2570,8 +2585,8 @@ class TacticalEngineTest {
             mode = WeaponMode.MAIN,
             map = map,
             rng = object : Random() {
-                // Hit 6, Wound 6, Save 1, FNP 1 (fails FNP 5+), Honour 5 (passes 2+!)
-                private val seq = intArrayOf(6, 6, 1, 1, 5)
+                // Atk 1: Hit 6, Wound 6, Save 1, FNP 1 (fails FNP 5+), Atk 2: Hit 1 (miss), Honour 5 (passes 2+!)
+                private val seq = intArrayOf(6, 6, 1, 1, 1, 5)
                 private var idx = 0
                 override fun nextBits(bitCount: Int): Int = 0
                 override fun nextInt(from: Int, until: Int): Int = seq[idx++ % seq.size]
@@ -2765,7 +2780,7 @@ class TacticalEngineTest {
         val dc = DefaultCatalog.defaultTemplates.firstOrNull { it.id == "death_company_assault_intercessor" }
         assertNotNull(dc)
         dc!!
-        assertEquals(Faction.ALLIANCE_IMPERIUM, dc.faction)
+        assertEquals(Faction.MARINES, dc.faction)
         assertEquals(UnitArchetype.DEATH_COMPANY_ASSAULT_INTERCESSOR, dc.archetype)
         assertEquals(125, dc.points)
         assertEquals(5, dc.squadSize)
@@ -2779,7 +2794,7 @@ class TacticalEngineTest {
         assertEquals(32, dc.baseDiameterMm)
         assertEquals(6, dc.feelNoPainTarget)
         assertEquals(0, dc.skillCooldown)
-        assertEquals(com.example.model.UnitRoleCategory.INFANTRY, dc.category)
+        assertEquals(com.example.model.UnitRoleCategory.ALLIANCE_IMPERIUM, dc.category)
 
         // Chainsword melee profile
         assertEquals("Chainsword", dc.mainWeaponName)
@@ -2800,8 +2815,8 @@ class TacticalEngineTest {
         assertEquals(1, dc.pistolDamage)
         assertTrue(dc.pistolIsPistol)
 
-        // Default Alliance Imperium starter roster exists
-        val roster = DefaultCatalog.defaultAllianceImperiumRoster()
+        // Default Marine starter roster includes Death Company
+        val roster = DefaultCatalog.defaultMarineRoster()
         assertTrue(roster.any { it.templateId == "death_company_assault_intercessor" })
     }
 
@@ -2813,7 +2828,7 @@ class TacticalEngineTest {
         val target = BattleUnit("x1", targetTpl, Faction.XENOS, 5, 6, Facing.WEST, targetTpl.maxTotalWounds, targetTpl.maxTotalWounds, 15f)
 
         // 10W / 5 models (Starting Strength) -> 0 sustained hits
-        val fullSquad = BattleUnit("dc_full", dcTpl, Faction.ALLIANCE_IMPERIUM, 4, 6, Facing.EAST, 10, 10, 15f)
+        val fullSquad = BattleUnit("dc_full", dcTpl, Faction.MARINES, 4, 6, Facing.EAST, 10, 10, 15f)
         assertEquals(0, TacticalRules.weaponSustainedHits(fullSquad, WeaponMode.MAIN, isMelee = true, defender = target))
         assertEquals(0, TacticalRules.weaponSustainedHits(fullSquad, WeaponMode.PISTOL, isMelee = false, defender = target))
         // Always-active passive ability -> no manual SKILL mode needed/allowed
@@ -2853,7 +2868,7 @@ class TacticalEngineTest {
         val dcTpl = DefaultCatalog.defaultTemplates.first { it.id == "death_company_assault_intercessor" }
         val titusTpl = DefaultCatalog.defaultTemplates.first { it.id == "captain_titus" }
 
-        val dc = BattleUnit("dc1", dcTpl, Faction.ALLIANCE_IMPERIUM, 2, 6, Facing.EAST, dcTpl.maxTotalWounds, dcTpl.maxTotalWounds, 15f, hasFeelNoPain = true)
+        val dc = BattleUnit("dc1", dcTpl, Faction.MARINES, 2, 6, Facing.EAST, dcTpl.maxTotalWounds, dcTpl.maxTotalWounds, 15f, hasFeelNoPain = true)
         val titus = BattleUnit("t1", titusTpl, Faction.MARINES, 2, 7, Facing.EAST, titusTpl.maxTotalWounds, titusTpl.maxTotalWounds, 15f, hasFeelNoPain = true)
 
         assertEquals(6, TacticalRules.feelNoPainTarget(dc))
@@ -2878,52 +2893,338 @@ class TacticalEngineTest {
     }
 
     @Test
-    fun inspectGlbFootprints() {
-        val files = listOf(
-            "assault_terminatorH_S.glb" to 0.923f,
-            "blade_guard.glb" to 1.015f,
-            "incursor_squad.glb" to 0.818f,
-            "brutalis_dreadnought.glb" to 1.05f,
-            "captain_titus.glb" to 1.02f
+    fun captainTitusEightMeleeAttacksRollAllDiceAgainstTwoModelTermagants() {
+        val openMap = Array(MapGenerator.GRID_H) { Array(MapGenerator.GRID_W) { TerrainType.OPEN } }
+        val titusTpl = DefaultCatalog.defaultTemplates.first { it.id == "captain_titus" }
+        val gauntTpl = DefaultCatalog.defaultTemplates.first { it.id == "termagants" }
+
+        val titus = BattleUnit(
+            uid = "u_titus_8a",
+            template = titusTpl,
+            faction = Faction.MARINES,
+            x = 5,
+            y = 10,
+            facing = Facing.EAST,
+            totalWounds = titusTpl.maxTotalWounds,
+            maxTotalWounds = titusTpl.maxTotalWounds,
+            moveCmLeft = titusTpl.moveCm.toFloat(),
+            hasCharged = true
         )
-        for ((name, h) in files) {
-            val f = java.io.File("src/main/assets/$name")
-            if (!f.isFile) {
-                println("GLB $name NOT FOUND")
-                continue
-            }
-            val mesh = f.inputStream().use {
-                com.example.ui.battle.GlbLoader3D.loadMesh(it, targetHeight = h, rotateYPlus90 = (name == "assault_terminatorH_S.glb"))
-            }!!
-            var minX = Float.POSITIVE_INFINITY; var maxX = Float.NEGATIVE_INFINITY
-            var minY = Float.POSITIVE_INFINITY; var maxY = Float.NEGATIVE_INFINITY
-            var minZ = Float.POSITIVE_INFINITY; var maxZ = Float.NEGATIVE_INFINITY
-            var bMinX = Float.POSITIVE_INFINITY; var bMaxX = Float.NEGATIVE_INFINITY
-            var bMinZ = Float.POSITIVE_INFINITY; var bMaxZ = Float.NEGATIVE_INFINITY
-            var bottomVerts = 0
-            var ringVerts = 0
-            var rMin = Float.POSITIVE_INFINITY; var rMax = Float.NEGATIVE_INFINITY
-            for (i in 0 until mesh.vertexCount) {
-                val x = mesh.data[i * 10]
-                val y = mesh.data[i * 10 + 1]
-                val z = mesh.data[i * 10 + 2]
-                if (x < minX) minX = x; if (x > maxX) maxX = x
-                if (y < minY) minY = y; if (y > maxY) maxY = y
-                if (z < minZ) minZ = z; if (z > maxZ) maxZ = z
-                if (y <= 0.02f) {
-                    bottomVerts++
-                    if (x < bMinX) bMinX = x; if (x > bMaxX) bMaxX = x
-                    if (z < bMinZ) bMinZ = z; if (z > bMaxZ) bMaxZ = z
-                    val rad = kotlin.math.hypot(x, z)
-                    if (rad > 0.1f) {
-                        ringVerts++
-                        if (rad < rMin) rMin = rad; if (rad > rMax) rMax = rad
-                    }
-                }
-            }
-            println("GLB $name H=[$minY..$maxY] X=[$minX..$maxX] Z=[$minZ..$maxZ] y<=0.02: verts=$bottomVerts bX=[$bMinX..$bMaxX] bZ=[$bMinZ..$bMaxZ] r=[$rMin..$rMax]")
+        // Only 2 Termagant models remaining (2W total)
+        val twoGaunts = BattleUnit(
+            uid = "u_gaunts_2m",
+            template = gauntTpl,
+            faction = Faction.XENOS,
+            x = 6,
+            y = 10,
+            facing = Facing.WEST,
+            totalWounds = 2,
+            maxTotalWounds = gauntTpl.maxTotalWounds,
+            moveCmLeft = 0f
+        )
+        assertEquals(2, twoGaunts.aliveModels)
+
+        val preview = TacticalRules.canTarget(titus, twoGaunts, WeaponMode.MAIN, openMap, listOf(titus, twoGaunts))!!
+        assertEquals(8, preview.attacksCount)
+        assertEquals(1, preview.sustainedHits)
+        assertEquals(2, preview.woundRollNeeded) // Anti-Non-Monster/Vehicle 2+
+
+        // All 8 attacks roll Hit=6 (Sustained Hits 1 -> 16 hits), Wound=2 (Anti-Non-M/V 2+ passes), Save=1 (fails)
+        val seq = intArrayOf(6, 2, 1, 2, 1)
+        var idx = 0
+        val rng = object : Random() {
+            override fun nextBits(bitCount: Int): Int = 0
+            override fun nextInt(from: Int, until: Int): Int = seq[idx++ % seq.size]
         }
+
+        val outcome = TacticalRules.resolveAttack(
+            attacker = titus,
+            primaryTarget = twoGaunts,
+            allUnits = listOf(titus, twoGaunts),
+            mode = WeaponMode.MAIN,
+            map = openMap,
+            rng = rng
+        )
+
+        val hitStep = outcome.logEntries.first().steps.first { it.phaseName == "HIT" }
+        assertEquals(8, hitStep.rolled)
+        assertEquals(8, hitStep.diceValues.size)
+        assertEquals(16, outcome.hits)
+        assertEquals(2, outcome.totalDamageDealt) // Damage capped at remaining 2W
+        assertEquals(0, outcome.updatedTargets.first().totalWounds)
     }
+
+    @Test
+    fun twinLinkedWeaponsAndIncursorIgnoresCoverWorkAsExpected() {
+        val openMap = Array(MapGenerator.GRID_H) { Array(MapGenerator.GRID_W) { TerrainType.OPEN } }
+        val mapWithCover = Array(MapGenerator.GRID_H) { Array(MapGenerator.GRID_W) { TerrainType.OPEN } }.apply {
+            this[10][6] = TerrainType.CRATER
+        }
+
+        val warriorsTpl = DefaultCatalog.defaultTemplates.first { it.id == "warriors" }
+        assertTrue(warriorsTpl.mainTwinLinked)
+        assertTrue(warriorsTpl.meleeTwinLinked)
+
+        val termiTpl = DefaultCatalog.defaultTemplates.first { it.id == "terminators" }
+        assertTrue(termiTpl.terminatorClawsProfile?.twinLinked == true)
+
+        val incursorTpl = DefaultCatalog.defaultTemplates.first { it.id == "incursors" }
+        val targetTpl = DefaultCatalog.defaultTemplates.first { it.id == "termagants" }
+        val incursors = BattleUnit(
+            uid = "u_inc_cov",
+            template = incursorTpl,
+            faction = Faction.MARINES,
+            x = 2,
+            y = 10,
+            facing = Facing.EAST,
+            totalWounds = incursorTpl.maxTotalWounds,
+            maxTotalWounds = incursorTpl.maxTotalWounds,
+            moveCmLeft = incursorTpl.moveCm.toFloat()
+        )
+        val targetInCover = BattleUnit(
+            uid = "u_cov_tgt",
+            template = targetTpl,
+            faction = Faction.XENOS,
+            x = 6,
+            y = 10,
+            facing = Facing.WEST,
+            totalWounds = targetTpl.maxTotalWounds,
+            maxTotalWounds = targetTpl.maxTotalWounds,
+            moveCmLeft = 0f
+        )
+
+        val preview = TacticalRules.canTarget(incursors, targetInCover, WeaponMode.MAIN, mapWithCover, listOf(incursors, targetInCover))!!
+        assertEquals(CoverTag.OPEN, preview.coverTag)
+
+        // Tyranid Warriors melee Twin-Linked re-rolls failed Wound rolls
+        val warrior = BattleUnit(
+            uid = "u_war_tl",
+            template = warriorsTpl,
+            faction = Faction.XENOS,
+            x = 5,
+            y = 10,
+            facing = Facing.WEST,
+            totalWounds = warriorsTpl.maxTotalWounds,
+            maxTotalWounds = warriorsTpl.maxTotalWounds,
+            moveCmLeft = 0f
+        )
+        val adjTarget = targetInCover.copy(x = 4, worldX = 4f, faction = Faction.MARINES)
+        val wPreview = TacticalRules.canTarget(warrior, adjTarget, WeaponMode.MAIN, openMap, listOf(warrior, adjTarget))!!
+        assertTrue(wPreview.twinLinked)
+    }
+
+    @Test
+    fun diceLogRecordsRerollPassFailAndFeelNoPainStep() {
+        val openMap = Array(MapGenerator.GRID_H) { Array(MapGenerator.GRID_W) { TerrainType.OPEN } }
+        val byId = DefaultCatalog.defaultTemplates.associateBy { it.id }
+        val bgTpl = byId.getValue("bladeguard_veterans")
+        val dcTpl = byId.getValue("death_company_assault_intercessor")
+        val warriorTpl = byId.getValue("warriors")
+
+        // 1. Bladeguard (1 model left -> 4 attacks, Hit reroll 1s) vs Death Company (FNP 6+)
+        val bg = BattleUnit(
+            uid = "u_bg_log",
+            template = bgTpl,
+            faction = Faction.MARINES,
+            x = 5,
+            y = 10,
+            facing = Facing.EAST,
+            totalWounds = 3, // 1 model -> 4 attacks
+            maxTotalWounds = bgTpl.maxTotalWounds,
+            moveCmLeft = 15f
+        )
+        val dc = BattleUnit(
+            uid = "u_dc_log",
+            template = dcTpl,
+            faction = Faction.XENOS,
+            x = 6,
+            y = 10,
+            facing = Facing.WEST,
+            totalWounds = dcTpl.maxTotalWounds,
+            maxTotalWounds = dcTpl.maxTotalWounds,
+            moveCmLeft = 0f,
+            hasFeelNoPain = true
+        )
+        // Bladeguard WS 3+, S5 vs T4 (3+), AP-2 vs Sv3+ (5+), Damage 2 vs DC FNP 6+:
+        // Atk 1: Hit 1 -> reroll 5 (PASS!), Wound 5 (pass), Save 1 (fail), FNP rolls 6 (ignore) & 3 (suffer 1W!)
+        // Atk 2: Hit 1 -> reroll 2 (FAIL!)
+        // Atk 3: Hit 2 (miss)
+        // Atk 4: Hit 2 (miss)
+        val seq = intArrayOf(1, 5, 5, 1, 6, 3, 1, 2, 2, 2)
+        var idx = 0
+        val rng = object : Random() {
+            override fun nextBits(bitCount: Int): Int = 0
+            override fun nextInt(from: Int, until: Int): Int = seq[idx++ % seq.size]
+        }
+        val out = TacticalRules.resolveAttack(bg, dc, listOf(bg, dc), WeaponMode.MAIN, openMap, rng)
+        val log = out.logEntries.first()
+
+        val hitStep = log.steps.first { it.phaseName == "HIT" }
+        assertEquals(3, hitStep.targetNeeded)
+        assertEquals(2, hitStep.rerolls.size)
+        assertEquals(0, hitStep.rerolls[0].dieIndex)
+        assertEquals(1, hitStep.rerolls[0].originalValue)
+        assertEquals(5, hitStep.rerolls[0].newValue)
+        assertTrue(hitStep.rerolls[0].passed)
+        assertEquals(1, hitStep.rerolls[1].dieIndex)
+        assertEquals(1, hitStep.rerolls[1].originalValue)
+        assertEquals(2, hitStep.rerolls[1].newValue)
+        assertFalse(hitStep.rerolls[1].passed)
+        assertTrue(hitStep.note.contains("1✓ 1✗"))
+
+        val fnpStep = log.steps.firstOrNull { it.phaseName == "FNP" }
+        assertNotNull("Expected FNP step in combat dice log", fnpStep)
+        assertEquals(6, fnpStep!!.targetNeeded)
+        assertEquals(2, fnpStep.rolled)
+        assertEquals(1, fnpStep.passed) // 6 ignored 1 damage
+        assertEquals(1, fnpStep.failed) // 3 suffered 1 damage
+        assertEquals(listOf(6, 3), fnpStep.diceValues)
+        assertEquals(1, out.totalDamageDealt)
+
+        // 2. Twin-Linked wound reroll details on Tyranid Warrior (1 model left -> 6 attacks, Twin-Linked)
+        val warrior = BattleUnit(
+            uid = "u_war_rr",
+            template = warriorTpl,
+            faction = Faction.XENOS,
+            x = 5,
+            y = 10,
+            facing = Facing.EAST,
+            totalWounds = 3, // 1 model -> 6 attacks
+            maxTotalWounds = warriorTpl.maxTotalWounds,
+            moveCmLeft = 0f
+        )
+        // Warrior WS 3+, S5 vs T4 (3+): Atk 1: Hit 4, Wound 2 -> Twin-Linked reroll 6 (PASS!), Save 6 (saved); rest miss (Hit 1)
+        val wSeq = intArrayOf(4, 2, 6, 6, 1, 1, 1, 1, 1)
+        var wIdx = 0
+        val wRng = object : Random() {
+            override fun nextBits(bitCount: Int): Int = 0
+            override fun nextInt(from: Int, until: Int): Int = wSeq[wIdx++ % wSeq.size]
+        }
+        val marineDc = dc.copy(faction = Faction.MARINES)
+        val wOut = TacticalRules.resolveAttack(warrior, marineDc, listOf(warrior, marineDc), WeaponMode.MAIN, openMap, wRng)
+        val wWoundStep = wOut.logEntries.first().steps.first { it.phaseName == "WOUND" }
+        assertEquals(3, wWoundStep.targetNeeded)
+        assertEquals(1, wWoundStep.rerolls.size)
+        assertEquals(2, wWoundStep.rerolls[0].originalValue)
+        assertEquals(6, wWoundStep.rerolls[0].newValue)
+        assertTrue(wWoundStep.rerolls[0].passed)
+    }
+
+    @Test
+    fun feelNoPainMutuallySharedBetweenLeaderBodyguardAndSquad() {
+        val openMap = Array(MapGenerator.GRID_H) { Array(MapGenerator.GRID_W) { TerrainType.OPEN } }
+        val byId = DefaultCatalog.defaultTemplates.associateBy { it.id }
+        val titusTpl = byId.getValue("captain_titus")
+        val interTpl = byId.getValue("intercessors")
+        val dcTpl = byId.getValue("death_company_assault_intercessor")
+        val captainTpl = interTpl.copy(id = "plain_leader", name = "Squad Leader", squadSize = 1, isHero = false, feelNoPainTarget = null)
+        val carniTpl = byId.getValue("carnifex")
+
+        // Case A: Leader (Captain Titus, FNP 5+) attached to Intercessors (no innate FNP) -> BOTH share FNP 5+
+        val titus = BattleUnit(
+            uid = "u_ldr_titus",
+            template = titusTpl,
+            faction = Faction.MARINES,
+            x = 5,
+            y = 10,
+            facing = Facing.EAST,
+            totalWounds = titusTpl.maxTotalWounds,
+            maxTotalWounds = titusTpl.maxTotalWounds,
+            moveCmLeft = 15f,
+            isHero = true,
+            hasFeelNoPain = true,
+            bodyguardUid = "u_bg_inter"
+        )
+        val interBg = BattleUnit(
+            uid = "u_bg_inter",
+            template = interTpl,
+            faction = Faction.MARINES,
+            x = 5,
+            y = 10,
+            facing = Facing.EAST,
+            totalWounds = interTpl.maxTotalWounds,
+            maxTotalWounds = interTpl.maxTotalWounds,
+            moveCmLeft = 15f,
+            attachedLeaderUid = "u_ldr_titus"
+        )
+        val pairA = listOf(titus, interBg)
+        assertEquals(5, TacticalRules.feelNoPainTarget(titus, pairA))
+        assertEquals(5, TacticalRules.feelNoPainTarget(interBg, pairA))
+
+        // Enemy hitting Bodyguard triggers FNP 5+ in combat & logs FNP step
+        val enemy = BattleUnit(
+            uid = "u_carni_fnp",
+            template = carniTpl.copy(attacksPerModel = 1, weaponSkill = 2, strength = 12, armorPen = 5, damage = 2),
+            faction = Faction.XENOS,
+            x = 6,
+            y = 10,
+            facing = Facing.WEST,
+            totalWounds = carniTpl.maxTotalWounds,
+            maxTotalWounds = carniTpl.maxTotalWounds,
+            moveCmLeft = 0f
+        )
+        // Hit 6, Wound 6, Save (7+ auto fail -> no roll), FNP rolls 5 & 5 (both pass 5+ -> 0 dmg!)
+        val fnpSeq = intArrayOf(6, 6, 5, 5)
+        var fIdx = 0
+        val fnpRng = object : Random() {
+            override fun nextBits(bitCount: Int): Int = 0
+            override fun nextInt(from: Int, until: Int): Int = fnpSeq[fIdx++ % fnpSeq.size]
+        }
+        val fnpOut = TacticalRules.resolveAttack(enemy, interBg, listOf(titus, interBg, enemy), WeaponMode.MAIN, openMap, fnpRng)
+        assertEquals(0, fnpOut.totalDamageDealt)
+        val fnpLogStep = fnpOut.logEntries.first().steps.first { it.phaseName == "FNP" }
+        assertEquals(5, fnpLogStep.targetNeeded)
+        assertEquals(2, fnpLogStep.passed)
+        assertEquals(0, fnpLogStep.failed)
+
+        // Case B: Non-FNP Leader attached to Bodyguard Squad with FNP 6+ (Death Company) -> Leader ALSO gets FNP 6+ and keeps it if squad dies
+        val plainLeader = BattleUnit(
+            uid = "u_ldr_plain",
+            template = captainTpl,
+            faction = Faction.MARINES,
+            x = 5,
+            y = 10,
+            facing = Facing.EAST,
+            totalWounds = captainTpl.maxTotalWounds,
+            maxTotalWounds = captainTpl.maxTotalWounds,
+            moveCmLeft = 15f,
+            isHero = false,
+            hasFeelNoPain = false,
+            bodyguardUid = "u_bg_dc"
+        )
+        val dcBg = BattleUnit(
+            uid = "u_bg_dc",
+            template = dcTpl,
+            faction = Faction.MARINES,
+            x = 5,
+            y = 10,
+            facing = Facing.EAST,
+            totalWounds = 2, // 1 model left
+            maxTotalWounds = dcTpl.maxTotalWounds,
+            moveCmLeft = 15f,
+            attachedLeaderUid = "u_ldr_plain",
+            hasFeelNoPain = true
+        )
+        val pairB = listOf(plainLeader, dcBg)
+        assertEquals(6, TacticalRules.feelNoPainTarget(plainLeader, pairB))
+        assertEquals(6, TacticalRules.feelNoPainTarget(dcBg, pairB))
+
+        // Killing DC squad detaches plainLeader and preserves FNP 6+ via inheritedPassiveIds
+        val killSeq = intArrayOf(6, 6, 1, 1) // Hit 6, Wound 6, FNP 1, 1 -> 2W kills DC
+        var kIdx = 0
+        val killRng = object : Random() {
+            override fun nextBits(bitCount: Int): Int = 0
+            override fun nextInt(from: Int, until: Int): Int = killSeq[kIdx++ % killSeq.size]
+        }
+        val killDcOut = TacticalRules.resolveAttack(enemy, dcBg, listOf(plainLeader, dcBg, enemy), WeaponMode.MAIN, openMap, killRng)
+        val detachedPlain = killDcOut.updatedTargets.first { it.uid == plainLeader.uid }
+        assertNull(detachedPlain.bodyguardUid)
+        assertTrue(dcTpl.id in detachedPlain.inheritedPassiveIds)
+        assertEquals(6, TacticalRules.feelNoPainTarget(detachedPlain))
+    }
+
 }
+
+
 
 

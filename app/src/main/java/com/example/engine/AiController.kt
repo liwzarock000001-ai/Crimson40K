@@ -69,7 +69,7 @@ object AiController {
                 val shouldTriggerSelf = when (unit.template.archetype) {
                     UnitArchetype.VON_RYANS_LEAPER -> distToNearest <= 7 && !unit.isCloaked
                     UnitArchetype.ASSAULT_MARINE, UnitArchetype.GENESTEALER -> true
-                    UnitArchetype.BLADEGUARD -> !unit.bladeguardRerollBuffActive && (isEngaged || distToNearest <= 5)
+                    UnitArchetype.BLADEGUARD -> false // Always-active Auto Passive
                     UnitArchetype.LEGIONARY -> false // Auto-activates when starting shooting/fighting
                     UnitArchetype.BRUTALIS_DREADNOUGHT -> false // Auto passive on charge/kill
                     UnitArchetype.DEATH_COMPANY_ASSAULT_INTERCESSOR -> false // Always-active passive

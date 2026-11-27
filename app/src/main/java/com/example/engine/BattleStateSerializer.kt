@@ -267,6 +267,15 @@ object BattleStateSerializer {
             for (s in entry.steps) {
                 val diceArr = JSONArray()
                 for (d in s.diceValues) diceArr.put(d)
+                val rerollsArr = JSONArray()
+                for (rr in s.rerolls) {
+                    rerollsArr.put(JSONObject().apply {
+                        put("dieIndex", rr.dieIndex)
+                        put("originalValue", rr.originalValue)
+                        put("newValue", rr.newValue)
+                        put("passed", rr.passed)
+                    })
+                }
                 stepsArr.put(JSONObject().apply {
                     put("phaseName", s.phaseName)
                     put("stepLabel", s.stepLabel)
@@ -276,6 +285,9 @@ object BattleStateSerializer {
                     put("failed", s.failed)
                     put("diceValues", diceArr)
                     put("note", s.note)
+                    if (rerollsArr.length() > 0) {
+                        put("rerolls", rerollsArr)
+                    }
                 })
             }
             arr.put(JSONObject().apply {
@@ -307,6 +319,18 @@ object BattleStateSerializer {
                 for (k in 0 until diceArr.length()) {
                     dice.add(diceArr.optInt(k, 1))
                 }
+                val rerollsArr = so.optJSONArray("rerolls")
+                val rerolls = if (rerollsArr != null) {
+                    List(rerollsArr.length()) { rIdx ->
+                        val ro = rerollsArr.optJSONObject(rIdx)
+                        com.example.model.DiceRerollDetail(
+                            dieIndex = ro?.optInt("dieIndex", 0) ?: 0,
+                            originalValue = ro?.optInt("originalValue", 1) ?: 1,
+                            newValue = ro?.optInt("newValue", 1) ?: 1,
+                            passed = ro?.optBoolean("passed", false) ?: false
+                        )
+                    }
+                } else emptyList()
                 steps.add(
                     DiceStepDetail(
                         phaseName = so.optString("phaseName", "ROLL"),
@@ -316,7 +340,8 @@ object BattleStateSerializer {
                         passed = so.optInt("passed", 0),
                         failed = so.optInt("failed", 0),
                         diceValues = dice,
-                        note = so.optString("note", "")
+                        note = so.optString("note", ""),
+                        rerolls = rerolls
                     )
                 )
             }

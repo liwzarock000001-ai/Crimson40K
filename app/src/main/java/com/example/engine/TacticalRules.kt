@@ -5,6 +5,7 @@ import com.example.model.ChargePreview
 import com.example.model.CombatLogEntry
 import com.example.model.CoverTag
 import com.example.model.DarkPactChoice
+import com.example.model.DiceRerollDetail
 import com.example.model.DiceStepDetail
 import com.example.model.Facing
 import com.example.model.GridPos
@@ -90,15 +91,36 @@ object TacticalRules {
 
     fun feelNoPainTarget(unit: BattleUnit, allUnits: List<BattleUnit>? = null): Int? {
         var best: Int? = null
-        if (unit.isHeroLeader || hasEffectivePassive(unit, "captain_titus", allUnits)) {
-            best = 5
+        fun consider(target: Int?) {
+            val valid = target?.takeIf { it in 2..6 } ?: return
+            val cur = best
+            best = if (cur == null) valid else minOf(cur, valid)
         }
-        val tplFnp = unit.template.feelNoPainTarget?.takeIf { it in 2..6 }
-        if (tplFnp != null) {
-            best = if (best == null) tplFnp else minOf(best, tplFnp)
+        if (unit.isHeroLeader || hasEffectivePassive(unit, "captain_titus", allUnits)) {
+            consider(5)
+        }
+        val selfTplFnp = unit.template.feelNoPainTarget?.takeIf { it in 2..6 }
+        consider(selfTplFnp)
+        for (pid in unit.inheritedPassiveIds) {
+            if (pid == "captain_titus") consider(5)
+            else DefaultCatalog.defaultTemplates.firstOrNull { it.id == pid }?.feelNoPainTarget?.let(::consider)
+        }
+        // Mutually share Feel No Pain between Leader and attached Bodyguard Squad
+        val partner = partnerOf(unit, allUnits)
+        if (partner != null) {
+            if (partner.isHeroLeader) consider(5)
+            val partnerTplFnp = partner.template.feelNoPainTarget?.takeIf { it in 2..6 }
+            consider(partnerTplFnp)
+            if (partnerTplFnp == null && partner.hasFeelNoPain) {
+                consider(5)
+            }
+            for (pid in partner.inheritedPassiveIds) {
+                if (pid == "captain_titus") consider(5)
+                else DefaultCatalog.defaultTemplates.firstOrNull { it.id == pid }?.feelNoPainTarget?.let(::consider)
+            }
         }
         if (best == null && unit.hasFeelNoPain) {
-            best = 5
+            consider(5)
         }
         return best
     }
@@ -107,7 +129,12 @@ object TacticalRules {
         feelNoPainTarget(unit, allUnits) != null
 
     fun unitHasBladeguardReroll(unit: BattleUnit, allUnits: List<BattleUnit>? = null): Boolean =
-        unit.bladeguardRerollBuffActive || (partnerOf(unit, allUnits)?.bladeguardRerollBuffActive == true)
+        unit.template.archetype == UnitArchetype.BLADEGUARD ||
+            unit.bladeguardRerollBuffActive ||
+            hasEffectivePassive(unit, "bladeguard_veterans", allUnits) ||
+            (partnerOf(unit, allUnits)?.let {
+                it.template.archetype == UnitArchetype.BLADEGUARD || it.bladeguardRerollBuffActive
+            } == true)
 
     fun unitIsStationary(unit: BattleUnit, allUnits: List<BattleUnit>? = null): Boolean {
         val selfStationary = unit.moveCmLeft >= unit.template.moveCm - 0.1f && !unit.hasAdvanced
@@ -127,14 +154,14 @@ object TacticalRules {
             val oz: Float
             if (hasAttachedLeader) {
                 val angle = (2.0 * Math.PI * mIdx / count.toDouble()).toFloat()
-                val radius = 0.46f
+                val radius = 0.78f
                 ox = cos(angle) * radius
                 oz = sin(angle) * radius
             } else {
                 ox = modelSubOffsetX(count, mIdx)
                 oz = modelSubOffsetZ(count, mIdx)
             }
-            out.add(WorldPos(unit.worldX + ox / 1.45f, unit.worldY + oz / 1.45f))
+            out.add(WorldPos(unit.worldX + ox, unit.worldY + oz))
         }
         return out
     }
@@ -626,12 +653,11 @@ object TacticalRules {
                         attacker.hasCharged &&
                         !attacker.meleeChargeBuffActive &&
                         inMelee
-                UnitArchetype.BLADEGUARD ->
-                    attacker.skillCooldownLeft == 0 && !attacker.bladeguardRerollBuffActive
-                UnitArchetype.LEGIONARY ->
-                    attacker.skillCooldownLeft == 0 && !attacker.legionaryWoundRerollBuffActive
+                UnitArchetype.BLADEGUARD,
                 UnitArchetype.BRUTALIS_DREADNOUGHT,
                 UnitArchetype.DEATH_COMPANY_ASSAULT_INTERCESSOR -> false
+                UnitArchetype.LEGIONARY ->
+                    attacker.skillCooldownLeft == 0 && !attacker.legionaryWoundRerollBuffActive
                 else -> {
                     val isMeleeSkill = weaponRange(attacker, mode) <= 1
                     if (isMeleeSkill) {
@@ -893,8 +919,8 @@ object TacticalRules {
             val isClaws = attacker.template.terminatorWeapon == com.example.model.TerminatorWeaponChoice.LIGHTNING_CLAWS ||
                 (attacker.template.terminatorWeapon == null && attacker.template.mainWeaponName.contains("claw", ignoreCase = true))
             val targetIsMV = isMonsterOrVehicle(defender)
-            if (!isClaws && targetIsMV) return maxOf(result, 1)
-            if (isClaws && !targetIsMV) return maxOf(result, 1)
+            if (!isClaws && targetIsMV) result = maxOf(result, 1)
+            if (isClaws && !targetIsMV) result = maxOf(result, 1)
         }
         // An Honourable Death in Combat (Death Company Assault Intercessor — always active on all attacks)
         if (attacker.template.archetype == UnitArchetype.DEATH_COMPANY_ASSAULT_INTERCESSOR) {
@@ -1613,69 +1639,108 @@ object TacticalRules {
             val hitDice = ArrayList<Int>(attacks)
             val woundDice = ArrayList<Int>(attacks)
             val saveDice = ArrayList<Int>(attacks)
+            val hitRerollDetails = ArrayList<DiceRerollDetail>()
+            val woundRerollDetails = ArrayList<DiceRerollDetail>()
+            val saveRerollDetails = ArrayList<DiceRerollDetail>()
+            val fnpDice = ArrayList<Int>()
+            var fnpIgnored = 0
 
             val rerollHitOnes = effectiveAttacker.template.archetype == UnitArchetype.GENESTEALER ||
                 unitHasBladeguardReroll(effectiveAttacker, allUnits)
             val rerollSaveOnes = unitHasBladeguardReroll(tgt, allUnits)
-            val tgtHasFnp = unitHasFeelNoPain(tgt, allUnits)
+            val fnpTargetNeeded = feelNoPainTarget(tgt, allUnits)
 
             repeat(attacks) {
-                if (runningWounds > 0) {
-                    // Step 1: Hit Roll (d6 vs BS / WS; 1 always misses; 6 triggers Sustained Hits [X] / Lethal Hits)
-                    var hitRoll = rng.nextInt(1, 7)
-                    if (rerollHitOnes && hitRoll == 1) {
-                        hitRerolls++
-                        hitRoll = rng.nextInt(1, 7)
-                    }
-                    hitDice.add(hitRoll)
-                    if (hitRoll > 1 && hitRoll >= tgtPreview.hitRollNeeded) {
-                        baseHits++
-                        val isLethalHit = lethalHitsEnabled && hitRoll == 6
-                        val extraHits = if (hitRoll == 6 && sustainedX > 0) sustainedX else 0
-                        sustainedBonusHits += extraHits
-                        val hitsFromAttack = 1 + extraHits
-                        tgtHits += hitsFromAttack
-                        repeat(hitsFromAttack) { hitIdx ->
-                            if (runningWounds > 0) {
-                                val autoWound = isLethalHit && hitIdx == 0
-                                val wounded = if (autoWound) {
-                                    lethalWounds++
-                                    true
-                                } else {
-                                    // Step 2: Wound Roll (d6 comparing S vs T; 1 always fails unless re-rolled; Twin-Linked re-rolls all failed wounds)
-                                    var woundRoll = rng.nextInt(1, 7)
-                                    val firstSucceeded = woundRoll > 1 && woundRoll >= tgtPreview.woundRollNeeded
-                                    if (!firstSucceeded && (isTwinLinked || (rerollWoundOnes && woundRoll == 1))) {
-                                        woundRerolls++
-                                        woundRoll = rng.nextInt(1, 7)
-                                    }
-                                    woundDice.add(woundRoll)
-                                    woundRoll > 1 && woundRoll >= tgtPreview.woundRollNeeded
+                // Step 1: Hit Roll (d6 vs BS / WS; 1 always misses; 6 triggers Sustained Hits [X] / Lethal Hits)
+                var hitRoll = rng.nextInt(1, 7)
+                if (rerollHitOnes && hitRoll == 1) {
+                    val origHit = hitRoll
+                    hitRerolls++
+                    hitRoll = rng.nextInt(1, 7)
+                    hitRerollDetails.add(
+                        DiceRerollDetail(
+                            dieIndex = hitDice.size,
+                            originalValue = origHit,
+                            newValue = hitRoll,
+                            passed = hitRoll > 1 && hitRoll >= tgtPreview.hitRollNeeded
+                        )
+                    )
+                }
+                hitDice.add(hitRoll)
+                if (hitRoll > 1 && hitRoll >= tgtPreview.hitRollNeeded) {
+                    baseHits++
+                    val isLethalHit = lethalHitsEnabled && hitRoll == 6
+                    val extraHits = if (hitRoll == 6 && sustainedX > 0) sustainedX else 0
+                    sustainedBonusHits += extraHits
+                    val hitsFromAttack = 1 + extraHits
+                    tgtHits += hitsFromAttack
+                    repeat(hitsFromAttack) { hitIdx ->
+                        val autoWound = isLethalHit && hitIdx == 0
+                        val wounded = if (autoWound) {
+                            lethalWounds++
+                            true
+                        } else {
+                            // Step 2: Wound Roll (d6 comparing S vs T; 1 always fails unless re-rolled; Twin-Linked re-rolls all failed wounds)
+                            var woundRoll = rng.nextInt(1, 7)
+                            val firstSucceeded = woundRoll > 1 && woundRoll >= tgtPreview.woundRollNeeded
+                            if (!firstSucceeded && (isTwinLinked || (rerollWoundOnes && woundRoll == 1))) {
+                                val origWound = woundRoll
+                                woundRerolls++
+                                woundRoll = rng.nextInt(1, 7)
+                                woundRerollDetails.add(
+                                    DiceRerollDetail(
+                                        dieIndex = woundDice.size,
+                                        originalValue = origWound,
+                                        newValue = woundRoll,
+                                        passed = woundRoll > 1 && woundRoll >= tgtPreview.woundRollNeeded
+                                    )
+                                )
+                            }
+                            woundDice.add(woundRoll)
+                            woundRoll > 1 && woundRoll >= tgtPreview.woundRollNeeded
+                        }
+                        if (wounded) {
+                            tgtWounds++
+                            // Step 3: Saving Throw (d6 vs Sv+AP or Invuln; 1 always fails; 7+ auto-fails)
+                            val isSaved = if (tgtPreview.saveRollNeeded <= 6) {
+                                var saveRoll = rng.nextInt(1, 7)
+                                if (rerollSaveOnes && saveRoll == 1) {
+                                    val origSave = saveRoll
+                                    tgtSaveRerolls++
+                                    saveRoll = rng.nextInt(1, 7)
+                                    saveRerollDetails.add(
+                                        DiceRerollDetail(
+                                            dieIndex = saveDice.size,
+                                            originalValue = origSave,
+                                            newValue = saveRoll,
+                                            passed = saveRoll > 1 && saveRoll >= tgtPreview.saveRollNeeded
+                                        )
+                                    )
                                 }
-                                if (wounded) {
-                                    tgtWounds++
-                                    // Step 3: Saving Throw (d6 vs Sv+AP or Invuln; 1 always fails; 7+ auto-fails)
-                                    val isSaved = if (tgtPreview.saveRollNeeded <= 6) {
-                                        var saveRoll = rng.nextInt(1, 7)
-                                        if (rerollSaveOnes && saveRoll == 1) {
-                                            tgtSaveRerolls++
-                                            saveRoll = rng.nextInt(1, 7)
+                                saveDice.add(saveRoll)
+                                saveRoll > 1 && saveRoll >= tgtPreview.saveRollNeeded
+                            } else {
+                                false
+                            }
+                            if (isSaved) {
+                                tgtSaved++
+                            } else if (runningWounds > 0) {
+                                // Step 4: Model-by-Model Wound Allocation (no excess damage spillover) + Feel No Pain
+                                val applied = allocateWoundDamage(runningWounds, tgt.template.woundsPerModel, perUnsavedDmg)
+                                val finalApplied = if (fnpTargetNeeded != null && applied > 0) {
+                                    var ignoredThis = 0
+                                    repeat(applied) {
+                                        val fnpRoll = rng.nextInt(1, 7)
+                                        fnpDice.add(fnpRoll)
+                                        if (fnpRoll >= fnpTargetNeeded) {
+                                            ignoredThis++
+                                            fnpIgnored++
                                         }
-                                        saveDice.add(saveRoll)
-                                        saveRoll > 1 && saveRoll >= tgtPreview.saveRollNeeded
-                                    } else {
-                                        false
                                     }
-                                    if (isSaved) {
-                                        tgtSaved++
-                                    } else {
-                                        // Step 4: Model-by-Model Wound Allocation (no excess damage spillover)
-                                        val applied = allocateWoundDamage(runningWounds, tgt.template.woundsPerModel, perUnsavedDmg)
-                                        val finalApplied = if (tgtHasFnp) applyFeelNoPain(tgt, applied, rng, hasFnpOverride = true, allUnits = allUnits) else applied
-                                        runningWounds -= finalApplied
-                                        tgtDmg += finalApplied
-                                    }
-                                }
+                                    (applied - ignoredThis).coerceAtLeast(0)
+                                } else applied
+                                runningWounds -= finalApplied
+                                tgtDmg += finalApplied
                             }
                         }
                     }
@@ -1712,6 +1777,8 @@ object TacticalRules {
                     val (pSaveRollNeeded, pUsingInvuln) = computeEffectiveSave(tgt, pAp, tgtPreview.coverTag)
                     val pRerollHitOnes = partner.template.archetype == UnitArchetype.GENESTEALER ||
                         unitHasBladeguardReroll(partner, allUnits)
+                    val pRerollWoundOnes = partner.template.archetype == UnitArchetype.GENESTEALER ||
+                        (partner.template.archetype == UnitArchetype.LEGIONARY && partner.legionaryWoundRerollBuffActive)
 
                     var pBaseHits = 0
                     var pTotalHits = 0
@@ -1725,51 +1792,90 @@ object TacticalRules {
                     val pHitDice = ArrayList<Int>(pAttacks)
                     val pWoundDice = ArrayList<Int>(pAttacks)
                     val pSaveDice = ArrayList<Int>(pAttacks)
+                    val pHitRerollDetails = ArrayList<DiceRerollDetail>()
+                    val pWoundRerollDetails = ArrayList<DiceRerollDetail>()
+                    val pSaveRerollDetails = ArrayList<DiceRerollDetail>()
+                    val pFnpDice = ArrayList<Int>()
+                    var pFnpIgnored = 0
                     val pModelsBefore = tgt.copy(totalWounds = runningWounds).aliveModels
 
                     repeat(pAttacks) {
-                        if (runningWounds > 0) {
-                            var pHitRoll = rng.nextInt(1, 7)
-                            if (pRerollHitOnes && pHitRoll == 1) {
-                                pHitRerolls++
-                                pHitRoll = rng.nextInt(1, 7)
-                            }
-                            pHitDice.add(pHitRoll)
-                            if (pHitRoll > 1 && pHitRoll >= pHitRollNeeded) {
-                                pBaseHits++
-                                val pExtra = if (pHitRoll == 6 && pSustained > 0) pSustained else 0
-                                pSustainedBonus += pExtra
-                                val hitsFromP = 1 + pExtra
-                                pTotalHits += hitsFromP
-                                repeat(hitsFromP) {
-                                    if (runningWounds > 0) {
-                                        var pWoundRoll = rng.nextInt(1, 7)
-                                        val pFirstWound = pWoundRoll > 1 && pWoundRoll >= pWoundRollNeeded
-                                        if (!pFirstWound && pTwinLinked) {
-                                            pWoundRerolls++
-                                            pWoundRoll = rng.nextInt(1, 7)
+                        var pHitRoll = rng.nextInt(1, 7)
+                        if (pRerollHitOnes && pHitRoll == 1) {
+                            val origHit = pHitRoll
+                            pHitRerolls++
+                            pHitRoll = rng.nextInt(1, 7)
+                            pHitRerollDetails.add(
+                                DiceRerollDetail(
+                                    dieIndex = pHitDice.size,
+                                    originalValue = origHit,
+                                    newValue = pHitRoll,
+                                    passed = pHitRoll > 1 && pHitRoll >= pHitRollNeeded
+                                )
+                            )
+                        }
+                        pHitDice.add(pHitRoll)
+                        if (pHitRoll > 1 && pHitRoll >= pHitRollNeeded) {
+                            pBaseHits++
+                            val pExtra = if (pHitRoll == 6 && pSustained > 0) pSustained else 0
+                            pSustainedBonus += pExtra
+                            val hitsFromP = 1 + pExtra
+                            pTotalHits += hitsFromP
+                            repeat(hitsFromP) {
+                                var pWoundRoll = rng.nextInt(1, 7)
+                                val pFirstWound = pWoundRoll > 1 && pWoundRoll >= pWoundRollNeeded
+                                if (!pFirstWound && (pTwinLinked || (pRerollWoundOnes && pWoundRoll == 1))) {
+                                    val origWound = pWoundRoll
+                                    pWoundRerolls++
+                                    pWoundRoll = rng.nextInt(1, 7)
+                                    pWoundRerollDetails.add(
+                                        DiceRerollDetail(
+                                            dieIndex = pWoundDice.size,
+                                            originalValue = origWound,
+                                            newValue = pWoundRoll,
+                                            passed = pWoundRoll > 1 && pWoundRoll >= pWoundRollNeeded
+                                        )
+                                    )
+                                }
+                                pWoundDice.add(pWoundRoll)
+                                if (pWoundRoll > 1 && pWoundRoll >= pWoundRollNeeded) {
+                                    pWounds++
+                                    val pSavedRoll = if (pSaveRollNeeded <= 6) {
+                                        var sr = rng.nextInt(1, 7)
+                                        if (rerollSaveOnes && sr == 1) {
+                                            val origSave = sr
+                                            pSaveRerolls++
+                                            sr = rng.nextInt(1, 7)
+                                            pSaveRerollDetails.add(
+                                                DiceRerollDetail(
+                                                    dieIndex = pSaveDice.size,
+                                                    originalValue = origSave,
+                                                    newValue = sr,
+                                                    passed = sr > 1 && sr >= pSaveRollNeeded
+                                                )
+                                            )
                                         }
-                                        pWoundDice.add(pWoundRoll)
-                                        if (pWoundRoll > 1 && pWoundRoll >= pWoundRollNeeded) {
-                                            pWounds++
-                                            val pSavedRoll = if (pSaveRollNeeded <= 6) {
-                                                var sr = rng.nextInt(1, 7)
-                                                if (rerollSaveOnes && sr == 1) {
-                                                    pSaveRerolls++
-                                                    sr = rng.nextInt(1, 7)
+                                        pSaveDice.add(sr)
+                                        sr > 1 && sr >= pSaveRollNeeded
+                                    } else false
+                                    if (pSavedRoll) {
+                                        pSaved++
+                                    } else if (runningWounds > 0) {
+                                        val pApp = allocateWoundDamage(runningWounds, tgt.template.woundsPerModel, pD)
+                                        val pFinalApp = if (fnpTargetNeeded != null && pApp > 0) {
+                                            var ignoredThis = 0
+                                            repeat(pApp) {
+                                                val fnpRoll = rng.nextInt(1, 7)
+                                                pFnpDice.add(fnpRoll)
+                                                if (fnpRoll >= fnpTargetNeeded) {
+                                                    ignoredThis++
+                                                    pFnpIgnored++
                                                 }
-                                                pSaveDice.add(sr)
-                                                sr > 1 && sr >= pSaveRollNeeded
-                                            } else false
-                                            if (pSavedRoll) {
-                                                pSaved++
-                                            } else {
-                                                val pApp = allocateWoundDamage(runningWounds, tgt.template.woundsPerModel, pD)
-                                                val pFinalApp = if (tgtHasFnp) applyFeelNoPain(tgt, pApp, rng, hasFnpOverride = true, allUnits = allUnits) else pApp
-                                                runningWounds -= pFinalApp
-                                                pDmg += pFinalApp
                                             }
-                                        }
+                                            (pApp - ignoredThis).coerceAtLeast(0)
+                                        } else pApp
+                                        runningWounds -= pFinalApp
+                                        pDmg += pFinalApp
                                     }
                                 }
                             }
@@ -1813,7 +1919,13 @@ object TacticalRules {
                         saveDice = pSaveDice,
                         savesSucceeded = pSaved,
                         saveRerolls = pSaveRerolls,
-                        twinLinked = pTwinLinked
+                        twinLinked = pTwinLinked,
+                        hitRerollDetails = pHitRerollDetails,
+                        woundRerollDetails = pWoundRerollDetails,
+                        saveRerollDetails = pSaveRerollDetails,
+                        fnpTargetNeeded = fnpTargetNeeded,
+                        fnpDice = pFnpDice,
+                        fnpIgnored = pFnpIgnored
                     )
                     combatLogs.add(
                         CombatLogEntry(
@@ -1827,7 +1939,8 @@ object TacticalRules {
                                 saved = pSaved,
                                 dmg = pDmg,
                                 modelsLost = pModelsLost,
-                                eliminated = runningWounds <= 0
+                                eliminated = runningWounds <= 0,
+                                fnpIgnored = pFnpIgnored
                             ),
                             isCounterOrFightFirst = false,
                             isSuccess = pDmg > 0 || runningWounds <= 0
@@ -1883,9 +1996,11 @@ object TacticalRules {
                 val leader = allUnits.firstOrNull { it.uid == updatedTgt.attachedLeaderUid && it.isAlive }
                 if (leader != null) {
                     val inherited = (leader.inheritedPassiveIds + updatedTgt.template.id).distinct()
+                    val keepsFnp = leader.hasFeelNoPain || updatedTgt.hasFeelNoPain ||
+                        feelNoPainTarget(leader, allUnits) != null || updatedTgt.template.feelNoPainTarget != null
                     val detachedLeader = leader.copy(
                         bodyguardUid = null,
-                        hasFeelNoPain = true,
+                        hasFeelNoPain = keepsFnp,
                         inheritedPassiveIds = inherited
                     )
                     updatedTargets.add(detachedLeader)
@@ -1922,7 +2037,13 @@ object TacticalRules {
                 saveRerolls = tgtSaveRerolls,
                 lethalWounds = lethalWounds,
                 twinLinked = isTwinLinked,
-                darkPactStep = if (idx == 0) darkPactStep else null
+                darkPactStep = if (idx == 0) darkPactStep else null,
+                hitRerollDetails = hitRerollDetails,
+                woundRerollDetails = woundRerollDetails,
+                saveRerollDetails = saveRerollDetails,
+                fnpTargetNeeded = fnpTargetNeeded,
+                fnpDice = fnpDice,
+                fnpIgnored = fnpIgnored
             )
             val resultSummary = formatCombatResultSummary(
                 hits = tgtHits,
@@ -1930,7 +2051,8 @@ object TacticalRules {
                 saved = tgtSaved,
                 dmg = tgtDmg,
                 modelsLost = modelsLost,
-                eliminated = newWounds == 0
+                eliminated = newWounds == 0,
+                fnpIgnored = fnpIgnored
             )
             combatLogs.add(
                 CombatLogEntry(
@@ -2087,6 +2209,11 @@ object TacticalRules {
         val hitDice = ArrayList<Int>(attacks)
         val woundDice = ArrayList<Int>(attacks)
         val saveDice = ArrayList<Int>(attacks)
+        val hitRerollDetails = ArrayList<DiceRerollDetail>()
+        val woundRerollDetails = ArrayList<DiceRerollDetail>()
+        val saveRerollDetails = ArrayList<DiceRerollDetail>()
+        val fnpDice = ArrayList<Int>()
+        var fnpIgnored = 0
         val floats = ArrayList<Pair<GridPos, Pair<String, Long>>>(6)
 
         val rerollCounterHitOnes = counterAttacker.template.archetype == UnitArchetype.GENESTEALER ||
@@ -2094,53 +2221,87 @@ object TacticalRules {
         val rerollCounterWoundOnes = counterAttacker.template.archetype == UnitArchetype.GENESTEALER ||
             (counterAttacker.template.archetype == UnitArchetype.LEGIONARY && counterAttacker.legionaryWoundRerollBuffActive)
         val rerollTargetSaveOnes = unitHasBladeguardReroll(actualTarget, allCtx)
-        val targetHasFnp = unitHasFeelNoPain(actualTarget, allCtx)
+        val fnpTargetNeeded = feelNoPainTarget(actualTarget, allCtx)
 
         repeat(attacks) {
-            if (runningWounds > 0) {
-                var hitRoll = rng.nextInt(1, 7)
-                if (rerollCounterHitOnes && hitRoll == 1) {
-                    hitRerolls++
-                    hitRoll = rng.nextInt(1, 7)
-                }
-                hitDice.add(hitRoll)
-                if (hitRoll > 1 && hitRoll >= hitRollNeeded) {
-                    baseHits++
-                    val extraHits = if (hitRoll == 6 && sustainedX > 0) sustainedX else 0
-                    sustainedBonusHits += extraHits
-                    val hitsFromAttack = 1 + extraHits
-                    tgtHits += hitsFromAttack
-                    repeat(hitsFromAttack) {
-                        if (runningWounds > 0) {
-                            var woundRoll = rng.nextInt(1, 7)
-                            val firstSucceeded = woundRoll > 1 && woundRoll >= woundRollNeeded
-                            if (!firstSucceeded && (isTwinLinked || (rerollCounterWoundOnes && woundRoll == 1))) {
-                                woundRerolls++
-                                woundRoll = rng.nextInt(1, 7)
+            var hitRoll = rng.nextInt(1, 7)
+            if (rerollCounterHitOnes && hitRoll == 1) {
+                val origHit = hitRoll
+                hitRerolls++
+                hitRoll = rng.nextInt(1, 7)
+                hitRerollDetails.add(
+                    DiceRerollDetail(
+                        dieIndex = hitDice.size,
+                        originalValue = origHit,
+                        newValue = hitRoll,
+                        passed = hitRoll > 1 && hitRoll >= hitRollNeeded
+                    )
+                )
+            }
+            hitDice.add(hitRoll)
+            if (hitRoll > 1 && hitRoll >= hitRollNeeded) {
+                baseHits++
+                val extraHits = if (hitRoll == 6 && sustainedX > 0) sustainedX else 0
+                sustainedBonusHits += extraHits
+                val hitsFromAttack = 1 + extraHits
+                tgtHits += hitsFromAttack
+                repeat(hitsFromAttack) {
+                    var woundRoll = rng.nextInt(1, 7)
+                    val firstSucceeded = woundRoll > 1 && woundRoll >= woundRollNeeded
+                    if (!firstSucceeded && (isTwinLinked || (rerollCounterWoundOnes && woundRoll == 1))) {
+                        val origWound = woundRoll
+                        woundRerolls++
+                        woundRoll = rng.nextInt(1, 7)
+                        woundRerollDetails.add(
+                            DiceRerollDetail(
+                                dieIndex = woundDice.size,
+                                originalValue = origWound,
+                                newValue = woundRoll,
+                                passed = woundRoll > 1 && woundRoll >= woundRollNeeded
+                            )
+                        )
+                    }
+                    woundDice.add(woundRoll)
+                    if (woundRoll > 1 && woundRoll >= woundRollNeeded) {
+                        tgtWounds++
+                        val isSaved = if (saveRollNeeded <= 6) {
+                            var saveRoll = rng.nextInt(1, 7)
+                            if (rerollTargetSaveOnes && saveRoll == 1) {
+                                val origSave = saveRoll
+                                saveRerolls++
+                                saveRoll = rng.nextInt(1, 7)
+                                saveRerollDetails.add(
+                                    DiceRerollDetail(
+                                        dieIndex = saveDice.size,
+                                        originalValue = origSave,
+                                        newValue = saveRoll,
+                                        passed = saveRoll > 1 && saveRoll >= saveRollNeeded
+                                    )
+                                )
                             }
-                            woundDice.add(woundRoll)
-                            if (woundRoll > 1 && woundRoll >= woundRollNeeded) {
-                                tgtWounds++
-                                val isSaved = if (saveRollNeeded <= 6) {
-                                    var saveRoll = rng.nextInt(1, 7)
-                                    if (rerollTargetSaveOnes && saveRoll == 1) {
-                                        saveRerolls++
-                                        saveRoll = rng.nextInt(1, 7)
+                            saveDice.add(saveRoll)
+                            saveRoll > 1 && saveRoll >= saveRollNeeded
+                        } else {
+                            false
+                        }
+                        if (isSaved) {
+                            tgtSaved++
+                        } else if (runningWounds > 0) {
+                            val applied = allocateWoundDamage(runningWounds, actualTarget.template.woundsPerModel, d)
+                            val finalApplied = if (fnpTargetNeeded != null && applied > 0) {
+                                var ignoredThis = 0
+                                repeat(applied) {
+                                    val fnpRoll = rng.nextInt(1, 7)
+                                    fnpDice.add(fnpRoll)
+                                    if (fnpRoll >= fnpTargetNeeded) {
+                                        ignoredThis++
+                                        fnpIgnored++
                                     }
-                                    saveDice.add(saveRoll)
-                                    saveRoll > 1 && saveRoll >= saveRollNeeded
-                                } else {
-                                    false
                                 }
-                                if (isSaved) {
-                                    tgtSaved++
-                                } else {
-                                    val applied = allocateWoundDamage(runningWounds, actualTarget.template.woundsPerModel, d)
-                                    val finalApplied = if (targetHasFnp) applyFeelNoPain(actualTarget, applied, rng, hasFnpOverride = true, allUnits = allCtx) else applied
-                                    runningWounds -= finalApplied
-                                    tgtDmg += finalApplied
-                                }
-                            }
+                                (applied - ignoredThis).coerceAtLeast(0)
+                            } else applied
+                            runningWounds -= finalApplied
+                            tgtDmg += finalApplied
                         }
                     }
                 }
@@ -2171,9 +2332,11 @@ object TacticalRules {
             val leader = allCtx.firstOrNull { it.uid == updatedTarget.attachedLeaderUid && it.isAlive }
             if (leader != null) {
                 val inherited = (leader.inheritedPassiveIds + updatedTarget.template.id).distinct()
+                val keepsFnp = leader.hasFeelNoPain || updatedTarget.hasFeelNoPain ||
+                    feelNoPainTarget(leader, allCtx) != null || updatedTarget.template.feelNoPainTarget != null
                 val detachedLeader = leader.copy(
                     bodyguardUid = null,
-                    hasFeelNoPain = true,
+                    hasFeelNoPain = keepsFnp,
                     inheritedPassiveIds = inherited
                 )
                 extraUpdates.add(detachedLeader)
@@ -2204,7 +2367,13 @@ object TacticalRules {
             saveDice = saveDice,
             savesSucceeded = tgtSaved,
             saveRerolls = saveRerolls,
-            twinLinked = isTwinLinked
+            twinLinked = isTwinLinked,
+            hitRerollDetails = hitRerollDetails,
+            woundRerollDetails = woundRerollDetails,
+            saveRerollDetails = saveRerollDetails,
+            fnpTargetNeeded = fnpTargetNeeded,
+            fnpDice = fnpDice,
+            fnpIgnored = fnpIgnored
         )
         val counterLog = CombatLogEntry(
             faction = counterAttacker.faction,
@@ -2217,7 +2386,8 @@ object TacticalRules {
                 saved = tgtSaved,
                 dmg = tgtDmg,
                 modelsLost = modelsLost,
-                eliminated = newWounds == 0
+                eliminated = newWounds == 0,
+                fnpIgnored = fnpIgnored
             ),
             isCounterOrFightFirst = true,
             isSuccess = tgtDmg > 0 || newWounds == 0
@@ -2285,16 +2455,26 @@ object TacticalRules {
         saveRerolls: Int = 0,
         lethalWounds: Int = 0,
         twinLinked: Boolean = false,
-        darkPactStep: DiceStepDetail? = null
+        darkPactStep: DiceStepDetail? = null,
+        hitRerollDetails: List<DiceRerollDetail> = emptyList(),
+        woundRerollDetails: List<DiceRerollDetail> = emptyList(),
+        saveRerollDetails: List<DiceRerollDetail> = emptyList(),
+        fnpTargetNeeded: Int? = null,
+        fnpDice: List<Int> = emptyList(),
+        fnpIgnored: Int = 0
     ): List<DiceStepDetail> {
-        val steps = ArrayList<DiceStepDetail>(4)
+        val steps = ArrayList<DiceStepDetail>(5)
         if (darkPactStep != null) {
             steps.add(darkPactStep)
         }
         val hitNote = buildList {
             if (lethalWounds > 0) add("LETHAL HITS (${lethalWounds}x AUTO-WOUND)")
             if (sustainedBonusHits > 0) add("SUSTAINED +$sustainedBonusHits → $totalHits HITS")
-            if (hitRerolls > 0) add("RE-ROLL 1s (${hitRerolls}x)")
+            if (hitRerolls > 0) {
+                val rrPass = hitRerollDetails.count { it.passed }
+                val rrFail = (hitRerollDetails.size - rrPass).coerceAtLeast(0)
+                add(if (hitRerollDetails.isNotEmpty()) "RE-ROLL 1s (${hitRerolls}x: ${rrPass}✓ ${rrFail}✗)" else "RE-ROLL 1s (${hitRerolls}x)")
+            }
         }.joinToString(" • ")
         steps.add(
             DiceStepDetail(
@@ -2305,7 +2485,8 @@ object TacticalRules {
                 passed = baseHits,
                 failed = (hitDice.size - baseHits).coerceAtLeast(0),
                 diceValues = hitDice,
-                note = hitNote
+                note = hitNote,
+                rerolls = hitRerollDetails
             )
         )
 
@@ -2313,8 +2494,13 @@ object TacticalRules {
             val rolledWoundsPassed = (woundsSucceeded - lethalWounds).coerceAtLeast(0)
             val woundNote = buildList {
                 if (lethalWounds > 0) add("+$lethalWounds AUTO (LETHAL)")
-                if (twinLinked && woundRerolls > 0) add("TWIN-LINKED RE-ROLL (${woundRerolls}x)")
-                else if (woundRerolls > 0) add("RE-ROLL 1s (${woundRerolls}x)")
+                if (woundRerolls > 0) {
+                    val rrPass = woundRerollDetails.count { it.passed }
+                    val rrFail = (woundRerollDetails.size - rrPass).coerceAtLeast(0)
+                    val summary = if (woundRerollDetails.isNotEmpty()) "(${woundRerolls}x: ${rrPass}✓ ${rrFail}✗)" else "(${woundRerolls}x)"
+                    if (twinLinked) add("TWIN-LINKED RE-ROLL $summary")
+                    else add("RE-ROLL 1s $summary")
+                }
             }.joinToString(" • ")
             steps.add(
                 DiceStepDetail(
@@ -2325,7 +2511,8 @@ object TacticalRules {
                     passed = rolledWoundsPassed,
                     failed = (woundDice.size - rolledWoundsPassed).coerceAtLeast(0),
                     diceValues = woundDice,
-                    note = woundNote
+                    note = woundNote,
+                    rerolls = woundRerollDetails
                 )
             )
         }
@@ -2343,7 +2530,11 @@ object TacticalRules {
                 } else {
                     if (!usingInvuln && weaponAp > 0) add("AP-$weaponAp")
                     if (!usingInvuln && coverTag == CoverTag.COVER) add("COVER")
-                    if (saveRerolls > 0) add("RE-ROLL 1s (${saveRerolls}x)")
+                    if (saveRerolls > 0) {
+                        val rrPass = saveRerollDetails.count { it.passed }
+                        val rrFail = (saveRerollDetails.size - rrPass).coerceAtLeast(0)
+                        add(if (saveRerollDetails.isNotEmpty()) "RE-ROLL 1s (${saveRerolls}x: ${rrPass}✓ ${rrFail}✗)" else "RE-ROLL 1s (${saveRerolls}x)")
+                    }
                 }
             }.joinToString(" • ")
             steps.add(
@@ -2355,7 +2546,24 @@ object TacticalRules {
                     passed = savesSucceeded,
                     failed = (saveRolled - savesSucceeded).coerceAtLeast(0),
                     diceValues = saveDice,
-                    note = svNote
+                    note = svNote,
+                    rerolls = saveRerollDetails
+                )
+            )
+        }
+
+        if (fnpDice.isNotEmpty() && fnpTargetNeeded != null) {
+            val fnpSuffered = (fnpDice.size - fnpIgnored).coerceAtLeast(0)
+            steps.add(
+                DiceStepDetail(
+                    phaseName = "FNP",
+                    stepLabel = "FNP ${fnpTargetNeeded}+ (IGNORE DMG)",
+                    targetNeeded = fnpTargetNeeded,
+                    rolled = fnpDice.size,
+                    passed = fnpIgnored,
+                    failed = fnpSuffered,
+                    diceValues = fnpDice,
+                    note = "NEED ${fnpTargetNeeded}+ TO IGNORE • IGNORED $fnpIgnored • TOOK ${fnpSuffered}W"
                 )
             )
         }
@@ -2368,11 +2576,13 @@ object TacticalRules {
         saved: Int,
         dmg: Int,
         modelsLost: Int,
-        eliminated: Boolean
+        eliminated: Boolean,
+        fnpIgnored: Int = 0
     ): String = when {
         eliminated -> "-${dmg}W • ELIMINATED!"
         hits == 0 -> "ALL MISSED • 0 DMG"
         wounds == 0 -> "0 WOUNDS • 0 DMG"
+        dmg == 0 && fnpIgnored > 0 -> "FNP IGNORED ($fnpIgnored) • 0 DMG"
         dmg == 0 && saved > 0 -> "ALL SAVED ($saved/$wounds) • 0 DMG"
         modelsLost > 0 -> "-${dmg}W • -$modelsLost MODEL${if (modelsLost > 1) "S" else ""}"
         else -> "-${dmg}W APPLIED"
@@ -2404,17 +2614,7 @@ object TacticalRules {
                     )
                 }
             }
-            UnitArchetype.BLADEGUARD -> {
-                if (unit.bladeguardRerollBuffActive) {
-                    null
-                } else {
-                    unit.copy(
-                        skillCooldownLeft = unit.template.skillCooldown,
-                        bladeguardRerollBuffActive = true,
-                        activeBuffLabel = "REROLL 1s (HIT & SAVE)"
-                    )
-                }
-            }
+            UnitArchetype.BLADEGUARD -> null
             UnitArchetype.GENESTEALER -> {
                 if (unit.skillCooldownLeft > 0) null
                 else unit.copy(

@@ -1089,7 +1089,15 @@ class OnlineCoopRepository(
                         "passed" to s.passed,
                         "failed" to s.failed,
                         "diceValues" to s.diceValues.take(30),
-                        "note" to s.note
+                        "note" to s.note,
+                        "rerolls" to s.rerolls.take(30).map { rr ->
+                            mapOf(
+                                "dieIndex" to rr.dieIndex,
+                                "originalValue" to rr.originalValue,
+                                "newValue" to rr.newValue,
+                                "passed" to rr.passed
+                            )
+                        }
                     )
                 }
             )
@@ -1104,6 +1112,15 @@ class OnlineCoopRepository(
             val steps = stepRows.map { s ->
                 val rawDice = (s["diceValues"] as? List<*>) ?: emptyList<Any>()
                 val dice = rawDice.mapNotNull { (it as? Number)?.toInt() }
+                val rawRerolls = (s["rerolls"] as? List<*>)?.mapNotNull { it as? Map<*, *> } ?: emptyList()
+                val rerolls = rawRerolls.map { rr ->
+                    com.example.model.DiceRerollDetail(
+                        dieIndex = (rr["dieIndex"] as? Number)?.toInt() ?: 0,
+                        originalValue = (rr["originalValue"] as? Number)?.toInt() ?: 1,
+                        newValue = (rr["newValue"] as? Number)?.toInt() ?: 1,
+                        passed = (rr["passed"] as? Boolean) ?: false
+                    )
+                }
                 DiceStepDetail(
                     phaseName = (s["phaseName"] as? String) ?: "ROLL",
                     stepLabel = (s["stepLabel"] as? String) ?: "",
@@ -1112,7 +1129,8 @@ class OnlineCoopRepository(
                     passed = (s["passed"] as? Number)?.toInt() ?: 0,
                     failed = (s["failed"] as? Number)?.toInt() ?: 0,
                     diceValues = dice,
-                    note = (s["note"] as? String) ?: ""
+                    note = (s["note"] as? String) ?: "",
+                    rerolls = rerolls
                 )
             }
             val facRaw = (m["faction"] as? String) ?: Faction.MARINES.name

@@ -1358,6 +1358,9 @@ private fun UnitStatusCard(
                     if (unit.honourOfUltramarPendingRemoval) {
                         StatPill("HONOUR", "LAST STAND", WarmAmber)
                     }
+                    if (TacticalRules.unitHasBladeguardReroll(unit, allUnits)) {
+                        StatPill("SHIELDS", "AUTO RR 1s", TacticalCyan)
+                    }
                     if (unit.inheritedPassiveIds.isNotEmpty()) {
                         StatPill("INHERITED", "${unit.inheritedPassiveIds.size} PASSIVE", EmeraldBuff)
                     }
@@ -1488,6 +1491,32 @@ private fun UnitStatusCard(
                                 .padding(horizontal = 5.dp, vertical = 1.dp)
                         )
                     }
+                    if (unit.template.mainMelta > 0) {
+                        val tagShape = remember { CutCornerShape(3.dp) }
+                        Text(
+                            text = "MELTA ${unit.template.mainMelta}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = CrimsonSoft,
+                            modifier = Modifier
+                                .clip(tagShape)
+                                .background(CrimsonSurface)
+                                .border(0.8.dp, CrimsonSoft.copy(alpha = 0.65f), tagShape)
+                                .padding(horizontal = 5.dp, vertical = 1.dp)
+                        )
+                    }
+                    if (unit.template.mainAntiFly in 2..6) {
+                        val tagShape = remember { CutCornerShape(3.dp) }
+                        Text(
+                            text = "ANTI-FLY ${unit.template.mainAntiFly}+",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = TacticalCyan,
+                            modifier = Modifier
+                                .clip(tagShape)
+                                .background(InputDark)
+                                .border(0.8.dp, TacticalCyan.copy(alpha = 0.65f), tagShape)
+                                .padding(horizontal = 5.dp, vertical = 1.dp)
+                        )
+                    }
                     if (!unit.template.isRangedMain && unit.template.meleeAntiNonMonsterVehicle in 2..6) {
                         val tagShape = remember { CutCornerShape(3.dp) }
                         Text(
@@ -1551,6 +1580,19 @@ private fun UnitStatusCard(
                                     .clip(tagShape)
                                     .background(InputDark)
                                     .border(0.8.dp, WarmAmber.copy(alpha = 0.65f), tagShape)
+                                    .padding(horizontal = 5.dp, vertical = 1.dp)
+                            )
+                        }
+                        if (unit.template.effectiveMeleeTwinLinked) {
+                            val tagShape = remember { CutCornerShape(3.dp) }
+                            Text(
+                                text = "TWIN-LINKED",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = ImperialGold,
+                                modifier = Modifier
+                                    .clip(tagShape)
+                                    .background(InputDark)
+                                    .border(0.8.dp, ImperialGold.copy(alpha = 0.65f), tagShape)
                                     .padding(horizontal = 5.dp, vertical = 1.dp)
                             )
                         }
@@ -2304,7 +2346,8 @@ private fun ActionDock(
 
             if (selected != null &&
                 selected.template.archetype != UnitArchetype.BRUTALIS_DREADNOUGHT &&
-                selected.template.archetype != UnitArchetype.DEATH_COMPANY_ASSAULT_INTERCESSOR
+                selected.template.archetype != UnitArchetype.DEATH_COMPANY_ASSAULT_INTERCESSOR &&
+                selected.template.archetype != UnitArchetype.BLADEGUARD
             ) {
                 val isTerminator = selected.template.archetype == UnitArchetype.TERMINATOR || selected.template.archetype == UnitArchetype.CHAOS_TERMINATOR
                 val isBiovore = selected.template.archetype == UnitArchetype.BIOVORE
@@ -2385,7 +2428,8 @@ private fun ActionDock(
                         testTag = "leader_skill_button"
                     )
                 } else if (attachedPartner.template.archetype != UnitArchetype.BRUTALIS_DREADNOUGHT &&
-                    attachedPartner.template.archetype != UnitArchetype.DEATH_COMPANY_ASSAULT_INTERCESSOR
+                    attachedPartner.template.archetype != UnitArchetype.DEATH_COMPANY_ASSAULT_INTERCESSOR &&
+                    attachedPartner.template.archetype != UnitArchetype.BLADEGUARD
                 ) {
                     ActionDockButton(
                         title = attachedPartner.template.skillName.take(8),
@@ -2524,13 +2568,11 @@ private fun TurnSplashCard(splash: TurnSplashData, onClick: () -> Unit) {
             HorizontalDivider(color = DividerIron, modifier = Modifier.padding(vertical = 6.dp))
             val pShort = when (splash.playerFaction) {
                 Faction.MARINES -> "MARINES"
-                Faction.ALLIANCE_IMPERIUM -> "IMPERIUM"
                 Faction.BLACK_LEGION -> "LEGION"
                 Faction.XENOS -> "TYRANIDS"
             }
             val eShort = when (splash.enemyFaction) {
                 Faction.MARINES -> "MARINES"
-                Faction.ALLIANCE_IMPERIUM -> "IMPERIUM"
                 Faction.BLACK_LEGION -> "LEGION"
                 Faction.XENOS -> "TYRANIDS"
             }

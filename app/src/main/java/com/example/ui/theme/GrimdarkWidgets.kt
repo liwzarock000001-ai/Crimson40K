@@ -187,6 +187,7 @@ fun TabletopCategoryBadge(
         UnitRoleCategory.BATTLELINE -> Triple(TacticalCyan, Color(0x2838BDF8), TacticalCyan.copy(alpha = 0.8f))
         UnitRoleCategory.INFANTRY -> Triple(EmeraldBuff, Color(0x2434D399), EmeraldBuff.copy(alpha = 0.7f))
         UnitRoleCategory.VEHICLE_MONSTER -> Triple(WarmAmber, Color(0x2ECA8A04), WarmAmber.copy(alpha = 0.8f))
+        UnitRoleCategory.ALLIANCE_IMPERIUM -> Triple(CrimsonBright, Color(0x33DC2626), CrimsonBright.copy(alpha = 0.85f))
         UnitRoleCategory.ALL -> Triple(TextMuted, InputDark, DividerIron)
     }
 

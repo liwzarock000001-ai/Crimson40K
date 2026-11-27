@@ -426,7 +426,6 @@ private fun SetupHeader(
                             }
                             val shortName = when (faction) {
                                 Faction.MARINES -> "MARINES"
-                                Faction.ALLIANCE_IMPERIUM -> "IMPERIUM"
                                 Faction.BLACK_LEGION -> "BLACK LEGION"
                                 Faction.XENOS -> "TYRANIDS"
                             }
@@ -566,7 +565,6 @@ private fun FactionSetupCard(
     }
     val crestRes = when (faction) {
         Faction.MARINES -> R.drawable.img_marine_crest
-        Faction.ALLIANCE_IMPERIUM -> R.drawable.ic_imperium_crest
         Faction.BLACK_LEGION -> R.drawable.img_black_legion_crest
         Faction.XENOS -> R.drawable.img_xenos_crest
     }
@@ -717,7 +715,6 @@ private fun FactionSetupCard(
             Text(
                 text = when (faction) {
                     Faction.MARINES -> "DEPLOYED STRIKE FORCE (${roster.size})"
-                    Faction.ALLIANCE_IMPERIUM -> "DEPLOYED ALLIANCE IMPERIUM (${roster.size})"
                     Faction.BLACK_LEGION -> "DEPLOYED WARBAND (${roster.size})"
                     Faction.XENOS -> "DEPLOYED TYRANIDS (${roster.size})"
                 },
@@ -760,7 +757,6 @@ private fun FactionSetupCard(
             Text(
                 text = when (faction) {
                     Faction.MARINES -> "ARMORY REINFORCEMENTS • ED11 DATASHEETS"
-                    Faction.ALLIANCE_IMPERIUM -> "IMPERIAL ALLIANCE • ED11 DATASHEETS"
                     Faction.BLACK_LEGION -> "WARP-FORGED REINFORCEMENTS • ED11 DATASHEETS"
                     Faction.XENOS -> "TYRANID BIO-STRAINS • ED11 DATASHEETS"
                 },
@@ -1132,7 +1128,6 @@ private fun SetupFooter(
                 Text(
                     text = when (state.playerFaction) {
                         Faction.MARINES -> "ULTRAMARINES COGITATOR READY • DEPLOY STRIKE FORCE"
-                        Faction.ALLIANCE_IMPERIUM -> "ALLIANCE IMPERIUM DEPLOYED • FOR SANGUINIUS & THE EMPEROR"
                         Faction.BLACK_LEGION -> "BLACK LEGION WARBAND ARMED • LET THE GALAXY BURN"
                         Faction.XENOS -> "HIVE SYNAPSE LINK ARMED • UNLEASH THE TYRANIDS"
                     },

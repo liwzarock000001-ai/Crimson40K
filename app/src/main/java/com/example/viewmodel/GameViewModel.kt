@@ -76,7 +76,6 @@ data class SetupUiState(
     val pointLimit: Int = 2000,
     val templates: Map<String, UnitTemplate> = DefaultCatalog.defaultTemplates.associateBy { it.id },
     val marineRoster: List<RosterSlot> = DefaultCatalog.defaultMarineRoster(),
-    val allianceImperiumRoster: List<RosterSlot> = DefaultCatalog.defaultAllianceImperiumRoster(),
     val blackLegionRoster: List<RosterSlot> = DefaultCatalog.defaultBlackLegionRoster(),
     val xenosRoster: List<RosterSlot> = DefaultCatalog.defaultXenosRoster(),
     val editingTemplateId: String? = null,
@@ -85,21 +84,17 @@ data class SetupUiState(
 ) {
     val marinePoints: Int
         get() = marineRoster.sumOf { templates[it.templateId]?.points ?: 0 }
-    val allianceImperiumPoints: Int
-        get() = allianceImperiumRoster.sumOf { templates[it.templateId]?.points ?: 0 }
     val blackLegionPoints: Int
         get() = blackLegionRoster.sumOf { templates[it.templateId]?.points ?: 0 }
     val xenosPoints: Int
         get() = xenosRoster.sumOf { templates[it.templateId]?.points ?: 0 }
     fun rosterFor(faction: Faction): List<RosterSlot> = when (faction) {
         Faction.MARINES -> marineRoster
-        Faction.ALLIANCE_IMPERIUM -> allianceImperiumRoster
         Faction.BLACK_LEGION -> blackLegionRoster
         Faction.XENOS -> xenosRoster
     }
     fun pointsFor(faction: Faction): Int = when (faction) {
         Faction.MARINES -> marinePoints
-        Faction.ALLIANCE_IMPERIUM -> allianceImperiumPoints
         Faction.BLACK_LEGION -> blackLegionPoints
         Faction.XENOS -> xenosPoints
     }
@@ -381,7 +376,6 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     ?: if (faction == Faction.MARINES) Faction.BLACK_LEGION else Faction.MARINES
                 val templates = DefaultCatalog.deserializeTemplates(saved.customTemplatesJson)
                 val marines = DefaultCatalog.deserializeRoster(saved.marineRosterJson, DefaultCatalog.defaultMarineRoster())
-                val allianceImperium = DefaultCatalog.deserializeRoster(saved.allianceImperiumRosterJson, DefaultCatalog.defaultAllianceImperiumRoster())
                 val blackLegion = DefaultCatalog.deserializeRoster(saved.blackLegionRosterJson, DefaultCatalog.defaultBlackLegionRoster())
                 val xenos = DefaultCatalog.deserializeRoster(saved.xenosRosterJson, DefaultCatalog.defaultXenosRoster())
                 _setupState.update {
@@ -391,7 +385,6 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                         pointLimit = saved.pointLimit.coerceIn(1000, 5000),
                         templates = templates,
                         marineRoster = marines,
-                        allianceImperiumRoster = allianceImperium,
                         blackLegionRoster = blackLegion,
                         xenosRoster = xenos,
                         statusMessage = "Loaded saved Skirmish roster.",
@@ -643,7 +636,6 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 val others = state.assignedUnits.filterNot { it.ownerPlayerId == playerId }
                 val starterIds = when (faction) {
                     Faction.MARINES -> listOf("intercessors", "hellblasters")
-                    Faction.ALLIANCE_IMPERIUM -> listOf("death_company_assault_intercessor", "death_company_assault_intercessor")
                     Faction.BLACK_LEGION -> listOf("legionaries", "legionaries")
                     Faction.XENOS -> listOf("warriors", "termagants")
                 }
@@ -698,7 +690,6 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             val updatedUnits = if (nextMode == CoopSlotMode.AI_BOT && !hasUnits) {
                 val starterIds = when (targetPlayer.faction) {
                     Faction.MARINES -> listOf("intercessors", "hellblasters")
-                    Faction.ALLIANCE_IMPERIUM -> listOf("death_company_assault_intercessor", "death_company_assault_intercessor")
                     Faction.BLACK_LEGION -> listOf("legionaries", "legionaries")
                     Faction.XENOS -> listOf("warriors", "termagants")
                 }
@@ -898,14 +889,13 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         }?.faction ?: Faction.MARINES
         if (!team1HasUnits && coop.spawnAiEnemyIfSameFaction) {
             val aiFaction = when (team0PrimaryFaction) {
-                Faction.MARINES, Faction.ALLIANCE_IMPERIUM -> Faction.XENOS
+                Faction.MARINES -> Faction.XENOS
                 Faction.BLACK_LEGION, Faction.XENOS -> Faction.MARINES
             }
             val aiTemplateIds = when (aiFaction) {
                 Faction.XENOS -> listOf("carnifex", "warriors", "von_ryans_leaper", "termagants", "hormagaunts")
                 Faction.BLACK_LEGION -> listOf("legionaries", "legionaries", "legionaries")
-                Faction.ALLIANCE_IMPERIUM -> listOf("death_company_assault_intercessor", "death_company_assault_intercessor")
-                Faction.MARINES -> listOf("captain", "dreadnought", "terminators", "bladeguard_veterans", "hellblasters", "intercessors", "assault_intercessors")
+                Faction.MARINES -> listOf("captain", "dreadnought", "terminators", "bladeguard_veterans", "hellblasters", "intercessors", "assault_intercessors", "death_company_assault_intercessor")
             }
             for (tid in aiTemplateIds) {
                 val tpl = templates[tid] ?: continue
@@ -1245,7 +1235,6 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     ?: if (faction == Faction.MARINES) Faction.BLACK_LEGION else Faction.MARINES
                 val templates = DefaultCatalog.deserializeTemplates(saved.customTemplatesJson)
                 val marines = DefaultCatalog.deserializeRoster(saved.marineRosterJson, DefaultCatalog.defaultMarineRoster())
-                val allianceImperium = DefaultCatalog.deserializeRoster(saved.allianceImperiumRosterJson, DefaultCatalog.defaultAllianceImperiumRoster())
                 val blackLegion = DefaultCatalog.deserializeRoster(saved.blackLegionRosterJson, DefaultCatalog.defaultBlackLegionRoster())
                 val xenos = DefaultCatalog.deserializeRoster(saved.xenosRosterJson, DefaultCatalog.defaultXenosRoster())
                 _setupState.update {
@@ -1255,7 +1244,6 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                         pointLimit = saved.pointLimit.coerceIn(1000, 5000),
                         templates = templates,
                         marineRoster = marines,
-                        allianceImperiumRoster = allianceImperium,
                         blackLegionRoster = blackLegion,
                         xenosRoster = xenos
                     )
@@ -1325,7 +1313,6 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             val slot = RosterSlot("slot_${nextIdCounter++}", templateId)
             when (faction) {
                 Faction.MARINES -> state.copy(marineRoster = state.marineRoster + slot, statusMessage = null, statusIsError = false)
-                Faction.ALLIANCE_IMPERIUM -> state.copy(allianceImperiumRoster = state.allianceImperiumRoster + slot, statusMessage = null, statusIsError = false)
                 Faction.BLACK_LEGION -> state.copy(blackLegionRoster = state.blackLegionRoster + slot, statusMessage = null, statusIsError = false)
                 Faction.XENOS -> state.copy(xenosRoster = state.xenosRoster + slot, statusMessage = null, statusIsError = false)
             }
@@ -1341,7 +1328,6 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         _setupState.update { state ->
             when (faction) {
                 Faction.MARINES -> state.copy(marineRoster = state.marineRoster.filterNot { it.slotId == slotId }, statusMessage = null, statusIsError = false)
-                Faction.ALLIANCE_IMPERIUM -> state.copy(allianceImperiumRoster = state.allianceImperiumRoster.filterNot { it.slotId == slotId }, statusMessage = null, statusIsError = false)
                 Faction.BLACK_LEGION -> state.copy(blackLegionRoster = state.blackLegionRoster.filterNot { it.slotId == slotId }, statusMessage = null, statusIsError = false)
                 Faction.XENOS -> state.copy(xenosRoster = state.xenosRoster.filterNot { it.slotId == slotId }, statusMessage = null, statusIsError = false)
             }
@@ -1376,7 +1362,6 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             }
             when (faction) {
                 Faction.MARINES -> state.copy(marineRoster = chosen, statusMessage = "Randomized Ultramarines ($spent pts)", statusIsError = false)
-                Faction.ALLIANCE_IMPERIUM -> state.copy(allianceImperiumRoster = chosen, statusMessage = "Randomized Alliance Imperium ($spent pts)", statusIsError = false)
                 Faction.BLACK_LEGION -> state.copy(blackLegionRoster = chosen, statusMessage = "Randomized Black Legion ($spent pts)", statusIsError = false)
                 Faction.XENOS -> state.copy(xenosRoster = chosen, statusMessage = "Randomized Tyranids ($spent pts)", statusIsError = false)
             }
@@ -1413,7 +1398,6 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     enemyFaction = s.enemyFaction.name,
                     pointLimit = s.pointLimit,
                     marineRosterJson = DefaultCatalog.serializeRoster(s.marineRoster),
-                    allianceImperiumRosterJson = DefaultCatalog.serializeRoster(s.allianceImperiumRoster),
                     blackLegionRosterJson = DefaultCatalog.serializeRoster(s.blackLegionRoster),
                     xenosRosterJson = DefaultCatalog.serializeRoster(s.xenosRoster),
                     customTemplatesJson = DefaultCatalog.serializeTemplates(s.templates)
@@ -1434,7 +1418,6 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     enemyFaction = s.enemyFaction.name,
                     pointLimit = s.pointLimit,
                     marineRosterJson = DefaultCatalog.serializeRoster(s.marineRoster),
-                    allianceImperiumRosterJson = DefaultCatalog.serializeRoster(s.allianceImperiumRoster),
                     blackLegionRosterJson = DefaultCatalog.serializeRoster(s.blackLegionRoster),
                     xenosRosterJson = DefaultCatalog.serializeRoster(s.xenosRoster),
                     customTemplatesJson = DefaultCatalog.serializeTemplates(s.templates)
@@ -3083,8 +3066,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
         val projColor = when {
             attacker.faction == Faction.MARINES && (mode == WeaponMode.SKILL || attacker.template.archetype == UnitArchetype.HELLBLASTER) -> 0xFF32C5FFL
+            attacker.template.archetype == UnitArchetype.DEATH_COMPANY_ASSAULT_INTERCESSOR -> 0xFFE04854L
             attacker.faction == Faction.MARINES -> 0xFFFFD166L
-            attacker.faction == Faction.ALLIANCE_IMPERIUM -> 0xFFE04854L
             attacker.faction == Faction.BLACK_LEGION && mode == WeaponMode.SKILL -> 0xFFFF9E2CL
             attacker.faction == Faction.BLACK_LEGION -> 0xFFE6A832L
             else -> 0xFFC77DFFL
@@ -3230,11 +3213,11 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     )
                     if (counterOutcome != null) {
                         val counterNow = System.currentTimeMillis()
-                        val counterProjColor = when (liveDefender.faction) {
-                            Faction.MARINES -> 0xFFFFD166L
-                            Faction.ALLIANCE_IMPERIUM -> 0xFFE04854L
-                            Faction.BLACK_LEGION -> 0xFFE6A832L
-                            Faction.XENOS -> 0xFFC77DFFL
+                        val counterProjColor = when {
+                            liveDefender.template.archetype == UnitArchetype.DEATH_COMPANY_ASSAULT_INTERCESSOR -> 0xFFE04854L
+                            liveDefender.faction == Faction.MARINES -> 0xFFFFD166L
+                            liveDefender.faction == Faction.BLACK_LEGION -> 0xFFE6A832L
+                            else -> 0xFFC77DFFL
                         }
                         val counterProj = ProjectileVfx(
                             id = nextIdCounter++,
@@ -3359,6 +3342,10 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 spawnFloatingText(selected.pos, "HONOUR OF ULTRAMAR: AUTO (2+ IN FIGHT)", 0xFFFFD166L)
                 return
             }
+            if (selected.template.archetype == UnitArchetype.BLADEGUARD) {
+                spawnFloatingText(selected.pos, "SWORDS & SHIELDS: AUTO (REROLL 1s)", 0xFF4CC9F0L)
+                return
+            }
             if (selected.template.archetype == UnitArchetype.SPORE_MINE) {
                 val adjEnemy = state.units.firstOrNull {
                     it.isAlive && selected.isEnemyOf(it) && TacticalRules.isWithinMeleeReach(selected, it)
@@ -3460,6 +3447,11 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             val syncedMove = minOf(hero.moveCmLeft, squad.moveCmLeft)
             val syncedAdv = hero.hasAdvanced || squad.hasAdvanced
             val syncedCharged = hero.hasCharged || squad.hasCharged
+            val sharedFnp = hero.hasFeelNoPain ||
+                hero.template.feelNoPainTarget != null ||
+                hero.isHeroLeader ||
+                squad.hasFeelNoPain ||
+                squad.template.feelNoPainTarget != null
             val updatedHero = hero.copy(
                 isHero = true,
                 bodyguardUid = squad.uid,
@@ -3472,14 +3464,14 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 moveCmLeft = syncedMove,
                 hasAdvanced = syncedAdv,
                 hasCharged = syncedCharged,
-                hasFeelNoPain = true
+                hasFeelNoPain = sharedFnp
             )
             val updatedSquad = squad.copy(
                 attachedLeaderUid = hero.uid,
                 moveCmLeft = syncedMove,
                 hasAdvanced = syncedAdv,
                 hasCharged = syncedCharged,
-                hasFeelNoPain = true
+                hasFeelNoPain = sharedFnp
             )
             units[heroIdx] = updatedHero
             units[squadIdx] = updatedSquad
@@ -4008,7 +4000,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun refreshFactionForNewTurn(units: List<BattleUnit>, faction: Faction): List<BattleUnit> {
         val incomingTeam = units.firstOrNull { it.faction == faction && it.isAlive }?.effectiveTeam
-            ?: if (faction == Faction.MARINES || faction == Faction.ALLIANCE_IMPERIUM) 0 else 1
+            ?: if (faction == Faction.MARINES) 0 else 1
         return units.map { u ->
             if (!u.isAlive) u
             else {

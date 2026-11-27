@@ -291,16 +291,16 @@ fun Battlefield3DView(
                     isSelected -> Color(0xFFFFB5B5)
                     st.isCoopMode && isTeam0 -> Color(0xFF3A8FD6)
                     st.isCoopMode -> Color(0xFFC9444C)
+                    unit.template.archetype == UnitArchetype.DEATH_COMPANY_ASSAULT_INTERCESSOR -> Color(0xFFB33942)
                     unit.faction == Faction.MARINES -> Color(0xFF345B91)
-                    unit.faction == Faction.ALLIANCE_IMPERIUM -> Color(0xFFB33942)
                     unit.faction == Faction.BLACK_LEGION -> Color(0xFFB38E46)
                     else -> Color(0xFF6B3680)
                 }
                 val fillCol = when {
                     st.isCoopMode && isTeam0 -> Color(0xFF3A8FD6)
                     st.isCoopMode -> Color(0xFFC9444C)
+                    unit.template.archetype == UnitArchetype.DEATH_COMPANY_ASSAULT_INTERCESSOR -> Color(0xFFC93D47)
                     unit.faction == Faction.MARINES -> Color(0xFF3B669E)
-                    unit.faction == Faction.ALLIANCE_IMPERIUM -> Color(0xFFC93D47)
                     unit.faction == Faction.BLACK_LEGION -> Color(0xFFC99E44)
                     else -> Color(0xFF7D4394)
                 }

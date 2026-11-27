@@ -1004,13 +1004,12 @@ private fun PlayerSlotsPane(
                 item {
                     val team1Primary = team1Players.firstOrNull { it.isActive }?.faction ?: Faction.MARINES
                     val aiFaction = when (team1Primary) {
-                        Faction.MARINES, Faction.ALLIANCE_IMPERIUM -> Faction.XENOS
+                        Faction.MARINES -> Faction.XENOS
                         Faction.BLACK_LEGION, Faction.XENOS -> Faction.MARINES
                     }
                     if (!team2HasUnits) {
                         val aiCrestRes = when (aiFaction) {
                             Faction.MARINES -> R.drawable.img_marine_crest
-                            Faction.ALLIANCE_IMPERIUM -> R.drawable.ic_imperium_crest
                             Faction.BLACK_LEGION -> R.drawable.img_black_legion_crest
                             Faction.XENOS -> R.drawable.img_xenos_crest
                         }
@@ -1138,7 +1137,6 @@ private fun Dow3PlayerSlotCard(
     val factionText = pal.badgeText
     val crestRes = when (player.faction) {
         Faction.MARINES -> R.drawable.img_marine_crest
-        Faction.ALLIANCE_IMPERIUM -> R.drawable.ic_imperium_crest
         Faction.BLACK_LEGION -> R.drawable.img_black_legion_crest
         Faction.XENOS -> R.drawable.img_xenos_crest
     }
@@ -1288,7 +1286,6 @@ private fun Dow3PlayerSlotCard(
                 Text(
                     text = when (player.faction) {
                         Faction.MARINES -> "MARINES"
-                        Faction.ALLIANCE_IMPERIUM -> "IMPERIUM"
                         Faction.BLACK_LEGION -> "BLACK LEGION"
                         Faction.XENOS -> "TYRANIDS"
                     },
@@ -1365,7 +1362,6 @@ private fun CommanderLoadoutPane(
     val accent = factionPalette(player.faction).primaryAccent
     val crestRes = when (player.faction) {
         Faction.MARINES -> R.drawable.img_marine_crest
-        Faction.ALLIANCE_IMPERIUM -> R.drawable.ic_imperium_crest
         Faction.BLACK_LEGION -> R.drawable.img_black_legion_crest
         Faction.XENOS -> R.drawable.img_xenos_crest
     }
@@ -1947,7 +1943,6 @@ private fun AllFactionStatsDialog(
                 ) {
                     StatsFilterChip("ALL", filterFaction == null, ImperialGold, { filterFaction = null }, Modifier.widthIn(min = 52.dp))
                     StatsFilterChip("MARINES", filterFaction == Faction.MARINES, MarineBright, { filterFaction = Faction.MARINES }, Modifier.widthIn(min = 72.dp))
-                    StatsFilterChip("IMPERIUM", filterFaction == Faction.ALLIANCE_IMPERIUM, CrimsonBright, { filterFaction = Faction.ALLIANCE_IMPERIUM }, Modifier.widthIn(min = 76.dp))
                     StatsFilterChip("BLACK LEGION", filterFaction == Faction.BLACK_LEGION, ImperialGold, { filterFaction = Faction.BLACK_LEGION }, Modifier.widthIn(min = 96.dp))
                     StatsFilterChip("TYRANIDS", filterFaction == Faction.XENOS, XenosViolet, { filterFaction = Faction.XENOS }, Modifier.widthIn(min = 76.dp))
                 }

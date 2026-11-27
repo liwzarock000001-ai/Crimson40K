@@ -511,7 +511,7 @@ fun StatEditDialog(
                                 val commonMove = moveCm.toIntOrNull()?.coerceIn(3, 45) ?: template.moveCm
                                 val commonLd = leadership.toIntOrNull()?.coerceIn(4, 10) ?: template.leadership
                                 val commonOc = objectiveControl.toIntOrNull()?.coerceIn(0, 8) ?: template.objectiveControl
-                                val commonCd = skillCooldown.toIntOrNull()?.coerceIn(1, 8) ?: template.skillCooldown
+                                val commonCd = skillCooldown.toIntOrNull()?.coerceIn(0, 8) ?: template.skillCooldown
                                 val savedPistolA = pistolAttacks.toIntOrNull()?.coerceIn(1, 10) ?: template.pistolAttacks
                                 val savedPistolD = pistolDamage.toIntOrNull()?.coerceIn(0, 200) ?: template.pistolDamage
                                 val savedPistolS = pistolStrength.toIntOrNull()?.coerceIn(1, 20) ?: template.pistolStrength
@@ -560,7 +560,8 @@ fun StatEditDialog(
                                             strength = wMeleeS.toIntOrNull()?.coerceIn(1, 20) ?: initWarriorMelee.strength,
                                             armorPen = wMeleeAp.toIntOrNull()?.coerceIn(0, 5) ?: initWarriorMelee.armorPen,
                                             damage = wMeleeD.toIntOrNull()?.coerceIn(1, 500) ?: initWarriorMelee.damage,
-                                            sustainedHits = wMeleeSus.toIntOrNull()?.coerceIn(0, 6) ?: initWarriorMelee.sustainedHits
+                                            sustainedHits = wMeleeSus.toIntOrNull()?.coerceIn(0, 6) ?: initWarriorMelee.sustainedHits,
+                                            twinLinked = initWarriorMelee.twinLinked
                                         )
                                         val savedRanged = WeaponProfile(
                                             name = initWarriorRanged.name,
@@ -572,7 +573,8 @@ fun StatEditDialog(
                                             damage = wRngD.toIntOrNull()?.coerceIn(1, 500) ?: initWarriorRanged.damage,
                                             sustainedHits = wRngSus.toIntOrNull()?.coerceIn(0, 6) ?: initWarriorRanged.sustainedHits,
                                             assault = wRngAssault,
-                                            pistol = wRngPistol
+                                            pistol = wRngPistol,
+                                            twinLinked = initWarriorRanged.twinLinked
                                         )
                                         val active = if (weaponChoice == WarriorWeaponChoice.BONESWORDS) savedMelee else savedRanged
                                         baseSaved.copy(
@@ -588,6 +590,7 @@ fun StatEditDialog(
                                             mainWeaponAssault = active.assault,
                                             mainWeaponPistol = active.pistol,
                                             mainSustainedHits = active.sustainedHits,
+                                            mainTwinLinked = active.twinLinked,
                                             meleeWeaponName = savedMelee.name,
                                             meleeAttacks = savedMelee.attacksPerModel,
                                             meleeWeaponSkill = savedMelee.skill,
@@ -595,6 +598,7 @@ fun StatEditDialog(
                                             meleeArmorPen = savedMelee.armorPen,
                                             meleeDamage = savedMelee.damage,
                                             meleeSustainedHits = savedMelee.sustainedHits,
+                                            meleeTwinLinked = savedMelee.twinLinked,
                                             warriorMeleeProfile = savedMelee,
                                             warriorRangedProfile = savedRanged
                                         )
@@ -609,7 +613,8 @@ fun StatEditDialog(
                                             strength = tHamS.toIntOrNull()?.coerceIn(1, 20) ?: initTermHammer.strength,
                                             armorPen = tHamAp.toIntOrNull()?.coerceIn(0, 5) ?: initTermHammer.armorPen,
                                             damage = tHamD.toIntOrNull()?.coerceIn(1, 500) ?: initTermHammer.damage,
-                                            sustainedHits = tHamSus.toIntOrNull()?.coerceIn(0, 6) ?: initTermHammer.sustainedHits
+                                            sustainedHits = tHamSus.toIntOrNull()?.coerceIn(0, 6) ?: initTermHammer.sustainedHits,
+                                            twinLinked = initTermHammer.twinLinked
                                         )
                                         val savedClaws = WeaponProfile(
                                             name = "Twin Lightning Claws",
@@ -619,7 +624,8 @@ fun StatEditDialog(
                                             strength = tClawS.toIntOrNull()?.coerceIn(1, 20) ?: initTermClaws.strength,
                                             armorPen = tClawAp.toIntOrNull()?.coerceIn(0, 5) ?: initTermClaws.armorPen,
                                             damage = tClawD.toIntOrNull()?.coerceIn(1, 500) ?: initTermClaws.damage,
-                                            sustainedHits = tClawSus.toIntOrNull()?.coerceIn(0, 6) ?: initTermClaws.sustainedHits
+                                            sustainedHits = tClawSus.toIntOrNull()?.coerceIn(0, 6) ?: initTermClaws.sustainedHits,
+                                            twinLinked = initTermClaws.twinLinked
                                         )
                                         val active = if (terminatorWeapon == TerminatorWeaponChoice.THUNDER_HAMMER_SHIELD) savedHammer else savedClaws
                                         baseSaved.copy(
@@ -634,6 +640,7 @@ fun StatEditDialog(
                                             mainWeaponAssault = false,
                                             mainWeaponPistol = false,
                                             mainSustainedHits = active.sustainedHits,
+                                            mainTwinLinked = active.twinLinked,
                                             terminatorHammerProfile = savedHammer,
                                             terminatorClawsProfile = savedClaws
                                         )

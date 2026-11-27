@@ -11,7 +11,7 @@ import org.json.JSONObject
 
 object DefaultCatalog {
 
-    const val CATALOG_EDITION = 15
+    const val CATALOG_EDITION = 18
 
     val defaultTemplates: List<UnitTemplate> = listOf(
         // --- ULTRAMARINES (Warhammer 40,000 11th Edition) ---
@@ -205,11 +205,12 @@ object DefaultCatalog {
             weaponSkill = 3,
             leadership = 6,
             objectiveControl = 1,
-            skillName = "Swords & Shields",
-            skillDesc = "Active for this turn: Re-roll Hit rolls of 1 and Saving Throw rolls of 1 (including vs Enemy Counter-Attacks). Cooldown: 1 Turn.",
-            skillCooldown = 1,
-            passiveName = "Storm Shield • 4++ Invuln",
-            passiveDesc = "Relic Storm Shield grants a 4++ Invulnerable Save. 3W, T4, 4A WS3+ S5 AP-2 D2 Master-crafted Power Weapons & Heavy Bolt Pistol.",
+            baseDiameterMm = 40,
+            skillName = "Swords & Shields (Auto)",
+            skillDesc = "Auto Passive (Always active, with or without Leader): Always re-rolls Hit rolls of 1 and Saving Throw rolls of 1 (including vs Enemy Counter-Attacks).",
+            skillCooldown = 0,
+            passiveName = "Storm Shield • 4++ • Auto Reroll 1s",
+            passiveDesc = "Auto Passive: Always re-rolls Hit rolls of 1 and Saving Throw rolls of 1 (with or without attached Leader), plus Relic Storm Shield 4++ Invulnerable Save. 3W, T4, 4A WS3+ S5 AP-2 D2 Master-crafted Power Weapons & Heavy Bolt Pistol.",
             mainWeaponName = "Master-crafted Power Weapon",
             mainWeaponAssault = false,
             pistolWeaponName = "Heavy Bolt Pistol",
@@ -242,6 +243,7 @@ object DefaultCatalog {
             weaponSkill = 2,
             leadership = 5,
             objectiveControl = 2,
+            baseDiameterMm = 40,
             isHero = true,
             feelNoPainTarget = 5,
             skillName = "Honour of Ultramar (Auto)",
@@ -293,6 +295,7 @@ object DefaultCatalog {
             weaponSkill = 3,
             leadership = 6,
             objectiveControl = 1,
+            baseDiameterMm = 40,
             skillName = "Teleport Strike",
             skillDesc = "Teleports anywhere on the battlefield (> 8 cm from enemies) via Teleport Beacon & Warp Strike.",
             skillCooldown = 4,
@@ -320,7 +323,8 @@ object DefaultCatalog {
                 strength = 5,
                 armorPen = 2,
                 damage = 1,
-                sustainedHits = 0
+                sustainedHits = 0,
+                twinLinked = true
             )
         ),
         UnitTemplate(
@@ -418,13 +422,13 @@ object DefaultCatalog {
             )
         ),
 
-        // --- ALLIANCE IMPERIUM ---
+        // --- ALLIANCE IMPERIUM (Ultramarines Allied Reinforcement) ---
         UnitTemplate(
             id = "death_company_assault_intercessor",
             name = "Death Company Assault Intercessor",
-            faction = Faction.ALLIANCE_IMPERIUM,
+            faction = Faction.MARINES,
             archetype = UnitArchetype.DEATH_COMPANY_ASSAULT_INTERCESSOR,
-            role = "Death Company Infantry",
+            role = "Alliance Imperium • Death Company Infantry",
             points = 125,
             squadSize = 5,
             woundsPerModel = 2,
@@ -573,6 +577,7 @@ object DefaultCatalog {
             weaponSkill = 4,
             leadership = 8,
             objectiveControl = 2,
+            baseDiameterMm = 28,
             skillName = "Acidic Salvo",
             skillDesc = "High-volume fleshborer barrage (+1 attack per model).",
             skillCooldown = 2,
@@ -610,6 +615,7 @@ object DefaultCatalog {
             weaponSkill = 4,
             leadership = 8,
             objectiveControl = 2,
+            baseDiameterMm = 28,
             skillName = "Bounding Leap",
             skillDesc = "Surges +9 cm Move & empowers Hormagaunt talons (+1 Hit & +1 Dmg).",
             skillCooldown = 2,
@@ -641,6 +647,7 @@ object DefaultCatalog {
             weaponSkill = 3,
             leadership = 7,
             objectiveControl = 2,
+            baseDiameterMm = 50,
             skillName = "Adrenal Frenzy",
             skillDesc = "Synapse surge: +1 to Hit & +1 Dmg for 2 turns + immediate strike.",
             skillCooldown = 2,
@@ -649,12 +656,14 @@ object DefaultCatalog {
             weaponChoice = WarriorWeaponChoice.BONESWORDS,
             mainWeaponName = "Tyranid Warrior Claws & Talons",
             mainWeaponAssault = false,
+            mainTwinLinked = true,
             meleeWeaponName = "Tyranid Warrior Claws & Talons",
             meleeAttacks = 6,
             meleeWeaponSkill = 3,
             meleeStrength = 5,
             meleeArmorPen = 2,
             meleeDamage = 1,
+            meleeTwinLinked = true,
             pistolDamage = 0,
             warriorMeleeProfile = com.example.model.WeaponProfile(
                 name = "Tyranid Warrior Claws & Talons",
@@ -664,7 +673,8 @@ object DefaultCatalog {
                 strength = 5,
                 armorPen = 2,
                 damage = 1,
-                sustainedHits = 0
+                sustainedHits = 0,
+                twinLinked = true
             ),
             warriorRangedProfile = com.example.model.WeaponProfile(
                 name = "Deathspitter",
@@ -700,6 +710,7 @@ object DefaultCatalog {
             weaponSkill = 4,
             leadership = 8,
             objectiveControl = 3,
+            baseDiameterMm = 105,
             skillName = "Bio-Plasma Blast",
             skillDesc = "Spews S7 AP-2 D1 bio-plasma up to 12\" (Range 3) in an AoE splash.",
             skillCooldown = 3,
@@ -768,6 +779,7 @@ object DefaultCatalog {
             weaponSkill = 3,
             leadership = 8,
             objectiveControl = 1,
+            baseDiameterMm = 40,
             skillName = "Chameleonic Cloak",
             skillDesc = "Cloaks the unit in stealth (invisible/untargetable for 1 turn).",
             skillCooldown = 3,
@@ -799,6 +811,7 @@ object DefaultCatalog {
             weaponSkill = 5,
             leadership = 8,
             objectiveControl = 1,
+            baseDiameterMm = 80,
             skillName = "Seed Spore Mine",
             skillDesc = "Launches a living Spore Mine onto a selected tile at least 8 cm away from all enemy models. Cooldown: 1 Turn.",
             skillCooldown = 1,
@@ -862,7 +875,8 @@ object DefaultCatalog {
         RosterSlot("m5", "dreadnought"),
         RosterSlot("m6", "bladeguard_veterans"),
         RosterSlot("m7", "brutalis_dreadnought"),
-        RosterSlot("m8", "captain_titus")
+        RosterSlot("m8", "captain_titus"),
+        RosterSlot("m9", "death_company_assault_intercessor")
     )
 
     fun defaultXenosRoster(): List<RosterSlot> = listOf(
@@ -877,10 +891,6 @@ object DefaultCatalog {
     fun defaultBlackLegionRoster(): List<RosterSlot> = listOf(
         RosterSlot("bl1", "legionaries"),
         RosterSlot("bl2", "chaos_terminator")
-    )
-
-    fun defaultAllianceImperiumRoster(): List<RosterSlot> = listOf(
-        RosterSlot("ai1", "death_company_assault_intercessor")
     )
 
     private fun profileToJson(p: com.example.model.WeaponProfile): JSONObject = JSONObject().apply {
@@ -1030,7 +1040,8 @@ object DefaultCatalog {
                             armorPen = claws.armorPen,
                             damage = claws.damage,
                             mainWeaponName = claws.name,
-                            mainSustainedHits = claws.sustainedHits
+                            mainSustainedHits = claws.sustainedHits,
+                            mainTwinLinked = claws.twinLinked
                         )
                     } else if (id == "warriors" && wc == WarriorWeaponChoice.FLESHBORER && existing.warriorRangedProfile != null) {
                         val rngProf = existing.warriorRangedProfile
@@ -1045,7 +1056,8 @@ object DefaultCatalog {
                             mainWeaponName = rngProf.name,
                             mainWeaponAssault = rngProf.assault,
                             mainWeaponPistol = rngProf.pistol,
-                            mainSustainedHits = rngProf.sustainedHits
+                            mainSustainedHits = rngProf.sustainedHits,
+                            mainTwinLinked = rngProf.twinLinked
                         )
                     } else {
                         existing.copy(weaponChoice = wc, terminatorWeapon = tw)
@@ -1084,7 +1096,7 @@ object DefaultCatalog {
                     feelNoPainTarget = if (obj.has("feelNoPainTarget")) {
                         obj.optInt("feelNoPainTarget", 0).takeIf { it in 2..6 }
                     } else existing.feelNoPainTarget,
-                    skillCooldown = if (id == "terminators" || id == "captain_titus" || id == "death_company_assault_intercessor") existing.skillCooldown else obj.optInt("skillCooldown", existing.skillCooldown).coerceIn(0, 8),
+                    skillCooldown = if (id == "terminators" || id == "captain_titus" || id == "death_company_assault_intercessor" || id == "bladeguard_veterans") existing.skillCooldown else obj.optInt("skillCooldown", existing.skillCooldown).coerceIn(0, 8),
                     weaponChoice = wc,
                     terminatorWeapon = tw,
                     mainWeaponName = if (isLegacyTerminator) existing.mainWeaponName else obj.optString("mainWeaponName", existing.mainWeaponName).ifBlank { existing.mainWeaponName },

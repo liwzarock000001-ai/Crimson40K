@@ -300,8 +300,18 @@ private fun DiceStepDetailBlock(
         "HIT" -> TacticalCyan
         "WOUND" -> WarmAmber
         "SAVE" -> ImperialGold
-        "CHARGE" -> CrimsonSoft
+        "FNP" -> EmeraldBuff
+        "DARK PACT", "CHARGE" -> CrimsonSoft
         else -> EmeraldBuff
+    }
+    val passRuleBadge = when (step.phaseName) {
+        "HIT" -> "PASS ${step.targetNeeded}+ → WOUND"
+        "WOUND" -> "PASS ${step.targetNeeded}+ → SAVE"
+        "SAVE" -> if (step.targetNeeded > 6) "NO SAVE (7+)" else "PASS ${step.targetNeeded}+ → BLOCK"
+        "FNP" -> "PASS ${step.targetNeeded}+ → IGNORE DMG"
+        "CHARGE" -> "NEED ${step.targetNeeded}+ (2D6)"
+        "DARK PACT" -> "PASS ${step.targetNeeded}+ (2D6)"
+        else -> null
     }
 
     Column(
@@ -375,13 +385,33 @@ private fun DiceStepDetailBlock(
             }
         }
 
+        if (passRuleBadge != null) {
+            Box(
+                modifier = Modifier
+                    .clip(CutCornerShape(2.5.dp))
+                    .background(InputDark.copy(alpha = 0.85f))
+                    .border(0.6.dp, phaseColor.copy(alpha = 0.45f), CutCornerShape(2.5.dp))
+                    .padding(horizontal = 5.dp, vertical = 1.dp)
+            ) {
+                Text(
+                    text = passRuleBadge,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontSize = 8.5.sp,
+                    color = phaseColor,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    softWrap = false
+                )
+            }
+        }
+
         if (step.note.isNotBlank()) {
             Text(
                 text = step.note,
                 style = MaterialTheme.typography.labelSmall,
                 fontSize = 9.sp,
                 color = WarmAmber,
-                maxLines = 1,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
         }
@@ -403,6 +433,40 @@ private fun DiceStepDetailBlock(
                         index = index,
                         triggerKey = entryId to rollTrigger
                     )
+                }
+            }
+        }
+
+        if (step.rerolls.isNotEmpty()) {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalArrangement = Arrangement.spacedBy(3.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 1.dp)
+                    .testTag("step_rerolls_${step.phaseName}")
+            ) {
+                step.rerolls.forEach { rr ->
+                    val chipBg = if (rr.passed) EmeraldSurface else CrimsonSurface
+                    val chipFg = if (rr.passed) EmeraldBuff else CrimsonSoft
+                    val chipBorder = if (rr.passed) EmeraldBorder else CrimsonBright.copy(alpha = 0.7f)
+                    Box(
+                        modifier = Modifier
+                            .clip(CutCornerShape(3.dp))
+                            .background(chipBg)
+                            .border(0.7.dp, chipBorder, CutCornerShape(3.dp))
+                            .padding(horizontal = 4.dp, vertical = 1.dp)
+                    ) {
+                        Text(
+                            text = "↻#${rr.dieIndex + 1}: ${rr.originalValue}→${rr.newValue} ${if (rr.passed) "✓" else "✗"}",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontSize = 8.5.sp,
+                            color = chipFg,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    }
                 }
             }
         }
@@ -513,10 +577,16 @@ private fun Tumbling3DDice(
     val shadowScaleY = 0.50f + normHeight * 0.20f
 
     val (finalBg, finalFg, finalBorder) = dieColors(step = step, die = die)
+    val rerollInfo = step.rerolls.firstOrNull { it.dieIndex == index }
     val isTumbling = animProgress.value < 0.78f
     val bg = if (isTumbling) InputDark else finalBg
     val fg = if (isTumbling) WarmAmber else finalFg
-    val border = if (isTumbling) BorderSteel.copy(alpha = 0.85f) else finalBorder
+    val border = when {
+        isTumbling -> BorderSteel.copy(alpha = 0.85f)
+        rerollInfo != null && rerollInfo.passed -> TacticalCyan
+        rerollInfo != null && !rerollInfo.passed -> CrimsonBright
+        else -> finalBorder
+    }
 
     Box(
         modifier = Modifier
@@ -556,7 +626,7 @@ private fun Tumbling3DDice(
                 }
                 .clip(CutCornerShape(2.5.dp))
                 .background(bg)
-                .border(0.9.dp, border, CutCornerShape(2.5.dp)),
+                .border(if (rerollInfo != null && !isTumbling) 1.2.dp else 0.9.dp, border, CutCornerShape(2.5.dp)),
             contentAlignment = Alignment.Center
         ) {
             // Subtle 3D top bevel edge highlight
@@ -577,6 +647,18 @@ private fun Tumbling3DDice(
                 maxLines = 1,
                 softWrap = false
             )
+
+            if (rerollInfo != null && !isTumbling) {
+                Text(
+                    text = "↻",
+                    fontSize = 6.5.sp,
+                    color = if (rerollInfo.passed) TacticalCyan else CrimsonSoft,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(end = 1.dp)
+                )
+            }
         }
     }
 }

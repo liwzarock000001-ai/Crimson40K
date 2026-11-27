@@ -194,23 +194,29 @@ class OnlineCoopViewModel(
             _isBusy.value = true
             _createError.value = null
             _errorMessage.value = null
-            val res = repository.createOnlineRoom(
-                hostName = hostName.ifBlank { displayName },
-                initialPlayers = initialPlayers,
-                initialUnits = initialUnits,
-                spawnAiIfSameFaction = spawnAiIfSameFaction,
-                pointLimit = pointLimit,
-                templates = templates
-            )
-            _isBusy.value = false
-            res.onSuccess { code ->
-                currentPlayerSlotId = "p1"
-                startObservingRoom(code, asHost = true)
-                onRoomReady(code, "p1", true)
-            }.onFailure { err ->
-                val msg = err.message ?: "Unable to create online room."
-                _createError.value = msg
-                _errorMessage.value = msg
+            try {
+                val res = kotlinx.coroutines.withTimeoutOrNull(15000L) {
+                    repository.createOnlineRoom(
+                        hostName = hostName.ifBlank { displayName },
+                        initialPlayers = initialPlayers,
+                        initialUnits = initialUnits,
+                        spawnAiIfSameFaction = spawnAiIfSameFaction,
+                        pointLimit = pointLimit,
+                        templates = templates
+                    )
+                } ?: Result.failure(Exception("Room creation timed out. Please check your network connection."))
+
+                res.onSuccess { code ->
+                    currentPlayerSlotId = "p1"
+                    startObservingRoom(code, asHost = true)
+                    onRoomReady(code, "p1", true)
+                }.onFailure { err ->
+                    val msg = err.message ?: "Unable to create online room."
+                    _createError.value = msg
+                    _errorMessage.value = msg
+                }
+            } finally {
+                _isBusy.value = false
             }
         }
     }
@@ -231,21 +237,27 @@ class OnlineCoopViewModel(
             _isBusy.value = true
             _joinError.value = null
             _errorMessage.value = null
-            val res = repository.joinOnlineRoomByCode(
-                roomCode = cleanCode,
-                preferredSlotId = preferredSlotId,
-                joinerName = joinerName.ifBlank { displayName }
-            )
-            _isBusy.value = false
-            res.onSuccess { assignedSlot ->
-                currentPlayerSlotId = assignedSlot
-                val isHost = assignedSlot == "p1"
-                startObservingRoom(cleanCode, asHost = isHost)
-                onRoomReady(cleanCode, assignedSlot, isHost)
-            }.onFailure { err ->
-                val msg = err.message ?: "Could not join Room #$cleanCode."
-                _joinError.value = msg
-                _errorMessage.value = msg
+            try {
+                val res = kotlinx.coroutines.withTimeoutOrNull(15000L) {
+                    repository.joinOnlineRoomByCode(
+                        roomCode = cleanCode,
+                        preferredSlotId = preferredSlotId,
+                        joinerName = joinerName.ifBlank { displayName }
+                    )
+                } ?: Result.failure(Exception("Joining room timed out. Please check your network connection."))
+
+                res.onSuccess { assignedSlot ->
+                    currentPlayerSlotId = assignedSlot
+                    val isHost = assignedSlot == "p1"
+                    startObservingRoom(cleanCode, asHost = isHost)
+                    onRoomReady(cleanCode, assignedSlot, isHost)
+                }.onFailure { err ->
+                    val msg = err.message ?: "Could not join Room #$cleanCode."
+                    _joinError.value = msg
+                    _errorMessage.value = msg
+                }
+            } finally {
+                _isBusy.value = false
             }
         }
     }
@@ -299,15 +311,17 @@ class OnlineCoopViewModel(
         viewModelScope.launch {
             _isBusy.value = true
             try {
-                for (room in targets) {
-                    if (!deletingRoomCodes.add(room.roomCode)) continue
-                    try {
-                        repository.deleteOnlineRoom(
-                            roomCode = room.roomCode,
-                            isHostOwned = room.hostUid == currentUserId
-                        )
-                    } finally {
-                        deletingRoomCodes.remove(room.roomCode)
+                kotlinx.coroutines.withTimeoutOrNull(15000L) {
+                    for (room in targets) {
+                        if (!deletingRoomCodes.add(room.roomCode)) continue
+                        try {
+                            repository.deleteOnlineRoom(
+                                roomCode = room.roomCode,
+                                isHostOwned = room.hostUid == currentUserId
+                            )
+                        } finally {
+                            deletingRoomCodes.remove(room.roomCode)
+                        }
                     }
                 }
             } finally {
@@ -323,23 +337,29 @@ class OnlineCoopViewModel(
             _isBusy.value = true
             _joinError.value = null
             _errorMessage.value = null
-            val res = if (deletingRoomCodes.add(summary.roomCode)) {
-                try {
-                    repository.deleteOnlineRoom(
-                        roomCode = summary.roomCode,
-                        isHostOwned = summary.hostUid == currentUserId
-                    )
-                } finally {
-                    deletingRoomCodes.remove(summary.roomCode)
+            try {
+                val res = kotlinx.coroutines.withTimeoutOrNull(15000L) {
+                    if (deletingRoomCodes.add(summary.roomCode)) {
+                        try {
+                            repository.deleteOnlineRoom(
+                                roomCode = summary.roomCode,
+                                isHostOwned = summary.hostUid == currentUserId
+                            )
+                        } finally {
+                            deletingRoomCodes.remove(summary.roomCode)
+                        }
+                    } else {
+                        Result.success(Unit)
+                    }
+                } ?: Result.failure(Exception("Room deletion timed out."))
+
+                res.onFailure { err ->
+                    val msg = err.message ?: "Could not delete Room #${summary.roomCode}."
+                    _joinError.value = msg
+                    _errorMessage.value = msg
                 }
-            } else {
-                Result.success(Unit)
-            }
-            _isBusy.value = false
-            res.onFailure { err ->
-                val msg = err.message ?: "Could not delete Room #${summary.roomCode}."
-                _joinError.value = msg
-                _errorMessage.value = msg
+            } finally {
+                _isBusy.value = false
             }
         }
     }

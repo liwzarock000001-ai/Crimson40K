@@ -4,7 +4,6 @@ import androidx.compose.runtime.Immutable
 
 enum class Faction(val displayName: String, val badgeTag: String) {
     MARINES("Ultramarines", "XIII: ULTRAMARINES"),
-    ALLIANCE_IMPERIUM("Alliance Imperium", "IMPERIUM: ALLIANCE"),
     BLACK_LEGION("Black Legion", "LEGION: BLACK LEGION"),
     XENOS("Tyranids", "HIVE FLEET: TYRANIDS")
 }
@@ -59,7 +58,8 @@ enum class UnitRoleCategory(
     HERO_CHARACTER("character", "Characters & Heroes", "HERO", "⭐ HERO / CHAR", "⭐", 1),
     BATTLELINE("battleline", "Battleline", "BATTLELINE", "⚔️ BATTLELINE", "⚔️", 2),
     INFANTRY("infantry", "Infantry", "INFANTRY", "🛡️ INFANTRY", "🛡️", 3),
-    VEHICLE_MONSTER("vehicle_monster", "Vehicles & Monsters", "VEHICLE/MONST", "⚡ VEHICLE / MONST", "⚡", 4)
+    VEHICLE_MONSTER("vehicle_monster", "Vehicles & Monsters", "VEHICLE/MONST", "⚡ VEHICLE / MONST", "⚡", 4),
+    ALLIANCE_IMPERIUM("alliance_imperium", "Alliance Imperium", "IMPERIUM", "🛡️ ALLIANCE IMPERIUM", "🛡️", 5)
 }
 
 enum class UnitArchetype {
@@ -204,6 +204,9 @@ data class UnitTemplate(
 
     val category: UnitRoleCategory
         get() = when {
+            archetype == UnitArchetype.DEATH_COMPANY_ASSAULT_INTERCESSOR || role.contains("Alliance", ignoreCase = true) || role.contains("Death Company", ignoreCase = true) ->
+                UnitRoleCategory.ALLIANCE_IMPERIUM
+
             isHero || archetype == UnitArchetype.CAPTAIN || archetype == UnitArchetype.CAPTAIN_TITUS || archetype == UnitArchetype.HIVE_TYRANT ||
                 role.contains("Hero", ignoreCase = true) || role.contains("Character", ignoreCase = true) || role.contains("Leader", ignoreCase = true) ->
                 UnitRoleCategory.HERO_CHARACTER
@@ -318,7 +321,7 @@ data class BattleUnit(
         get() = when (ownerPlayerId) {
             "p1", "p2", "player" -> 0
             "p3", "p4", "AI", "ai" -> 1
-            else -> if (faction == Faction.MARINES || faction == Faction.ALLIANCE_IMPERIUM) 0 else 1
+            else -> if (faction == Faction.MARINES) 0 else 1
         }
     fun isEnemyOf(other: BattleUnit): Boolean = effectiveTeam != other.effectiveTeam
     fun isAllyOf(other: BattleUnit): Boolean = effectiveTeam == other.effectiveTeam
@@ -591,6 +594,14 @@ data class SettingsState(
 )
 
 @Immutable
+data class DiceRerollDetail(
+    val dieIndex: Int,
+    val originalValue: Int,
+    val newValue: Int,
+    val passed: Boolean
+)
+
+@Immutable
 data class DiceStepDetail(
     val phaseName: String,
     val stepLabel: String,
@@ -599,7 +610,8 @@ data class DiceStepDetail(
     val passed: Int,
     val failed: Int,
     val diceValues: List<Int> = emptyList(),
-    val note: String = ""
+    val note: String = "",
+    val rerolls: List<DiceRerollDetail> = emptyList()
 )
 
 @Immutable
